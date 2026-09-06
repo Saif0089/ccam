@@ -24,5 +24,24 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # Best-effort CI-only accommodation, not a product requirement:
+      # Windows Defender's on-access scan of a freshly built/executed
+      # exe can hold a brief lock right after it exits, which the
+      # self-delete-on-uninstall test below has to wait out. Excluding
+      # the Go build/temp dirs removes that variance; if this step
+      # can't (no rights in this runner config), it just no-ops.
+      - name: Exclude temp/work dirs from Defender scanning (Windows only)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          try {
+            Add-MpPreference -ExclusionPath $env:RUNNER_TEMP
+            Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE
+            Add-MpPreference -ExclusionPath $env:TEMP
+            Write-Host "Added Defender exclusions."
+          } catch {
+            Write-Host "Could not add Defender exclusions (continuing anyway): $_"
+          }
+
       - name: Run end-to-end lifecycle test
         run: go test ./test/e2e/... -v -timeout 8m
