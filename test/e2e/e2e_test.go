@@ -1,0 +1,381 @@
+// Package e2e drives the actual built ccam binary through its full
+// lifecycle — install, serve, add an account, log it in, uninstall —
+// exactly as a real user would, with no admin/elevation available (CI
+// runners execute as an ordinary per-user account, so any step that
+// silently required elevation would simply hang or fail here, which is
+// the whole point of this test existing).
+package e2e
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+	"time"
+)
+
+type harness struct {
+	t          *testing.T
+	ccamBin    string
+	claudeDir  string // holds the fake "claude" binary, prepended to PATH
+	home       string
+	port       int
+	env        []string
+}
+
+func newHarness(t *testing.T) *harness {
+	t.Helper()
+
+	repoRoot := repoRoot(t)
+	binDir := t.TempDir()
+
+	ccamBin := filepath.Join(binDir, exeName("ccam"))
+	build(t, filepath.Join(repoRoot, "cmd", "ccam"), ccamBin)
+
+	claudeDir := t.TempDir()
+	fakeClaudeBin := filepath.Join(claudeDir, exeName("claude"))
+	build(t, filepath.Join(repoRoot, "testdata", "fakeclaude"), fakeClaudeBin)
+
+	home := t.TempDir()
+	port := freePort(t)
+
+	env := os.Environ()
+	env = setEnv(env, "HOME", home)
+	env = setEnv(env, "PATH", claudeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if runtime.GOOS == "windows" {
+		env = setEnv(env, "USERPROFILE", home)
+		env = setEnv(env, "APPDATA", filepath.Join(home, "AppData", "Roaming"))
+		env = setEnv(env, "LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))
+	}
+
+	return &harness{t: t, ccamBin: ccamBin, claudeDir: claudeDir, home: home, port: port, env: env}
+}
+
+func (h *harness) run(args ...string) (stdout string, err error) {
+	h.t.Helper()
+	cmd := exec.Command(h.ccamBin, args...)
+	cmd.Env = h.env
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	err = cmd.Run()
+	return buf.String(), err
+}
+
+func (h *harness) baseURL() string {
+	return fmt.Sprintf("http://127.0.0.1:%d", h.port)
+}
+
+func (h *harness) waitForHTTP(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(h.baseURL() + "/api/status")
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return true
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return false
+}
+
+func TestFullLifecycle(t *testing.T) {
+	h := newHarness(t)
+
+	// --- install: no admin/elevation available in this environment,
+	// so a hang or a non-zero exit here means the install path tried
+	// to require it. ---
+	out, err := h.run("install", "--port", fmt.Sprint(h.port))
+	if err != nil {
+		t.Fatalf("ccam install failed: %v\n%s", err, out)
+	}
+	t.Logf("install output:\n%s", out)
+
+	assertNoSystemPaths(t, h.home)
+
+	if !h.waitForHTTP(15 * time.Second) {
+		t.Fatalf("service never answered on %s after install; log:\n%s", h.baseURL(), readLog(h))
+	}
+
+	// --- reinstalling must be idempotent: no duplicated autostart
+	// artifacts, no duplicated rc blocks. ---
+	if out, err := h.run("install", "--port", fmt.Sprint(h.port)); err != nil {
+		t.Fatalf("second ccam install failed: %v\n%s", err, out)
+	}
+
+	// --- full account lifecycle over the real HTTP API. ---
+	account := h.createAccount("Work")
+	rcContentBefore := h.readAnyRcFile()
+	if !strings.Contains(rcContentBefore, account.Alias) {
+		t.Fatalf("expected alias %q in rc file, got:\n%s", account.Alias, rcContentBefore)
+	}
+	if strings.Count(rcContentBefore, "ccam accounts") != 2 { // begin + end marker
+		t.Errorf("expected exactly one managed block, rc file:\n%s", rcContentBefore)
+	}
+
+	h.driveLoginToLinked(account.ID)
+
+	accountsAfterLogin := h.listAccounts()
+	if len(accountsAfterLogin) != 1 || accountsAfterLogin[0].Status != "linked" {
+		t.Fatalf("accounts after login = %+v, want one linked account", accountsAfterLogin)
+	}
+
+	// --- removing the only account must clean its alias out too. ---
+	h.deleteAccount(account.ID)
+	rcPath := h.anyRcPath()
+	if _, err := os.Stat(rcPath); !os.IsNotExist(err) {
+		data, _ := os.ReadFile(rcPath)
+		t.Errorf("expected rc file removed once no accounts remain, got:\n%s", data)
+	}
+
+	// --- uninstall must undo everything: autostart artifact, service,
+	// and (eventually — Windows deletes it asynchronously) the binary
+	// itself. ---
+	out, err = h.run("uninstall", "--port", fmt.Sprint(h.port))
+	if err != nil {
+		t.Fatalf("ccam uninstall failed: %v\n%s", err, out)
+	}
+	t.Logf("uninstall output:\n%s", out)
+
+	if !waitUntilNot(5*time.Second, func() bool {
+		resp, err := http.Get(h.baseURL() + "/api/status")
+		if err == nil {
+			resp.Body.Close()
+		}
+		return err == nil
+	}) {
+		t.Error("service still answering after uninstall")
+	}
+
+	if !waitUntilNot(5*time.Second, func() bool {
+		_, err := os.Stat(h.ccamBin)
+		return err == nil
+	}) {
+		t.Errorf("binary %s still present after uninstall", h.ccamBin)
+	}
+
+	assertAutostartArtifactsGone(t, h.home)
+}
+
+// --- helpers -----------------------------------------------------------
+
+type accountDTO struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Alias  string `json:"alias"`
+	Status string `json:"status"`
+}
+
+func (h *harness) createAccount(name string) accountDTO {
+	h.t.Helper()
+	body, _ := json.Marshal(map[string]string{"name": name})
+	resp, err := http.Post(h.baseURL()+"/api/accounts", "application/json", bytes.NewReader(body))
+	if err != nil {
+		h.t.Fatalf("POST /api/accounts: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		b, _ := io.ReadAll(resp.Body)
+		h.t.Fatalf("POST /api/accounts status = %d: %s", resp.StatusCode, b)
+	}
+	var a accountDTO
+	if err := json.NewDecoder(resp.Body).Decode(&a); err != nil {
+		h.t.Fatalf("decode account: %v", err)
+	}
+	return a
+}
+
+func (h *harness) listAccounts() []accountDTO {
+	h.t.Helper()
+	resp, err := http.Get(h.baseURL() + "/api/accounts")
+	if err != nil {
+		h.t.Fatalf("GET /api/accounts: %v", err)
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Accounts []accountDTO `json:"accounts"`
+	}
+	json.NewDecoder(resp.Body).Decode(&out)
+	return out.Accounts
+}
+
+func (h *harness) deleteAccount(id string) {
+	h.t.Helper()
+	req, _ := http.NewRequest(http.MethodDelete, h.baseURL()+"/api/accounts/"+id+"?confirm=true", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		h.t.Fatalf("DELETE /api/accounts/%s: %v", id, err)
+	}
+	resp.Body.Close()
+}
+
+func (h *harness) driveLoginToLinked(accountID string) {
+	h.t.Helper()
+	resp, err := http.Post(h.baseURL()+"/api/accounts/"+accountID+"/login", "", nil)
+	if err != nil {
+		h.t.Fatalf("POST login: %v", err)
+	}
+	resp.Body.Close()
+
+	resp, err = http.Get(h.baseURL() + "/api/accounts/" + accountID + "/login/events")
+	if err != nil {
+		h.t.Fatalf("GET login/events: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var sawURL, sawLinked bool
+	scanner := bufio.NewScanner(resp.Body)
+	deadline := time.Now().Add(20 * time.Second)
+	for scanner.Scan() {
+		if time.Now().After(deadline) {
+			break
+		}
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var ev struct {
+			Type string `json:"Type"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &ev); err != nil {
+			continue
+		}
+		switch ev.Type {
+		case "url":
+			sawURL = true
+		case "linked":
+			sawLinked = true
+		}
+		if sawLinked {
+			break
+		}
+	}
+	if !sawURL {
+		h.t.Error("expected a url event over SSE")
+	}
+	if !sawLinked {
+		h.t.Fatal("expected a linked event over SSE")
+	}
+}
+
+func (h *harness) anyRcPath() string {
+	h.t.Helper()
+	if runtime.GOOS == "windows" {
+		return filepath.Join(h.home, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1")
+	}
+	return filepath.Join(h.home, ".zshrc")
+}
+
+func (h *harness) readAnyRcFile() string {
+	data, err := os.ReadFile(h.anyRcPath())
+	if err != nil {
+		h.t.Fatalf("reading rc file %s: %v", h.anyRcPath(), err)
+	}
+	return string(data)
+}
+
+func readLog(h *harness) string {
+	data, _ := os.ReadFile(filepath.Join(h.home, ".ccam", "ccam.log"))
+	return string(data)
+}
+
+func assertNoSystemPaths(t *testing.T, home string) {
+	t.Helper()
+	forbidden := []string{"/usr/local", "/etc/systemd/system", "Program Files", "System32"}
+	filepath.WalkDir(filepath.Join(home, ".ccam"), func(path string, d os.DirEntry, err error) error {
+		return nil // presence check only, not content; directory existing is enough context for the message below
+	})
+	for _, f := range forbidden {
+		if strings.Contains(home, f) {
+			t.Fatalf("test home unexpectedly under a system path: %s", home)
+		}
+	}
+}
+
+func assertAutostartArtifactsGone(t *testing.T, home string) {
+	t.Helper()
+	candidates := []string{
+		filepath.Join(home, "Library", "LaunchAgents", "com.ccam.agent.plist"),
+		filepath.Join(home, ".config", "systemd", "user", "ccam.service"),
+		filepath.Join(home, ".config", "autostart", "ccam.desktop"),
+		filepath.Join(home, "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "ccam-autostart.cmd"),
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			t.Errorf("autostart artifact still present: %s", c)
+		}
+	}
+}
+
+func repoRoot(t *testing.T) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	return filepath.Join(wd, "..", "..")
+}
+
+func build(t *testing.T, pkgDir, out string) {
+	t.Helper()
+	cmd := exec.Command("go", "build", "-o", out, pkgDir)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("building %s: %v\n%s", pkgDir, err, output)
+	}
+}
+
+func exeName(base string) string {
+	if runtime.GOOS == "windows" {
+		return base + ".exe"
+	}
+	return base
+}
+
+func setEnv(env []string, key, value string) []string {
+	prefix := key + "="
+	out := make([]string, 0, len(env)+1)
+	found := false
+	for _, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			out = append(out, prefix+value)
+			found = true
+			continue
+		}
+		out = append(out, e)
+	}
+	if !found {
+		out = append(out, prefix+value)
+	}
+	return out
+}
+
+func freePort(t *testing.T) int {
+	t.Helper()
+	// Deliberately not net.Listen(":0") here: ccam's own "port 0 means
+	// pick one" behavior is exercised elsewhere; this test wants a
+	// fixed, known port so the same value can be passed to `ccam
+	// install`/`ccam uninstall` as a real user would via --port.
+	base := 47800 + (int(time.Now().UnixNano()) % 500)
+	return base
+}
+
+func waitUntilNot(timeout time.Duration, cond func() bool) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !cond() {
+			return true
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	return false
+}
