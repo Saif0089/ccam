@@ -2,14 +2,10 @@
 # Installs ccam for the current user only: no sudo, no /usr/local, no
 # system paths anywhere. Safe to pipe straight into sh:
 #
-#   curl -fsSL https://ccam-six.vercel.app/install.sh | sh
-#
-# Binaries are served from this same site (public/releases in the repo,
-# published by .github/workflows/release.yml) rather than GitHub
-# Releases, since the source repo is private.
+#   curl -fsSL https://raw.githubusercontent.com/Saif0089/ccam/main/install.sh | sh
 set -eu
 
-BASE_URL="https://ccam-six.vercel.app"
+REPO="Saif0089/ccam"
 
 os_name="$(uname -s)"
 case "$os_name" in
@@ -31,8 +27,13 @@ case "$arch_name" in
     ;;
 esac
 
+version="${CCAM_VERSION:-latest}"
 asset="ccam_${os}_${arch}"
-url="${BASE_URL}/releases/${asset}"
+if [ "$version" = "latest" ]; then
+  url="https://github.com/${REPO}/releases/latest/download/${asset}"
+else
+  url="https://github.com/${REPO}/releases/download/${version}/${asset}"
+fi
 
 install_dir="${CCAM_INSTALL_DIR:-$HOME/.local/bin}"
 mkdir -p "$install_dir"

@@ -27,25 +27,19 @@ side by side.
 **macOS / Linux:**
 
 ```sh
-curl -fsSL https://ccam-six.vercel.app/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Saif0089/ccam/main/install.sh | sh
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm https://ccam-six.vercel.app/install.ps1 | iex
+irm https://raw.githubusercontent.com/Saif0089/ccam/main/install.ps1 | iex
 ```
 
 Both scripts install a single binary to a per-user directory (`~/.local/bin`
 or `%LOCALAPPDATA%\ccam\bin`), register it to start at login, start it, and
 print the URL to open. Nothing is written outside your own user profile —
 no `sudo`, no `/usr/local`, no `Program Files`, no `HKLM`.
-
-The source repo is private; the install scripts and binaries are instead
-published to [ccam-six.vercel.app](https://ccam-six.vercel.app) (a Vercel
-project connected to this repo) by
-[`.github/workflows/release.yml`](.github/workflows/release.yml) on every
-tag, so the one-liners above work for anyone without needing repo access.
 
 Prerequisite: the [`claude` CLI](https://claude.com/claude-code) itself must
 already be installed and on `PATH` — ccam manages *accounts* for it, it
@@ -78,6 +72,17 @@ go vet ./...
 go test ./...
 go test ./test/e2e/...   # full install → login → uninstall lifecycle
 ```
+
+### Releasing
+
+[`.github/workflows/pipeline.yml`](.github/workflows/pipeline.yml) does it
+all: every push to `main` runs the full test + e2e suite on macOS/Linux/
+Windows, and if that's green, builds all 6 targets and republishes the
+rolling `latest` GitHub Release — the one `install.sh`/`install.ps1` pull
+from by default. So shipping a change is just `git push`. Pushing a
+`vX.Y.Z` tag instead builds the same way but creates a proper pinned
+release (`CCAM_VERSION=vX.Y.Z` selects it in either install script). A
+pull request runs test + e2e only, as a pre-merge gate.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit
 together, and [docs/MANUAL_VERIFICATION.md](docs/MANUAL_VERIFICATION.md) for

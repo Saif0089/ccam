@@ -1,0 +1,152 @@
+name: Pipeline
+
+# One pipeline, two ways to trigger a release:
+#   - push to main:  test -> e2e -> build -> publish updates the rolling
+#     "latest" GitHub Release. This is the "just push to main" path —
+#     no version bump needed for day-to-day changes.
+#   - push a `vX.Y.Z` tag: same test -> e2e -> build, but publish
+#     creates a proper pinned, versioned release instead.
+# A pull_request only runs test + e2e (no build/publish), as a
+# pre-merge regression gate.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - run: go vet ./...
+      - run: go build ./...
+      - run: go test ./... -v
+
+  e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    # GitHub-hosted runners execute as an ordinary, non-elevated
+    # per-user account with no way to answer a sudo/UAC prompt — a
+    # timeout here (rather than a clean failure) is exactly what
+    # "silently required admin" looks like.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Best-effort CI-only accommodation, not a product requirement:
+      # Windows Defender's on-access scan of a freshly built/executed
+      # exe can hold a brief lock right after it exits, which the
+      # self-delete-on-uninstall test has to wait out. Excluding the Go
+      # build/temp dirs removes that variance; if this can't (no rights
+      # in this runner config), it just no-ops.
+      - name: Exclude temp/work dirs from Defender scanning (Windows only)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          try {
+            Add-MpPreference -ExclusionPath $env:RUNNER_TEMP
+            Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE
+            Add-MpPreference -ExclusionPath $env:TEMP
+            Write-Host "Added Defender exclusions."
+          } catch {
+            Write-Host "Could not add Defender exclusions (continuing anyway): $_"
+          }
+
+      - name: Run end-to-end lifecycle test
+        run: go test ./test/e2e/... -v -timeout 8m
+
+  build:
+    needs: [test, e2e]
+    if: github.event_name == 'push'
+    strategy:
+      matrix:
+        include:
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          ext=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then ext=".exe"; fi
+          name="ccam_${{ matrix.goos }}_${{ matrix.goarch }}${ext}"
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w -X ccam/internal/buildinfo.Version=${{ github.ref_name }}" \
+            -o "dist/${name}" ./cmd/ccam
+          echo "ASSET_NAME=${name}" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ASSET_NAME }}
+          path: dist/${{ env.ASSET_NAME }}
+
+  publish:
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > checksums.txt
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            gh release create "${{ github.ref_name }}" dist/* \
+              --title "${{ github.ref_name }}" \
+              --generate-notes
+          else
+            gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+            gh release create latest dist/* \
+              --title "latest (main@$(git rev-parse --short HEAD))" \
+              --notes "Continuously published from main — install.sh/install.ps1 default to this. For a pinned version, use a vX.Y.Z release instead." \
+              --latest
+          fi

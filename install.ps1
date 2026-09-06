@@ -3,22 +3,23 @@
 # entry (HKCU, not HKLM). Safe to pipe straight into a normal
 # (non-elevated) PowerShell prompt:
 #
-#   irm https://ccam-six.vercel.app/install.ps1 | iex
-#
-# Binaries are served from this same site (public/releases in the repo,
-# published by .github/workflows/release.yml) rather than GitHub
-# Releases, since the source repo is private.
+#   irm https://raw.githubusercontent.com/Saif0089/ccam/main/install.ps1 | iex
 $ErrorActionPreference = "Stop"
 
-$BaseUrl = "https://ccam-six.vercel.app"
+$Repo = "Saif0089/ccam"
 
 $arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture) {
   "Arm64"   { "arm64" }
   default   { "amd64" }
 }
 
+$version = if ($env:CCAM_VERSION) { $env:CCAM_VERSION } else { "latest" }
 $asset = "ccam_windows_$arch.exe"
-$url = "$BaseUrl/releases/$asset"
+if ($version -eq "latest") {
+  $url = "https://github.com/$Repo/releases/latest/download/$asset"
+} else {
+  $url = "https://github.com/$Repo/releases/download/$version/$asset"
+}
 
 $installDir = if ($env:CCAM_INSTALL_DIR) { $env:CCAM_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "ccam\bin" }
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
