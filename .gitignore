@@ -2,4 +2,4 @@
 /dist/
 *.exe
 .DS_Store
-ccam
+/ccam
