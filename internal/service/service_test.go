@@ -85,7 +85,11 @@ func TestInstallStartStopUninstallLifecycle(t *testing.T) {
 	if err := svc.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	if !waitUntil(5*time.Second, func() bool {
+	// A generous window: on a loaded CI runner, launchd/systemd
+	// bootstrapping the autostart entry (which can itself start the
+	// process via RunAtLoad) and our own spawnDetached path can both
+	// take longer than they do on a quiet dev machine.
+	if !waitUntil(15*time.Second, func() bool {
 		running, _ := svc.IsRunning()
 		return running
 	}) {
@@ -95,7 +99,7 @@ func TestInstallStartStopUninstallLifecycle(t *testing.T) {
 	if err := svc.Stop(); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
-	if !waitUntil(5*time.Second, func() bool {
+	if !waitUntil(15*time.Second, func() bool {
 		running, _ := svc.IsRunning()
 		return !running
 	}) {
