@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +26,16 @@ func buildFakeClaude(t *testing.T) string {
 		t.Fatalf("Getwd: %v", err)
 	}
 	src := filepath.Join(wd, "..", "..", "testdata", "fakeclaude")
-	out := filepath.Join(t.TempDir(), "fakeclaude")
+	// The .exe suffix is required, not cosmetic: Windows' exec.Command
+	// resolves a path through PATHEXT, so an extensionless binary can't
+	// be run by the completion probe at all — while ConPTY's
+	// CreateProcess happily runs it, which produced the confusing
+	// result of a login that showed its URL but never linked.
+	name := "fakeclaude"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	out := filepath.Join(t.TempDir(), name)
 
 	cmd := exec.Command("go", "build", "-o", out, src)
 	if output, err := cmd.CombinedOutput(); err != nil {

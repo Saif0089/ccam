@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"ccam/internal/accounts"
+	"ccam/internal/claudebin"
 	"ccam/internal/ptyio"
 
 	"github.com/hinshun/vt10x"
@@ -134,7 +135,8 @@ func Start(ctx context.Context, cfg Config) (*Session, error) {
 		workingDir = homeDir()
 	}
 
-	pty, err := ptyio.Start(binary, loginArgs, cfg.Env, workingDir)
+	name, args := claudebin.Invocation(binary, loginArgs)
+	pty, err := ptyio.Start(name, args, cfg.Env, workingDir)
 	if err != nil {
 		return nil, fmt.Errorf("starting %s: %w", binary, err)
 	}

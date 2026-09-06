@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"time"
+
+	"ccam/internal/claudebin"
 )
 
 // Prober reports whether an account's config directory holds a valid
@@ -61,7 +63,8 @@ func (p *Prober) Status(ctx context.Context, configDir string) (authStatus, erro
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, binary, "auth", "status", "--json")
+	name, args := claudebin.Invocation(binary, []string{"auth", "status", "--json"})
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = append(os.Environ(), "CLAUDE_CONFIG_DIR="+configDir)
 	// Never inherit ccam's working directory: started by launchd at
 	// login that is "/", and claude treats its working directory as the
