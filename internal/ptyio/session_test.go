@@ -30,7 +30,8 @@ func TestStartCapturesChildOutput(t *testing.T) {
 	fake := buildFakeClaude(t)
 	configDir := t.TempDir()
 
-	sess, err := Start(fake, nil, append(os.Environ(), "CLAUDE_CONFIG_DIR="+configDir))
+	sess, err := Start(fake, []string{"auth", "login", "--claudeai"},
+		append(os.Environ(), "CLAUDE_CONFIG_DIR="+configDir), configDir)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

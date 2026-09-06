@@ -4,12 +4,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
 
 	"ccam/internal/accounts"
+	"ccam/internal/claudebin"
 	"ccam/internal/config"
 	"ccam/internal/httpserver"
 	"ccam/internal/service"
@@ -23,8 +25,11 @@ func cmdServe(args []string) int {
 		return 2
 	}
 
-	if running, err := service.IsHTTPRunning(); err == nil && running {
-		fmt.Fprintf(os.Stdout, "ccam is already running on port %s\n", currentPortOrUnknown())
+	// Only bail out if the *requested* port is the one already being
+	// served; asking for a different port is a legitimate request, not
+	// a duplicate start.
+	if info, err := service.Running(); err == nil && info != nil && info.Port == *port {
+		fmt.Fprintf(os.Stdout, "ccam is already running on http://127.0.0.1:%d\n", info.Port)
 		return 0
 	}
 
@@ -46,7 +51,13 @@ func cmdServe(args []string) int {
 
 	manager := accounts.NewManager(accounts.NewStore(accountsFile), accountsDir)
 	syncer := shellrc.NewSyncer(home)
-	srv := httpserver.New(manager, syncer, "claude")
+
+	// Resolved once, here, rather than relying on PATH at spawn time:
+	// started by launchd/systemd at login this process has almost no
+	// PATH, so "claude" alone would not be found (see internal/claudebin).
+	claude := claudebin.Resolve()
+	log.Printf("using claude binary: %s", claude)
+	srv := httpserver.New(manager, syncer, claude)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -56,18 +67,6 @@ func cmdServe(args []string) int {
 		return 1
 	}
 	return 0
-}
-
-func currentPortOrUnknown() string {
-	path, err := config.PortFile()
-	if err != nil {
-		return "?"
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "?"
-	}
-	return string(data)
 }
 
 // resolveBinaryPath returns the absolute, symlink-resolved path to the

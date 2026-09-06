@@ -1,16 +1,22 @@
-// Command fakeclaude stands in for the real `claude` CLI in tests and CI,
-// where a real Anthropic OAuth login isn't possible headlessly. It's just
-// enough of `claude`'s observable behavior for ccam's plumbing to be
-// tested against: an interactive login mode that prints an auth URL then
-// writes credentials, and a non-interactive "-p" probe mode that succeeds
-// only once credentials exist.
+// Command fakeclaude stands in for the real `claude` CLI in tests and
+// CI, where a real Anthropic OAuth login isn't possible headlessly. It
+// mirrors the parts of claude's observable behaviour that ccam depends
+// on, as verified against the real CLI (v2.1.x) by
+// internal/ptyauth/realclaude_test.go:
 //
-// It is never shipped — it's built and put on PATH only by tests and the
-// e2e CI workflow. See docs/MANUAL_VERIFICATION.md for the real-login
-// checklist this can't replace.
+//	claude auth status --json   -> {"loggedIn": bool, ...}, exit 0 either way
+//	claude auth login --claudeai -> prints an auth URL, then either
+//	                                completes on its own or waits for a
+//	                                pasted code
+//
+// It is never shipped — tests and the e2e workflow build it and put it
+// on PATH. See docs/MANUAL_VERIFICATION.md for the real-login checklist
+// it can't replace.
 package main
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,66 +30,113 @@ func main() {
 		configDir = filepath.Join(home, ".claude")
 	}
 
-	if hasFlag("-p") {
-		runHeadlessProbe(configDir)
-		return
+	args := os.Args[1:]
+	switch {
+	case hasArgs(args, "auth", "status"):
+		authStatus(configDir)
+	case hasArgs(args, "auth", "login"):
+		authLogin(configDir)
+	case hasArgs(args, "auth", "logout"):
+		_ = os.Remove(credentialsPath(configDir))
+	default:
+		// Bare `claude` in a fresh config dir is the interactive
+		// first-run flow, which just sits at a theme picker waiting for
+		// keystrokes. Emulating that keeps ccam honest: if it ever goes
+		// back to spawning bare `claude` for a login, the tests hang
+		// exactly the way a real machine did.
+		fmt.Println("Welcome to fakeclaude!")
+		fmt.Println("Choose the text style that looks best with your terminal")
+		fmt.Println("  1. Auto (match terminal)")
+		fmt.Println("❯ 2. Dark mode ✔")
+		select {}
 	}
-
-	runInteractiveLogin(configDir)
 }
 
-func hasFlag(name string) bool {
-	for _, a := range os.Args[1:] {
-		if a == name {
-			return true
+func hasArgs(args []string, want ...string) bool {
+	matched := 0
+	for _, a := range args {
+		if matched < len(want) && a == want[matched] {
+			matched++
 		}
 	}
-	return false
+	return matched == len(want)
 }
 
-// runHeadlessProbe mimics `claude -p ... --max-turns 1`: it succeeds only
-// if this config dir already has credentials, otherwise it exits non-zero
-// the way a real un-authenticated headless invocation would.
-func runHeadlessProbe(configDir string) {
-	info, err := os.Stat(filepath.Join(configDir, ".credentials.json"))
-	if err != nil || info.Size() == 0 {
-		fmt.Fprintln(os.Stderr, "fakeclaude: not authenticated")
-		os.Exit(1)
+func credentialsPath(configDir string) string {
+	return filepath.Join(configDir, ".credentials.json")
+}
+
+// authStatus mirrors `claude auth status --json`: it always exits 0 and
+// reports the state in the payload, so callers must read loggedIn
+// rather than the exit code.
+func authStatus(configDir string) {
+	info, err := os.Stat(credentialsPath(configDir))
+	loggedIn := err == nil && info.Size() > 0
+
+	out := map[string]any{
+		"loggedIn":    loggedIn,
+		"authMethod":  "none",
+		"apiProvider": "firstParty",
 	}
-	fmt.Println("pong")
+	if loggedIn {
+		out["authMethod"] = "claude.ai"
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(out)
 }
 
-// runInteractiveLogin mimics the first-run login flow: it prints a banner
-// and an auth URL (what ptyauth's URL scanner looks for), then — standing
-// in for a human completing OAuth in their browser — writes a credentials
-// file after a short delay and reports success.
-func runInteractiveLogin(configDir string) {
-	fmt.Println("Welcome to fakeclaude!")
-	fmt.Println("To authenticate, open this URL in your browser:")
-	fmt.Println("  https://fake-auth.example.com/oauth?code=demo-12345")
-	fmt.Println()
+// authLogin mirrors `claude auth login --claudeai`: it prints the auth
+// URL immediately (no theme picker, no login-method picker) and then
+// waits, either completing on its own or on a pasted code.
+func authLogin(configDir string) {
+	fmt.Println("Opening browser to sign in…")
+	fmt.Printf("If the browser didn't open, visit: %s\n", fakeAuthURL)
+	fmt.Print("Paste code here if prompted > ")
 
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		fmt.Fprintln(os.Stderr, "fakeclaude: creating config dir:", err)
 		os.Exit(1)
 	}
 
-	if os.Getenv("FAKECLAUDE_NEVER_COMPLETE") != "" {
-		// Simulate a login the user never finishes: sit here until the
-		// test/caller kills the process.
+	switch {
+	case os.Getenv("FAKECLAUDE_NEVER_COMPLETE") != "":
+		// A login the user never finishes: sit here until killed.
 		select {}
+	case os.Getenv("FAKECLAUDE_REQUIRE_CODE") != "":
+		// The paste-a-code flow: block until a line arrives on the tty.
+		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "fakeclaude: reading code:", err)
+			os.Exit(1)
+		}
+		if len(line) < 2 {
+			fmt.Fprintln(os.Stderr, "fakeclaude: empty code")
+			os.Exit(1)
+		}
+	default:
+		// Stand in for a human completing OAuth in a real browser.
+		time.Sleep(300 * time.Millisecond)
 	}
 
-	// Simulate the human taking a moment to complete OAuth in a real
-	// browser before the CLI observes success.
-	time.Sleep(300 * time.Millisecond)
+	writeCredentials(configDir)
+	fmt.Println("\nLogin successful. You are now authenticated.")
+}
 
-	credsPath := filepath.Join(configDir, ".credentials.json")
-	fakeCreds := `{"fake":true,"issuedAt":"` + time.Now().UTC().Format(time.RFC3339) + `"}`
-	if err := os.WriteFile(credsPath, []byte(fakeCreds), 0o600); err != nil {
+func writeCredentials(configDir string) {
+	creds := fmt.Sprintf(`{"fake":true,"issuedAt":%q}`, time.Now().UTC().Format(time.RFC3339))
+	if err := os.WriteFile(credentialsPath(configDir), []byte(creds), 0o600); err != nil {
 		fmt.Fprintln(os.Stderr, "fakeclaude: writing credentials:", err)
 		os.Exit(1)
 	}
-
-	fmt.Println("Login successful. You are now authenticated.")
 }
+
+// fakeAuthURL is deliberately as long as the real one (~600 chars), so
+// tests catch terminal-width truncation: at a normal 80/120-column
+// width a URL this long wraps across several screen lines and anything
+// scraping the rendered screen gets a broken URL.
+const fakeAuthURL = "https://fake-auth.example.com/oauth/authorize?code=true&client_id=00000000-1111-2222-3333-444444444444" +
+	"&response_type=code&redirect_uri=https%3A%2F%2Ffake-auth.example.com%2Foauth%2Fcode%2Fcallback" +
+	"&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference+user%3Asessions+user%3Amcp_servers+user%3Afile_upload" +
+	"&code_challenge=abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHI&code_challenge_method=S256" +
+	"&state=zyxwvutsrqponmlkjihgfedcba9876543210ZYXWVUTSRQPONMLKJIHGFEDCBA"

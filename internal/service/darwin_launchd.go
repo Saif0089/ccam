@@ -44,6 +44,12 @@ func (d *darwinService) Install(binaryPath string, port int) (string, error) {
 		return "", err
 	}
 
+	// launchd starts login agents with a bare PATH (roughly
+	// /usr/bin:/bin:/usr/sbin:/sbin), but ccam has to run `claude`,
+	// which normally lives under the user's home and is itself a Node
+	// program needing more of the user's PATH. Bake in the PATH of the
+	// shell that ran `ccam install`, which is exactly the environment
+	// where the user's `claude` works.
 	plist := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -57,6 +63,13 @@ func (d *darwinService) Install(binaryPath string, port int) (string, error) {
 		<string>--port</string>
 		<string>%d</string>
 	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>%s</string>
+	</dict>
+	<key>WorkingDirectory</key>
+	<string>%s</string>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
@@ -67,10 +80,20 @@ func (d *darwinService) Install(binaryPath string, port int) (string, error) {
 	<string>%s</string>
 </dict>
 </plist>
-`, launchAgentLabel, binaryPath, port, logPath, logPath)
+`, launchAgentLabel, xmlEscape(binaryPath), port, xmlEscape(servicePATH()), xmlEscape(serviceWorkingDir()), xmlEscape(logPath), xmlEscape(logPath))
 
 	if err := os.WriteFile(path, []byte(plist), 0o644); err != nil {
 		return "", err
+	}
+
+	// If the user previously turned this off in System Settings →
+	// General → Login Items, launchd remembers that as a persistent
+	// disabled flag, and rewriting the identical plist would leave it
+	// off forever with nothing to show why. `enable` only clears that
+	// flag — unlike `bootstrap` it does not start anything, so it
+	// can't reintroduce the race described below.
+	if target, err := guiTarget(); err == nil {
+		_ = exec.Command("launchctl", "enable", target+"/"+launchAgentLabel).Run()
 	}
 
 	// Deliberately not `launchctl bootstrap`-ing it here: with

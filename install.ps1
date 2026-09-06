@@ -26,7 +26,37 @@ New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 $dest = Join-Path $installDir "ccam.exe"
 
 Write-Host "Downloading ccam (windows/$arch)..."
-Invoke-WebRequest -Uri $url -OutFile $dest
+
+# Stop a previous install before overwriting its exe. Windows locks a
+# running executable's file, so without this every upgrade fails with
+# "the process cannot access the file because it is being used by
+# another process".
+if (Test-Path $dest) {
+  try { & $dest stop | Out-Null } catch { }
+  Start-Sleep -Milliseconds 500
+}
+
+$tmp = "$dest.download"
+Invoke-WebRequest -Uri $url -OutFile $tmp
+
+# Verify against the checksums published alongside the binary.
+try {
+  $sumsUrl = ($url -replace '/[^/]+$', '/checksums.txt')
+  $sums = (Invoke-WebRequest -Uri $sumsUrl).Content
+  $line = ($sums -split "`n" | Where-Object { $_ -match [regex]::Escape($asset) + '\s*$' } | Select-Object -First 1)
+  if ($line) {
+    $expected = ($line -split '\s+')[0]
+    $actual = (Get-FileHash -Algorithm SHA256 -Path $tmp).Hash.ToLower()
+    if ($expected.ToLower() -ne $actual) {
+      Remove-Item $tmp -Force
+      throw "checksum mismatch for $asset (expected $expected, got $actual)"
+    }
+  }
+} catch [System.Net.WebException] {
+  # Release without checksums; continue.
+}
+
+Move-Item -Force -Path $tmp -Destination $dest
 
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if (-not $userPath) { $userPath = "" }

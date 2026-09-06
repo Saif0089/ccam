@@ -23,19 +23,32 @@ import (
 )
 
 type harness struct {
-	t          *testing.T
-	ccamBin    string
-	claudeDir  string // holds the fake "claude" binary, prepended to PATH
-	home       string
-	port       int
-	env        []string
+	t         *testing.T
+	ccamBin   string
+	claudeDir string // holds the fake "claude" binary, prepended to PATH
+	home      string
+	port      int
+	env       []string
 }
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
 
 	repoRoot := repoRoot(t)
-	binDir := t.TempDir()
+	home := t.TempDir()
+
+	// Build into the per-user install directory the real installers use
+	// (~/.local/bin, %LOCALAPPDATA%\ccam\bin), so this exercises the
+	// same paths a real install does — including `ccam uninstall`
+	// removing its own binary, which it deliberately refuses to do for
+	// a binary sitting outside that directory.
+	binDir := filepath.Join(home, ".local", "bin")
+	if runtime.GOOS == "windows" {
+		binDir = filepath.Join(home, "AppData", "Local", "ccam", "bin")
+	}
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("creating install dir: %v", err)
+	}
 
 	ccamBin := filepath.Join(binDir, exeName("ccam"))
 	build(t, filepath.Join(repoRoot, "cmd", "ccam"), ccamBin)
@@ -44,7 +57,6 @@ func newHarness(t *testing.T) *harness {
 	fakeClaudeBin := filepath.Join(claudeDir, exeName("claude"))
 	build(t, filepath.Join(repoRoot, "testdata", "fakeclaude"), fakeClaudeBin)
 
-	home := t.TempDir()
 	port := freePort(t)
 
 	env := os.Environ()
@@ -249,8 +261,13 @@ func (h *harness) driveLoginToLinked(accountID string) {
 		if !strings.HasPrefix(line, "data: ") {
 			continue
 		}
+		// Decoded from the literal wire format the browser sees, NOT by
+		// reusing ptyauth.Event: this test previously declared
+		// `json:"Type"` and so happily passed while the real UI, which
+		// reads event.type, got undefined for every field.
 		var ev struct {
-			Type string `json:"Type"`
+			Type string `json:"type"`
+			URL  string `json:"url"`
 		}
 		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &ev); err != nil {
 			continue
@@ -258,6 +275,9 @@ func (h *harness) driveLoginToLinked(accountID string) {
 		switch ev.Type {
 		case "url":
 			sawURL = true
+			if len(ev.URL) < 400 {
+				h.t.Errorf("OAuth URL looks truncated (%d chars): %s", len(ev.URL), ev.URL)
+			}
 		case "linked":
 			sawLinked = true
 		}

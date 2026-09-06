@@ -46,10 +46,19 @@ func (w *windowsService) Install(binaryPath string, port int) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
+	// Clear a Scheduled Task left by an earlier install that had to
+	// fall back to one; otherwise both it and the Startup script fire
+	// at logon and one of the two ccams loses the port.
+	_ = exec.Command("schtasks", "/Delete", "/TN", "ccam", "/F").Run()
+
 	// `start "" /min ... ` opens the process in its own minimized
 	// window rather than tying it to the .cmd's own (already-hidden)
 	// console, so it keeps running after the launching script exits.
-	script := fmt.Sprintf("@echo off\r\nstart \"\" /min \"%s\" serve --port %d\r\n", binaryPath, port)
+	// PATH is set first so ccam can find `claude` (and the node it
+	// needs), which a logon-launched process would not otherwise have.
+	script := fmt.Sprintf("@echo off\r\nset \"PATH=%s\"\r\ncd /d \"%s\"\r\nstart \"\" /min \"%s\" serve --port %d\r\n",
+		servicePATH(), serviceWorkingDir(), binaryPath, port)
 
 	if err := config.EnsureDir(filepath.Dir(path)); err != nil {
 		return w.installScheduledTaskFallback(binaryPath, port)

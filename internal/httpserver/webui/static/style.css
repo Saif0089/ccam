@@ -1,4 +1,7 @@
 :root {
+  /* The palette is dark throughout, so tell the browser: without this
+     the caret, scrollbars and autofill still render as light-mode. */
+  color-scheme: dark;
   --bg: #0f1115;
   --panel: #171a21;
   --border: #2a2e38;
@@ -204,5 +207,29 @@ dialog input[type="text"] {
 }
 
 #login-status {
+  color: var(--muted);
+}
+
+#login-code-form {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+#login-code-form input[type="text"] {
+  display: block;
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #0c0e13;
+  color: var(--text);
+  font: inherit;
+}
+
+#login-code-form label {
+  display: block;
+  font-size: 0.85rem;
   color: var(--muted);
 }

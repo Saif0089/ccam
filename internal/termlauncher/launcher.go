@@ -24,13 +24,27 @@ func Launch(configDir, label string) error {
 }
 
 func launchDarwin(configDir, label string) error {
+	// Two layers of quoting, both needed: shellQuote so the path
+	// survives as one word in the shell command Terminal.app runs
+	// (home directories contain spaces), then appleScriptQuote so the
+	// whole thing survives as one AppleScript string literal.
 	script := fmt.Sprintf(
 		`tell application "Terminal" to do script "env CLAUDE_CONFIG_DIR=%s claude; exec $SHELL" activate`,
-		appleScriptQuote(configDir),
+		appleScriptQuote(shellQuote(configDir)),
 	)
 	_ = label // Terminal.app tab titles aren't reliably settable from here.
-	cmd := exec.Command("osascript", "-e", script)
-	return cmd.Start()
+	return startAndReap(exec.Command("osascript", "-e", script))
+}
+
+// startAndReap starts cmd without waiting for it, but still reaps it —
+// ccam is a long-lived process, so every un-waited child would sit
+// around as a zombie for the life of the service.
+func startAndReap(cmd *exec.Cmd) error {
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go cmd.Wait()
+	return nil
 }
 
 func appleScriptQuote(s string) string {
@@ -68,7 +82,7 @@ func launchLinux(configDir, label string) error {
 			continue
 		}
 		cmd := exec.Command(t.bin, t.args(shellCmd)...)
-		if err := cmd.Start(); err == nil {
+		if err := startAndReap(cmd); err == nil {
 			return nil
 		} else {
 			lastErr = err
@@ -104,13 +118,12 @@ func launchWindows(configDir, label string) error {
 
 	if wt, err := exec.LookPath("wt.exe"); err == nil {
 		cmd := exec.Command(wt, "powershell", "-NoExit", "-Command", psCmd)
-		if err := cmd.Start(); err == nil {
+		if err := startAndReap(cmd); err == nil {
 			return nil
 		}
 	}
 
-	cmd := exec.Command("powershell", "-NoExit", "-Command", psCmd)
-	return cmd.Start()
+	return startAndReap(exec.Command("powershell", "-NoExit", "-Command", psCmd))
 }
 
 func psQuote(s string) string {

@@ -17,16 +17,16 @@
     <button id="add-account-btn" class="primary">+ Add account</button>
   </section>
 
-  <section id="accounts-list" aria-live="polite"></section>
+  <section id="accounts-list"></section>
   <p id="empty-state" hidden>No accounts yet. Click "Add account" to link your first Claude Code login.</p>
 </main>
 
 <dialog id="add-dialog">
-  <form id="add-form" method="dialog">
+  <form id="add-form">
     <h2>Add account</h2>
     <label>
       Name
-      <input id="add-name" type="text" placeholder="e.g. Work, Personal" required autofocus>
+      <input id="add-name" type="text" placeholder="e.g. Work, Personal" required pattern=".*\S.*" autofocus>
     </label>
     <div class="dialog-actions">
       <button type="button" id="add-cancel">Cancel</button>
@@ -36,27 +36,36 @@
 </dialog>
 
 <dialog id="login-dialog">
-  <div id="login-body">
-    <h2>Connect account</h2>
-    <p id="login-status">Starting login…</p>
-    <div id="login-url-box" hidden>
-      <p>Open this URL in your browser to finish logging in:</p>
-      <a id="login-url" href="#" target="_blank" rel="noopener"></a>
-      <button type="button" id="login-copy">Copy URL</button>
-    </div>
+  <h2>Connect account</h2>
+  <p id="login-status" aria-live="polite">Starting login…</p>
+
+  <div id="login-url-box" hidden>
+    <a id="login-url" href="#" target="_blank" rel="noopener"></a>
+    <button type="button" id="login-copy">Copy URL</button>
   </div>
+
+  <form id="login-code-form" hidden>
+    <label>
+      If the page gives you a code to paste, put it here:
+      <input id="login-code" type="text" placeholder="Paste authorization code" autocomplete="off">
+    </label>
+    <div class="dialog-actions">
+      <button type="submit" class="primary">Submit code</button>
+    </div>
+  </form>
+
   <div class="dialog-actions">
     <button type="button" id="login-close">Close</button>
   </div>
 </dialog>
 
 <dialog id="rename-dialog">
-  <form id="rename-form" method="dialog">
+  <form id="rename-form">
     <h2>Rename account</h2>
     <input type="hidden" id="rename-id">
     <label>
       Name
-      <input id="rename-name" type="text" required>
+      <input id="rename-name" type="text" required pattern=".*\S.*">
     </label>
     <div class="dialog-actions">
       <button type="button" id="rename-cancel">Cancel</button>
@@ -77,7 +86,7 @@
     </div>
     <div class="account-actions">
       <button class="launch-terminal" type="button">Open terminal</button>
-      <button class="connect-btn" type="button" hidden>Connect</button>
+      <button class="connect-btn" type="button">Connect</button>
       <button class="rename-btn" type="button">Rename</button>
       <button class="remove-btn danger" type="button">Remove</button>
     </div>

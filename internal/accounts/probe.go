@@ -2,64 +2,82 @@ package accounts
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"time"
 )
 
-// Prober checks whether an account's config directory holds a successful
-// login. It's OS-agnostic on purpose: on Linux/Windows Claude Code always
-// writes a credentials file under CLAUDE_CONFIG_DIR, but on macOS it may
-// instead (or also) rely on the Keychain, in which case no file appears —
-// so the fallback is a short, non-interactive `claude` invocation rather
-// than any macOS-specific Keychain code.
+// Prober reports whether an account's config directory holds a valid
+// login, by asking `claude` itself: `claude auth status --json` prints
+// {"loggedIn": true|false, ...} for whatever CLAUDE_CONFIG_DIR it's
+// given.
+//
+// Asking the CLI (rather than looking for a credentials file) is the
+// only approach that's correct on every OS: on macOS the credentials
+// may live in the Keychain with no file on disk at all, and a file that
+// does exist may hold an expired or revoked token. It's also cheap —
+// `auth status` is a local check, unlike the `claude -p ping` call this
+// used to make, which spent real tokens on every poll.
 type Prober struct {
-	// ClaudeBinary is the executable to invoke for the fallback probe,
-	// normally "claude" resolved via PATH. Overridable in tests.
+	// ClaudeBinary is the executable to invoke, normally resolved via
+	// claudebin.Resolve. Overridable in tests.
 	ClaudeBinary string
-	// Timeout bounds the fallback probe so a hung/prompting process
-	// can't block the caller forever.
+	// Timeout bounds each probe so a hung process can't block a caller.
 	Timeout time.Duration
 }
 
-// NewProber returns a Prober using the "claude" binary on PATH with a
-// sane default timeout.
+// NewProber returns a Prober using the "claude" binary on PATH.
 func NewProber() *Prober {
-	return &Prober{ClaudeBinary: "claude", Timeout: 10 * time.Second}
+	return &Prober{ClaudeBinary: "claude"}
 }
 
-// IsLinked reports whether configDir already holds valid credentials.
+type authStatus struct {
+	LoggedIn   bool   `json:"loggedIn"`
+	AuthMethod string `json:"authMethod"`
+}
+
+// IsLinked reports whether configDir is authenticated.
 func (p *Prober) IsLinked(ctx context.Context, configDir string) bool {
-	if hasCredentialsFile(configDir) {
-		return true
+	status, err := p.Status(ctx, configDir)
+	if err != nil {
+		return false
 	}
-	return p.headlessProbeSucceeds(ctx, configDir)
+	return status.LoggedIn
 }
 
-func hasCredentialsFile(configDir string) bool {
-	info, err := os.Stat(filepath.Join(configDir, ".credentials.json"))
-	return err == nil && info.Size() > 0
-}
-
-// headlessProbeSucceeds runs a minimal non-interactive claude invocation
-// scoped to configDir. A login-less/expired session errors or prompts
-// (which, run without a TTY, exits non-zero) rather than answering, so a
-// clean exit 0 is a reliable "already logged in" signal.
-func (p *Prober) headlessProbeSucceeds(ctx context.Context, configDir string) bool {
+// Status runs `claude auth status --json` against configDir and returns
+// the parsed result.
+func (p *Prober) Status(ctx context.Context, configDir string) (authStatus, error) {
 	binary := p.ClaudeBinary
 	if binary == "" {
 		binary = "claude"
 	}
 	timeout := p.Timeout
 	if timeout <= 0 {
-		timeout = 10 * time.Second
+		timeout = 20 * time.Second
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, binary, "-p", "ping", "--max-turns", "1")
+	cmd := exec.CommandContext(ctx, binary, "auth", "status", "--json")
 	cmd.Env = append(os.Environ(), "CLAUDE_CONFIG_DIR="+configDir)
-	return cmd.Run() == nil
+	// Never inherit ccam's working directory: started by launchd at
+	// login that is "/", and claude treats its working directory as the
+	// project directory.
+	if home, err := os.UserHomeDir(); err == nil {
+		cmd.Dir = home
+	}
+
+	out, err := cmd.Output()
+	if err != nil {
+		return authStatus{}, err
+	}
+
+	var status authStatus
+	if err := json.Unmarshal(out, &status); err != nil {
+		return authStatus{}, err
+	}
+	return status, nil
 }

@@ -1,7 +1,8 @@
 package service
 
 import (
-	"net"
+	"encoding/json"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -10,38 +11,86 @@ import (
 	"ccam/internal/config"
 )
 
-// IsHTTPRunning reports whether ccam's HTTP server is currently
-// answering on the port it last recorded. This is the single source of
-// truth for "is the service running" across every OS: rather than
-// asking each OS's service manager (which only knows whether it *tried*
-// to start something), it checks that the server is actually there.
-func IsHTTPRunning() (bool, error) {
+// RunningInfo describes a live ccam server.
+type RunningInfo struct {
+	Port    int
+	Version string
+}
+
+// Running reports whether ccam's HTTP server is answering on the port
+// it last recorded, and what it said about itself.
+//
+// This asks /api/status and requires a recognisably-ccam response
+// rather than just opening a TCP connection: a stale port file (left by
+// a kill -9 or a hard power-off) plus any unrelated process that later
+// happens to take that port would otherwise make every part of ccam —
+// `ccam status`, the installer's health check, Start()'s "already
+// running" short-circuit — confidently report a service that isn't
+// there, and quietly never start the real one.
+//
+// A stale port file is deleted when the probe comes back negative, so
+// the mistake doesn't persist.
+func Running() (*RunningInfo, error) {
 	portPath, err := config.PortFile()
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	data, err := os.ReadFile(portPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return false, nil
+			return nil, nil
 		}
-		return false, err
+		return nil, err
 	}
-	port := strings.TrimSpace(string(data))
-	if port == "" {
-		return false, nil
-	}
-	if _, err := strconv.Atoi(port); err != nil {
-		return false, nil
+	port, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || port <= 0 {
+		_ = os.Remove(portPath)
+		return nil, nil
 	}
 
-	conn, err := net.DialTimeout("tcp", "127.0.0.1:"+port, 750*time.Millisecond)
-	if err != nil {
-		return false, nil
+	info := probeStatus(port)
+	if info == nil {
+		// Nothing recognisably ccam there; don't let the stale record
+		// keep misleading the next caller.
+		_ = os.Remove(portPath)
+		return nil, nil
 	}
-	conn.Close()
-	return true, nil
+	return info, nil
 }
+
+// IsHTTPRunning reports whether ccam's HTTP server is up.
+func IsHTTPRunning() (bool, error) {
+	info, err := Running()
+	return info != nil, err
+}
+
+func probeStatus(port int) *RunningInfo {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get("http://127.0.0.1:" + strconv.Itoa(port) + "/api/status")
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	var body struct {
+		Version string `json:"version"`
+		Service string `json:"service"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil
+	}
+	if body.Service != StatusServiceName {
+		return nil // something else is on this port
+	}
+	return &RunningInfo{Port: port, Version: body.Version}
+}
+
+// StatusServiceName is the identifying marker /api/status returns, so
+// callers can tell ccam apart from whatever else may hold the port.
+const StatusServiceName = "ccam"
 
 // RecordSelf writes the current process's PID, so a subsequent
 // Stop()/Uninstall() can find it regardless of how it was launched

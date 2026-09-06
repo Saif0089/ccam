@@ -1,0 +1,11 @@
+{
+  "name": "ccam-browser-tests",
+  "private": true,
+  "description": "Browser-level end-to-end tests for ccam's web UI.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}

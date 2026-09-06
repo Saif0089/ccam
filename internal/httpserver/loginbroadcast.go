@@ -12,7 +12,7 @@ import (
 // flow slightly before the browser's SSE GET attaches) and to a
 // reconnect after a network blip.
 type loginBroadcast struct {
-	cancel func()
+	session *ptyauth.Session
 
 	mu          sync.Mutex
 	history     []ptyauth.Event
@@ -20,8 +20,11 @@ type loginBroadcast struct {
 	subscribers map[chan ptyauth.Event]struct{}
 }
 
-func newLoginBroadcast(cancel func()) *loginBroadcast {
-	return &loginBroadcast{cancel: cancel, subscribers: map[chan ptyauth.Event]struct{}{}}
+func newLoginBroadcast(session *ptyauth.Session) *loginBroadcast {
+	return &loginBroadcast{
+		session:     session,
+		subscribers: map[chan ptyauth.Event]struct{}{},
+	}
 }
 
 // run drains events into the broadcast until the channel closes, then
@@ -73,4 +76,23 @@ func (b *loginBroadcast) subscribe() (<-chan ptyauth.Event, func()) {
 		delete(b.subscribers, ch)
 		b.mu.Unlock()
 	}
+}
+
+// finished reports whether the login has reached a terminal state.
+func (b *loginBroadcast) finished() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.done
+}
+
+// stop ends the underlying claude process.
+func (b *loginBroadcast) stop() {
+	if b.session != nil {
+		b.session.Close()
+	}
+}
+
+// submitCode types an authorization code into the waiting claude.
+func (b *loginBroadcast) submitCode(code string) error {
+	return b.session.SubmitCode(code)
 }

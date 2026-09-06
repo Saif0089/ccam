@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -16,7 +17,11 @@ func buildFakeClaude(t *testing.T) string {
 		t.Fatalf("Getwd: %v", err)
 	}
 	src := filepath.Join(wd, "..", "..", "testdata", "fakeclaude")
-	out := filepath.Join(t.TempDir(), "fakeclaude")
+	name := "fakeclaude"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	out := filepath.Join(t.TempDir(), name)
 
 	cmd := exec.Command("go", "build", "-o", out, src)
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -25,28 +30,43 @@ func buildFakeClaude(t *testing.T) string {
 	return out
 }
 
-func TestRunEmitsURLThenLinked(t *testing.T) {
+func testConfig(t *testing.T, fake, configDir string, extraEnv ...string) Config {
+	t.Helper()
+	return Config{
+		ClaudeBinary: fake,
+		ConfigDir:    configDir,
+		Env:          append(append(os.Environ(), "CLAUDE_CONFIG_DIR="+configDir), extraEnv...),
+		Timeout:      20 * time.Second,
+		PollInterval: 200 * time.Millisecond,
+		WorkingDir:   configDir,
+	}
+}
+
+func collect(t *testing.T, sess *Session) []Event {
+	t.Helper()
+	var events []Event
+	for ev := range sess.Events() {
+		events = append(events, ev)
+	}
+	return events
+}
+
+func TestLoginEmitsURLThenLinked(t *testing.T) {
 	fake := buildFakeClaude(t)
 	configDir := t.TempDir()
 
-	cfg := Config{
-		ClaudeBinary: fake,
-		ConfigDir:    configDir,
-		Env:          append(os.Environ(), "CLAUDE_CONFIG_DIR="+configDir),
-		Timeout:      10 * time.Second,
-		PollInterval: 100 * time.Millisecond,
+	sess, err := Start(context.Background(), testConfig(t, fake, configDir))
+	if err != nil {
+		t.Fatalf("Start: %v", err)
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
+	defer sess.Close()
 
 	var sawURL, sawLinked bool
 	var gotURL string
-	for ev := range Run(ctx, cfg) {
+	for _, ev := range collect(t, sess) {
 		switch ev.Type {
 		case EventURL:
-			sawURL = true
-			gotURL = ev.URL
+			sawURL, gotURL = true, ev.URL
 		case EventLinked:
 			sawLinked = true
 		case EventFailed, EventTimeout:
@@ -55,38 +75,104 @@ func TestRunEmitsURLThenLinked(t *testing.T) {
 	}
 
 	if !sawURL {
-		t.Error("expected an EventURL")
-	}
-	if gotURL != "https://fake-auth.example.com/oauth?code=demo-12345" {
-		t.Errorf("URL = %q, unexpected", gotURL)
+		t.Fatal("expected an EventURL")
 	}
 	if !sawLinked {
 		t.Error("expected an EventLinked")
 	}
+
+	// The whole URL, not the part that fits on one terminal line. This
+	// is the regression guard for the pseudo-terminal being too narrow:
+	// the real OAuth URL is ~600 characters and used to arrive
+	// truncated at the wrap point, which is a link that simply fails.
+	if len(gotURL) < 400 {
+		t.Errorf("URL looks truncated (%d chars): %s", len(gotURL), gotURL)
+	}
+	if !hasSuffixState(gotURL) {
+		t.Errorf("URL is missing its trailing state parameter: %s", gotURL)
+	}
 }
 
-func TestRunTimesOutIfNeverLinked(t *testing.T) {
-	// A binary that never writes credentials (here: a shell "true" via a
-	// tiny helper) should end in EventTimeout, not hang.
+func hasSuffixState(url string) bool {
+	const tail = "ZYXWVUTSRQPONMLKJIHGFEDCBA"
+	return len(url) >= len(tail) && url[len(url)-len(tail):] == tail
+}
+
+// TestLoginCompletesViaPastedCode covers the flow where the browser
+// hands the user a code to paste back rather than redirecting to a
+// local callback — the real `claude auth login` prints
+// "Paste code here if prompted >" and waits.
+func TestLoginCompletesViaPastedCode(t *testing.T) {
 	fake := buildFakeClaude(t)
 	configDir := t.TempDir()
 
-	cfg := Config{
-		ClaudeBinary: fake,
-		ConfigDir:    configDir,
-		Env:          append(os.Environ(), "CLAUDE_CONFIG_DIR="+configDir, "FAKECLAUDE_NEVER_COMPLETE=1"),
-		Timeout:      1 * time.Second,
-		PollInterval: 100 * time.Millisecond,
+	sess, err := Start(context.Background(), testConfig(t, fake, configDir, "FAKECLAUDE_REQUIRE_CODE=1"))
+	if err != nil {
+		t.Fatalf("Start: %v", err)
 	}
+	defer sess.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	events := make(chan Event, 8)
+	go func() {
+		for ev := range sess.Events() {
+			events <- ev
+		}
+		close(events)
+	}()
+
+	// Wait for the URL, then answer the way the web UI would.
+	var linked bool
+	for ev := range events {
+		if ev.Type == EventURL {
+			if err := sess.SubmitCode("test-auth-code"); err != nil {
+				t.Fatalf("SubmitCode: %v", err)
+			}
+		}
+		if ev.Type == EventLinked {
+			linked = true
+		}
+		if ev.Type == EventFailed || ev.Type == EventTimeout {
+			t.Fatalf("unexpected event: %+v", ev)
+		}
+	}
+	if !linked {
+		t.Error("expected the pasted code to complete the login")
+	}
+}
+
+func TestLoginTimesOutIfNeverCompleted(t *testing.T) {
+	fake := buildFakeClaude(t)
+	configDir := t.TempDir()
+
+	cfg := testConfig(t, fake, configDir, "FAKECLAUDE_NEVER_COMPLETE=1")
+	cfg.Timeout = 2 * time.Second
+
+	sess, err := Start(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer sess.Close()
 
 	var last Event
-	for ev := range Run(ctx, cfg) {
+	for _, ev := range collect(t, sess) {
 		last = ev
 	}
 	if last.Type != EventTimeout && last.Type != EventFailed {
 		t.Errorf("last event = %+v, want timeout or failed", last)
+	}
+}
+
+func TestSubmitCodeRejectsEmpty(t *testing.T) {
+	fake := buildFakeClaude(t)
+	configDir := t.TempDir()
+
+	sess, err := Start(context.Background(), testConfig(t, fake, configDir, "FAKECLAUDE_REQUIRE_CODE=1"))
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer sess.Close()
+
+	if err := sess.SubmitCode("   "); err == nil {
+		t.Error("expected an error for an empty code")
 	}
 }

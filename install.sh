@@ -39,10 +39,38 @@ install_dir="${CCAM_INSTALL_DIR:-$HOME/.local/bin}"
 mkdir -p "$install_dir"
 
 tmp="$(mktemp)"
-trap 'rm -f "$tmp"' EXIT
+sums="$(mktemp)"
+trap 'rm -f "$tmp" "$sums"' EXIT
 
 echo "Downloading ccam ($os/$arch)..."
 curl -fsSL "$url" -o "$tmp"
+
+# Verify against the checksums published alongside the binary. Skipped
+# only if the release has none (older releases) or no sha256 tool exists.
+if curl -fsSL "$(dirname "$url")/checksums.txt" -o "$sums" 2>/dev/null; then
+  expected="$(grep " ${asset}\$" "$sums" | awk '{print $1}' | head -n 1)"
+  if [ -n "$expected" ]; then
+    if command -v sha256sum >/dev/null 2>&1; then
+      actual="$(sha256sum "$tmp" | awk '{print $1}')"
+    elif command -v shasum >/dev/null 2>&1; then
+      actual="$(shasum -a 256 "$tmp" | awk '{print $1}')"
+    fi
+    if [ -n "${actual:-}" ] && [ "$actual" != "$expected" ]; then
+      echo "ccam: checksum mismatch for ${asset}" >&2
+      echo "  expected $expected" >&2
+      echo "  actual   $actual" >&2
+      exit 1
+    fi
+  fi
+fi
+
+# Stop any running ccam before replacing the binary. Without this an
+# upgrade silently keeps serving the old build: mv swaps the file, but
+# the running process holds the old inode until something restarts it.
+if [ -x "$install_dir/ccam" ]; then
+  "$install_dir/ccam" stop >/dev/null 2>&1 || true
+fi
+
 chmod +x "$tmp"
 mv "$tmp" "$install_dir/ccam"
 trap - EXIT

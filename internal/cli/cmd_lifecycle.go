@@ -22,13 +22,21 @@ func cmdStart(args []string) int {
 		fmt.Fprintln(os.Stderr, "ccam:", err)
 		return 1
 	}
+
+	// If ccam is already up on a different port than the one asked
+	// for, say so rather than printing a URL nothing is listening on.
+	if info, _ := service.Running(); info != nil && info.Port != *port {
+		fmt.Printf("ccam is already running on http://127.0.0.1:%d (run `ccam stop` first to move it to %d)\n", info.Port, *port)
+		return 0
+	}
+
 	svc := service.New(binaryPath, *port)
 	if err := svc.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "ccam:", err)
 		return 1
 	}
-	if waitForHTTP(5 * time.Second) {
-		fmt.Printf("ccam is running: http://127.0.0.1:%d\n", *port)
+	if info := waitForRunning(15 * time.Second); info != nil {
+		fmt.Printf("ccam is running: http://127.0.0.1:%d\n", info.Port)
 	} else {
 		fmt.Println("ccam was started but isn't answering yet; check `ccam status` shortly.")
 	}
@@ -57,15 +65,15 @@ func cmdStop(args []string) int {
 }
 
 func cmdStatus(args []string) int {
-	running, err := service.IsHTTPRunning()
+	info, err := service.Running()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ccam:", err)
 		return 1
 	}
-	if !running {
+	if info == nil {
 		fmt.Println("ccam is not running.")
 		return 1
 	}
-	fmt.Printf("ccam is running: http://127.0.0.1:%s\n", currentPortOrUnknown())
+	fmt.Printf("ccam %s is running: http://127.0.0.1:%d\n", info.Version, info.Port)
 	return 0
 }

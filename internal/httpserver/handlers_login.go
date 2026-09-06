@@ -12,9 +12,17 @@ import (
 	"ccam/internal/ptyauth"
 )
 
-// handleStartLogin begins (or restarts) a browser-driven login for one
-// account. It returns as soon as the attempt is under way; progress is
-// delivered via GET .../login/events.
+// loginRetentionAfterFinish is how long a finished login's events stay
+// available for a late or reloading browser to pick up.
+const loginRetentionAfterFinish = 30 * time.Second
+
+// handleStartLogin begins a browser-driven login for one account. It
+// returns as soon as the attempt is under way; progress is delivered
+// via GET .../login/events.
+//
+// An attempt already in progress is reused rather than restarted: the
+// user may simply have reloaded the page, and killing the running
+// `claude` would invalidate the OAuth URL they already have open.
 func (s *Server) handleStartLogin(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	account, err := s.manager.Get(id)
@@ -23,24 +31,36 @@ func (s *Server) handleStartLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.cancelLogin(id) // superseding a stuck/abandoned attempt is fine
+	s.mu.Lock()
+	if existing := s.logins[id]; existing != nil && !existing.finished() {
+		s.mu.Unlock()
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	s.mu.Unlock()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	broadcast := newLoginBroadcast(cancel)
+	s.cancelLogin(id) // retire a finished attempt before starting a new one
 
+	env := append(os.Environ(), "CLAUDE_CONFIG_DIR="+account.ConfigDir)
+	session, err := ptyauth.Start(context.Background(), ptyauth.Config{
+		ClaudeBinary: s.claudeBinary,
+		ConfigDir:    account.ConfigDir,
+		Env:          env,
+		Timeout:      10 * time.Minute,
+		PollInterval: 2 * time.Second,
+		Prober:       &accounts.Prober{ClaudeBinary: s.claudeBinary},
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	broadcast := newLoginBroadcast(session)
 	s.mu.Lock()
 	s.logins[id] = broadcast
 	s.mu.Unlock()
 
-	env := append(os.Environ(), "CLAUDE_CONFIG_DIR="+account.ConfigDir)
-	events := ptyauth.Run(ctx, ptyauth.Config{
-		ClaudeBinary: s.claudeBinary,
-		ConfigDir:    account.ConfigDir,
-		Env:          env,
-		Timeout:      5 * time.Minute,
-	})
-
-	go broadcast.run(events)
+	go broadcast.run(session.Events())
 	go s.watchLoginOutcome(id, broadcast)
 
 	w.WriteHeader(http.StatusAccepted)
@@ -60,7 +80,7 @@ func (s *Server) watchLoginOutcome(id string, broadcast *loginBroadcast) {
 		}
 	}
 
-	time.AfterFunc(time.Minute, func() {
+	time.AfterFunc(loginRetentionAfterFinish, func() {
 		s.mu.Lock()
 		if s.logins[id] == broadcast {
 			delete(s.logins, id)
@@ -94,20 +114,64 @@ func (s *Server) handleLoginEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
+	// Get the headers onto the wire now rather than at the first event,
+	// so the browser's EventSource actually opens while `claude` is
+	// still starting up.
+	flusher.Flush()
 
 	for {
 		select {
 		case ev, ok := <-ch:
 			if !ok {
+				// The login is over. Browsers reconnect to a closed SSE
+				// stream after ~3s by default, which would replay this
+				// whole history on a loop; a long retry interval tells
+				// them not to bother.
+				fmt.Fprint(w, "retry: 86400000\n\n")
+				flusher.Flush()
 				return
 			}
-			data, _ := json.Marshal(ev)
+			data, err := json.Marshal(ev)
+			if err != nil {
+				continue
+			}
 			fmt.Fprintf(w, "data: %s\n\n", data)
 			flusher.Flush()
 		case <-r.Context().Done():
 			return
 		}
 	}
+}
+
+type submitCodeRequest struct {
+	Code string `json:"code"`
+}
+
+// handleSubmitLoginCode types an authorization code into the waiting
+// `claude`, for the flow where the browser hands the user a code to
+// paste back rather than redirecting to a local callback.
+func (s *Server) handleSubmitLoginCode(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	var req submitCodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	s.mu.Lock()
+	broadcast := s.logins[id]
+	s.mu.Unlock()
+	if broadcast == nil {
+		writeError(w, http.StatusNotFound, "no login in progress for this account")
+		return
+	}
+
+	if err := broadcast.submitCode(req.Code); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleCancelLogin(w http.ResponseWriter, r *http.Request) {
@@ -122,6 +186,21 @@ func (s *Server) cancelLogin(id string) {
 	delete(s.logins, id)
 	s.mu.Unlock()
 	if broadcast != nil {
-		broadcast.cancel()
+		broadcast.stop()
+	}
+}
+
+// stopAllLogins ends every in-flight login, so shutting the server down
+// doesn't leave orphaned `claude` processes behind.
+func (s *Server) stopAllLogins() {
+	s.mu.Lock()
+	pending := make([]*loginBroadcast, 0, len(s.logins))
+	for id, b := range s.logins {
+		pending = append(pending, b)
+		delete(s.logins, id)
+	}
+	s.mu.Unlock()
+	for _, b := range pending {
+		b.stop()
 	}
 }

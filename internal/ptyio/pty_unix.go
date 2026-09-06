@@ -19,11 +19,12 @@ type unixSession struct {
 	waitErr  error
 }
 
-func start(name string, args []string, env []string) (Session, error) {
+func start(name string, args []string, env []string, dir string) (Session, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Env = env
+	cmd.Dir = dir
 
-	f, err := pty.Start(cmd)
+	f, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: DefaultCols, Rows: DefaultRows})
 	if err != nil {
 		return nil, err
 	}

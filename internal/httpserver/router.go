@@ -17,6 +17,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("POST /api/accounts/{id}/login", s.handleStartLogin)
 	mux.HandleFunc("GET /api/accounts/{id}/login/events", s.handleLoginEvents)
+	mux.HandleFunc("POST /api/accounts/{id}/login/code", s.handleSubmitLoginCode)
 	mux.HandleFunc("POST /api/accounts/{id}/login/cancel", s.handleCancelLogin)
 
 	mux.HandleFunc("POST /api/accounts/{id}/launch-terminal", s.handleLaunchTerminal)

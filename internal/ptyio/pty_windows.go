@@ -4,6 +4,7 @@ package ptyio
 
 import (
 	"context"
+	"os/exec"
 	"strings"
 	"syscall"
 
@@ -14,13 +15,25 @@ type windowsSession struct {
 	cpty *conpty.ConPty
 }
 
-func start(name string, args []string, env []string) (Session, error) {
+func start(name string, args []string, env []string, dir string) (Session, error) {
+	// conpty hands the command line straight to CreateProcess, which
+	// appends ".exe" but does not consult PATHEXT — so a `claude.cmd`
+	// shim (what `npm i -g` installs on Windows) would never be found,
+	// even though it resolves fine in a shell. exec.LookPath does
+	// honour PATHEXT, so resolve before handing it over.
+	if resolved, err := exec.LookPath(name); err == nil {
+		name = resolved
+	}
+
 	cmdLine := buildCommandLine(name, args)
-	cpty, err := conpty.Start(
-		cmdLine,
-		conpty.ConPtyDimensions(80, 40),
+	opts := []conpty.ConPtyOption{
+		conpty.ConPtyDimensions(DefaultCols, DefaultRows),
 		conpty.ConPtyEnv(env),
-	)
+	}
+	if dir != "" {
+		opts = append(opts, conpty.ConPtyWorkDir(dir))
+	}
+	cpty, err := conpty.Start(cmdLine, opts...)
 	if err != nil {
 		return nil, err
 	}

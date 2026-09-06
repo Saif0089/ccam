@@ -97,6 +97,10 @@ func Serve(ctx context.Context, srv *Server, port int) error {
 
 	select {
 	case <-ctx.Done():
+		// End any in-flight logins first: their `claude` children are
+		// in their own session (setsid), so shutting down without this
+		// would leave them running with nothing to stop them.
+		srv.stopAllLogins()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = httpSrv.Shutdown(shutdownCtx)

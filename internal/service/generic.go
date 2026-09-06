@@ -36,26 +36,55 @@ func (g generic) Start() error {
 	return writePID(pid)
 }
 
+// Stop ends the running server and verifies it actually stopped.
+//
+// The pidfile alone isn't trusted for that verdict: it can be missing
+// (a cleaned ~/.ccam, or a RecordSelf that failed) while the server is
+// very much alive, and reporting "Stopped." in that case is how
+// `ccam uninstall` ends up deleting its own binary and autostart entry
+// while leaving an unstoppable server holding the port.
 func (g generic) Stop() error {
 	pid, err := readPID()
 	if err != nil {
 		return err
 	}
-	if pid == 0 || !processAlive(pid) {
-		return removePIDFile()
+	if pid > 0 && processAlive(pid) {
+		if err := killProcess(pid); err != nil {
+			return err
+		}
+		// Give it a moment to release the port before returning, so a
+		// following Start() doesn't race an in-flight shutdown.
+		for i := 0; i < 30; i++ {
+			if !processAlive(pid) {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
-	if err := killProcess(pid); err != nil {
+	if err := removePIDFile(); err != nil {
 		return err
 	}
-	// Give it a moment to release the port before returning, so a
-	// following Start() doesn't race an in-flight shutdown.
+
+	// Whatever the pidfile said, the question that matters is whether
+	// anything is still serving.
 	for i := 0; i < 20; i++ {
-		if !processAlive(pid) {
-			break
+		running, err := IsHTTPRunning()
+		if err != nil {
+			return err
+		}
+		if !running {
+			return nil
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return removePIDFile()
+
+	info, _ := Running()
+	port := g.port
+	if info != nil {
+		port = info.Port
+	}
+	return fmt.Errorf("a ccam server is still answering on port %d and could not be stopped "+
+		"(no matching pid on file); stop that process manually, then retry", port)
 }
 
 func (g generic) IsRunning() (bool, error) {

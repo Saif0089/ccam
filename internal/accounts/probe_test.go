@@ -9,8 +9,7 @@ import (
 	"testing"
 )
 
-// buildFakeClaude compiles testdata/fakeclaude once per test process and
-// returns the path to the resulting binary.
+// buildFakeClaude compiles testdata/fakeclaude and returns its path.
 func buildFakeClaude(t *testing.T) string {
 	t.Helper()
 
@@ -33,47 +32,71 @@ func buildFakeClaude(t *testing.T) string {
 	return out
 }
 
-func TestProberIsLinkedFalseWhenNoCredentials(t *testing.T) {
-	fake := buildFakeClaude(t)
-	configDir := t.TempDir()
-
-	p := &Prober{ClaudeBinary: fake}
-	if p.IsLinked(context.Background(), configDir) {
-		t.Error("expected IsLinked = false for an empty config dir")
+func TestIsLinkedFalseWhenNotAuthenticated(t *testing.T) {
+	p := &Prober{ClaudeBinary: buildFakeClaude(t)}
+	if p.IsLinked(context.Background(), t.TempDir()) {
+		t.Error("expected IsLinked = false for a fresh config dir")
 	}
 }
 
-func TestProberIsLinkedTrueAfterFileAppears(t *testing.T) {
+func TestIsLinkedTrueWhenAuthenticated(t *testing.T) {
 	fake := buildFakeClaude(t)
 	configDir := t.TempDir()
-
-	if err := os.WriteFile(filepath.Join(configDir, ".credentials.json"), []byte(`{"fake":true}`), 0o600); err != nil {
-		t.Fatalf("writing fake credentials: %v", err)
-	}
+	writeFakeCredentials(t, configDir)
 
 	p := &Prober{ClaudeBinary: fake}
 	if !p.IsLinked(context.Background(), configDir) {
-		t.Error("expected IsLinked = true once a credentials file exists")
+		t.Error("expected IsLinked = true once the account is authenticated")
 	}
 }
 
-func TestProberIsLinkedTrueViaHeadlessProbe(t *testing.T) {
+// TestIsLinkedIgnoresCredentialFileWithoutClaudeAgreeing guards the
+// reason this probe asks the CLI at all: on macOS the credentials can
+// live in the Keychain with no file on disk, so file presence is not
+// the question — what `claude auth status` says is.
+func TestIsLinkedAsksTheCLINotTheFilesystem(t *testing.T) {
 	fake := buildFakeClaude(t)
 	configDir := t.TempDir()
 
-	// No credentials file, but the fake binary's own headless-probe mode
-	// is stubbed to succeed when we tell it credentials exist some other
-	// way (e.g. a real backend's Keychain). Simulate that here by writing
-	// the file fakeclaude checks, then deleting it only from the fast
-	// path's perspective is impossible in this harness, so instead this
-	// test just confirms the fallback path is reached and agrees with the
-	// fast path for a linked account.
-	if err := os.WriteFile(filepath.Join(configDir, ".credentials.json"), []byte(`{"fake":true}`), 0o600); err != nil {
-		t.Fatalf("writing fake credentials: %v", err)
+	// A file that exists but is empty must not read as authenticated.
+	if err := os.WriteFile(filepath.Join(configDir, ".credentials.json"), nil, 0o600); err != nil {
+		t.Fatalf("writing empty credentials: %v", err)
 	}
 
 	p := &Prober{ClaudeBinary: fake}
-	if !p.headlessProbeSucceeds(context.Background(), configDir) {
-		t.Error("expected headless probe to succeed once credentials exist")
+	if p.IsLinked(context.Background(), configDir) {
+		t.Error("expected IsLinked = false when claude reports loggedIn:false")
+	}
+}
+
+func TestStatusReportsAuthMethod(t *testing.T) {
+	fake := buildFakeClaude(t)
+	configDir := t.TempDir()
+	writeFakeCredentials(t, configDir)
+
+	p := &Prober{ClaudeBinary: fake}
+	status, err := p.Status(context.Background(), configDir)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if !status.LoggedIn {
+		t.Errorf("LoggedIn = false, want true")
+	}
+	if status.AuthMethod != "claude.ai" {
+		t.Errorf("AuthMethod = %q, want claude.ai", status.AuthMethod)
+	}
+}
+
+func TestIsLinkedFalseWhenClaudeMissing(t *testing.T) {
+	p := &Prober{ClaudeBinary: filepath.Join(t.TempDir(), "does-not-exist")}
+	if p.IsLinked(context.Background(), t.TempDir()) {
+		t.Error("expected IsLinked = false when the claude binary can't be run")
+	}
+}
+
+func writeFakeCredentials(t *testing.T, configDir string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(configDir, ".credentials.json"), []byte(`{"fake":true}`), 0o600); err != nil {
+		t.Fatalf("writing fake credentials: %v", err)
 	}
 }

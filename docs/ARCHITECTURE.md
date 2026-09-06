@@ -23,12 +23,35 @@ amd64/arm64 (`CGO_ENABLED=0`).
   package where that split lives; everything else only sees the `Session`
   interface.
 
-- **`internal/ptyauth`** — drives one login attempt: spawns `claude` via
-  `ptyio`, parses its output into a virtual terminal screen
-  (`github.com/hinshun/vt10x` — needed because `claude`'s TUI repaints/clears
-  lines rather than printing plain scrolling text), regex-scans the rendered
-  screen for the OAuth URL, and polls `accounts.Prober` for completion.
-  Emits a small `Event` stream: `url` → `linked`/`failed`/`timeout`.
+- **`internal/claudebin`** — finds the `claude` executable. Started at login
+  by launchd/systemd/a Startup entry, ccam has almost no `PATH` (launchd
+  hands out roughly `/usr/bin:/bin:/usr/sbin:/sbin`) while `claude` lives
+  under the user's home, so `exec.LookPath` alone works from a terminal and
+  fails after every reboot. Checks `CCAM_CLAUDE_BIN`, then `PATH`, then the
+  known install locations.
+
+- **`internal/ptyauth`** — drives one login attempt: spawns
+  `claude auth login --claudeai` via `ptyio`, parses its output into a
+  virtual terminal screen (`github.com/hinshun/vt10x` — needed because
+  `claude`'s TUI repaints/clears lines rather than printing plain scrolling
+  text), regex-scans the rendered screen for the OAuth URL, and polls
+  `accounts.Prober` for completion. Emits a small `Event` stream:
+  `url` → `linked`/`failed`/`timeout`, and can type a pasted
+  authorization code back into the waiting process.
+
+  Three things here were learned the hard way, by running the real CLI
+  (`internal/ptyauth/realclaude_test.go` is the probe that found them):
+
+  1. **`auth login --claudeai`, not bare `claude`.** A bare `claude` in a
+     fresh `CLAUDE_CONFIG_DIR` opens the interactive first-run flow — a
+     theme picker, then a login-method picker — and waits for keystrokes.
+     Nothing ever prints a URL, so the login just hangs.
+  2. **A very wide pseudo-terminal.** The OAuth URL is ~450–600 characters;
+     at a normal 80/120-column width `claude` hard-wraps it across five
+     screen lines and a scraper gets a truncated, broken URL.
+  3. **The `Event` JSON tags are load-bearing.** They are the wire format
+     the browser reads; without them Go emits `Type`/`URL` while the UI
+     reads `type`/`url`, and every field is `undefined`.
 
 - **`internal/shellrc`** — maintains one idempotent, clearly delimited block
   (`# >>> ccam accounts >>> ... <<< ccam accounts <<<`) inside each shell's rc
@@ -59,25 +82,39 @@ amd64/arm64 (`CGO_ENABLED=0`).
   `stop`, `status`, `serve`, `version`). The only package that touches
   `os.Args`, exit codes, or signal handling.
 
-## Why a headless probe, not macOS Keychain code
+## Why `claude auth status`, not Keychain code
 
 Claude Code's credential storage is file-based on Linux/Windows, and on
 macOS may additionally use the Keychain — keyed off `CLAUDE_CONFIG_DIR`
 itself, so two accounts (two different config dirs) never collide. Rather
-than reimplement Anthropic's exact Keychain key derivation, ccam treats
-"can I make a trivial authenticated call with this `CLAUDE_CONFIG_DIR`" as
-the single source of truth for "is this account linked" — correct regardless
-of which backend a given OS/version of `claude` happens to use, and keeps
-`CGO_ENABLED=0` viable everywhere.
+than reimplement Anthropic's exact Keychain key derivation, ccam asks the
+CLI: `claude auth status --json` prints `{"loggedIn": true|false, …}` for
+whatever `CLAUDE_CONFIG_DIR` it's given. That's correct regardless of which
+backend a given OS/version uses, costs nothing (it's a local check, unlike
+the `claude -p ping` call this used to make, which spent real tokens on
+every poll), and keeps `CGO_ENABLED=0` viable everywhere.
 
 ## Testing strategy
 
-A real Anthropic OAuth login can't happen headlessly in CI. `testdata/fakeclaude`
-is a minimal stand-in that renders an auth URL and then writes a fake
-credentials file, exercising every piece of ccam's own logic (PTY spawn,
-screen scraping, SSE event delivery, status transitions, alias sync) without
-touching Anthropic's servers. `test/e2e` drives the real built `ccam` binary
-through install → add account → log in → uninstall against `fakeclaude`,
-on all three OSes in CI. What that can't cover — a real login actually
-succeeding against Anthropic's servers — is the one thing left to
-[`docs/MANUAL_VERIFICATION.md`](MANUAL_VERIFICATION.md).
+Four layers, because each one has a blind spot that let a real bug through:
+
+1. **Unit tests** per package.
+2. **`test/e2e`** drives the real built `ccam` binary through
+   install → add account → log in → uninstall against `testdata/fakeclaude`,
+   on all three OSes.
+3. **`test/browser`** loads the actual web UI in Chromium and WebKit
+   (Playwright) against a real server. This layer exists because layers 1–2
+   drive the HTTP API directly and never load the page — so a UI that was
+   completely broken in every browser (an empty `202` body parsed as JSON,
+   and SSE field names that didn't match what `app.js` read) passed CI while
+   failing on every real machine.
+4. **Manual verification** — [`docs/MANUAL_VERIFICATION.md`](MANUAL_VERIFICATION.md)
+   — for the one thing none of the above can do: a real Anthropic login.
+
+`testdata/fakeclaude` deliberately mirrors the *real* CLI's contract as
+verified by `internal/ptyauth/realclaude_test.go` (a manual probe, run with
+`CCAM_REAL_CLAUDE=1`): it implements `auth status --json` and
+`auth login --claudeai`, prints a ~600-character URL so truncation is
+caught, offers a paste-a-code path, and — importantly — emulates the
+interactive theme picker for a bare `claude`, so that if ccam ever goes back
+to spawning bare `claude` the tests hang exactly the way a real machine did.

@@ -32,3 +32,21 @@ For each of macOS, Linux, and Windows:
    are gone from a **new** terminal, and the ccam binary itself is gone.
 9. Confirm `~/.ccam/accounts` (the actual account credentials) is still
    present after uninstall — it should not be silently deleted.
+
+## Probing the real `claude` CLI
+
+`internal/ptyauth/realclaude_test.go` is a manual probe that spawns the real
+`claude` against a throwaway config dir and dumps the rendered terminal
+screen every two seconds, without ever completing a login:
+
+```sh
+CCAM_REAL_CLAUDE=1 go test ./internal/ptyauth/ -run TestRealClaudeLoginScreens -v
+CCAM_REAL_CLAUDE=1 CCAM_CLAUDE_ARGS="auth login --claudeai" \
+  go test ./internal/ptyauth/ -run TestRealClaudeLoginScreens -v
+```
+
+Run it whenever a Claude Code release might have changed the login flow.
+Every assumption ccam makes about that flow — which subcommand prints a URL,
+how wide the terminal must be for the URL not to wrap, whether a code has to
+be pasted back — came from this probe, and `testdata/fakeclaude` is written
+to match what it shows. If the two ever disagree, the fake is wrong.

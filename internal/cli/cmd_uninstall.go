@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"ccam/internal/config"
 	"ccam/internal/service"
@@ -39,6 +40,15 @@ func cmdUninstall(args []string) int {
 		}
 	}
 
+	// Only remove a binary we installed. Running `./ccam uninstall` from
+	// a build tree should clean up the service, not delete someone's
+	// build output.
+	if !isInstalledBinary(binaryPath) {
+		fmt.Printf("\nLeft %s in place (not in ccam's install directory).\n", binaryPath)
+		fmt.Println("Account data under ~/.ccam/accounts was left in place. Remove ~/.ccam yourself if you want a full wipe.")
+		return 0
+	}
+
 	if err := deleteSelfBinary(binaryPath); err != nil {
 		fmt.Fprintln(os.Stderr, "ccam: warning: could not remove the installed binary at", binaryPath, "-", err)
 		fmt.Println("You can delete it yourself; nothing else references it.")
@@ -48,4 +58,18 @@ func cmdUninstall(args []string) int {
 
 	fmt.Println("\nAccount data under ~/.ccam/accounts was left in place. Remove ~/.ccam yourself if you want a full wipe.")
 	return 0
+}
+
+// isInstalledBinary reports whether path is the copy an installer put in
+// ccam's own per-user install directory.
+func isInstalledBinary(path string) bool {
+	installDir, err := config.InstallDir()
+	if err != nil {
+		return false
+	}
+	resolvedInstallDir, err := filepath.EvalSymlinks(installDir)
+	if err != nil {
+		resolvedInstallDir = installDir
+	}
+	return filepath.Dir(path) == resolvedInstallDir || filepath.Dir(path) == installDir
 }
