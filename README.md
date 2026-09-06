@@ -27,19 +27,25 @@ side by side.
 **macOS / Linux:**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Saif0089/ccam/main/install.sh | sh
+curl -fsSL https://ccam-six.vercel.app/install.sh | sh
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm https://raw.githubusercontent.com/Saif0089/ccam/main/install.ps1 | iex
+irm https://ccam-six.vercel.app/install.ps1 | iex
 ```
 
 Both scripts install a single binary to a per-user directory (`~/.local/bin`
 or `%LOCALAPPDATA%\ccam\bin`), register it to start at login, start it, and
 print the URL to open. Nothing is written outside your own user profile —
 no `sudo`, no `/usr/local`, no `Program Files`, no `HKLM`.
+
+The source repo is private; the install scripts and binaries are instead
+published to [ccam-six.vercel.app](https://ccam-six.vercel.app) (a Vercel
+project connected to this repo) by
+[`.github/workflows/release.yml`](.github/workflows/release.yml) on every
+tag, so the one-liners above work for anyone without needing repo access.
 
 Prerequisite: the [`claude` CLI](https://claude.com/claude-code) itself must
 already be installed and on `PATH` — ccam manages *accounts* for it, it
