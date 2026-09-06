@@ -9,6 +9,11 @@ import (
 	"runtime"
 )
 
+// DefaultPort is the port ccam listens on unless overridden. Chosen to
+// be memorable-ish and unlikely to collide with anything else already
+// running on a dev machine.
+const DefaultPort = 47932
+
 // HomeDir returns the ccam base directory: ~/.ccam on every OS. Using a
 // single dotdir (rather than OS-specific "proper" locations) keeps the
 // install/uninstall and e2e-test logic identical across platforms.
