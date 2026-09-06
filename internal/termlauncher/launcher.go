@@ -4,9 +4,12 @@
 package termlauncher
 
 import (
+	"bytes"
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
+	"time"
 )
 
 // Launch opens a new terminal window running `claude` with
@@ -36,15 +39,41 @@ func launchDarwin(configDir, label string) error {
 	return startAndReap(exec.Command("osascript", "-e", script))
 }
 
-// startAndReap starts cmd without waiting for it, but still reaps it —
-// ccam is a long-lived process, so every un-waited child would sit
-// around as a zombie for the life of the service.
+// startAndReap starts cmd and gives it a moment to fail.
+//
+// cmd.Start() succeeding only means fork+exec happened — `osascript`
+// denied by macOS's automation permissions, or a terminal emulator with
+// no DISPLAY to open on, both exit non-zero a moment later, and
+// reporting success for those told the user a window had opened when
+// none had. It also reaps the child either way: ccam is long-lived, so
+// an un-waited child would linger as a zombie for the life of the
+// service.
 func startAndReap(cmd *exec.Cmd) error {
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	go cmd.Wait()
-	return nil
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			if msg := strings.TrimSpace(stderr.String()); msg != "" {
+				return fmt.Errorf("%s: %s", err, msg)
+			}
+			return err
+		}
+		return nil
+	case <-time.After(1500 * time.Millisecond):
+		// Still running after a moment: a terminal window that stays
+		// open is the normal, successful case.
+		go func() { <-done }()
+		return nil
+	}
 }
 
 func appleScriptQuote(s string) string {

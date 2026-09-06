@@ -49,6 +49,8 @@ func cmdServe(args []string) int {
 		return 1
 	}
 
+	capLogFile()
+
 	manager := accounts.NewManager(accounts.NewStore(accountsFile), accountsDir)
 	syncer := shellrc.NewSyncer(home)
 
@@ -67,6 +69,27 @@ func cmdServe(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// maxLogBytes caps ~/.ccam/ccam.log. Every request is logged there and
+// nothing ever rotated it, so a service left running with a page open
+// grew it without bound — on the one file that also carries the only
+// diagnostics when something goes wrong.
+const maxLogBytes = 5 << 20
+
+// capLogFile truncates the log if it has grown past maxLogBytes.
+// Truncating is safe while launchd/systemd hold it open, because they
+// opened it O_APPEND and will simply continue at the new end.
+func capLogFile() {
+	path, err := config.LogFile()
+	if err != nil {
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Size() <= maxLogBytes {
+		return
+	}
+	_ = os.Truncate(path, 0)
 }
 
 // resolveBinaryPath returns the absolute, symlink-resolved path to the

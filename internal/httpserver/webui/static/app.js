@@ -116,7 +116,7 @@ async function copyToClipboard(text, button) {
 async function removeAccount(account) {
   if (!confirm(`Remove "${account.name}"? This deletes its local login state.`)) return;
   try {
-    await api(`/api/accounts/${account.id}?confirm=true`, { method: "DELETE" });
+    await api(`/api/accounts/${account.id}`, { method: "DELETE" });
   } catch (err) {
     alert("Could not remove account: " + err.message);
   }
