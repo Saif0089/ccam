@@ -1,0 +1,242 @@
+package httpserver
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"ccam/internal/accounts"
+	"ccam/internal/ptyauth"
+	"ccam/internal/shellrc"
+)
+
+func buildFakeClaude(t *testing.T) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	src := filepath.Join(wd, "..", "..", "testdata", "fakeclaude")
+	out := filepath.Join(t.TempDir(), "fakeclaude")
+
+	cmd := exec.Command("go", "build", "-o", out, src)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("building fakeclaude: %v\n%s", err, output)
+	}
+	return out
+}
+
+func newTestServer(t *testing.T) (*Server, string) {
+	t.Helper()
+	home := t.TempDir()
+	store := accounts.NewStore(filepath.Join(home, ".ccam", "accounts.json"))
+	manager := accounts.NewManager(store, filepath.Join(home, ".ccam", "accounts"))
+	syncer := shellrc.NewSyncer(home)
+	fake := buildFakeClaude(t)
+	return New(manager, syncer, fake), home
+}
+
+func TestAccountsCRUDLifecycle(t *testing.T) {
+	srv, home := newTestServer(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Create.
+	createBody, _ := json.Marshal(map[string]string{"name": "Work"})
+	resp, err := http.Post(ts.URL+"/api/accounts", "application/json", bytes.NewReader(createBody))
+	if err != nil {
+		t.Fatalf("POST /api/accounts: %v", err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+	var created accounts.Account
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	resp.Body.Close()
+	if created.Alias != "claude-work" {
+		t.Errorf("alias = %q, want claude-work", created.Alias)
+	}
+
+	// The alias must already be live in the rc file.
+	rcPath := anyRcPath(home)
+	data, _ := os.ReadFile(rcPath)
+	if !strings.Contains(string(data), "claude-work") {
+		t.Errorf("expected alias in %s, got %q", rcPath, data)
+	}
+
+	// List.
+	resp, err = http.Get(ts.URL + "/api/accounts")
+	if err != nil {
+		t.Fatalf("GET /api/accounts: %v", err)
+	}
+	var list accountsResponse
+	json.NewDecoder(resp.Body).Decode(&list)
+	resp.Body.Close()
+	if len(list.Accounts) != 1 {
+		t.Fatalf("accounts = %d, want 1", len(list.Accounts))
+	}
+
+	// Rename.
+	renameBody, _ := json.Marshal(map[string]string{"name": "Side Project"})
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/accounts/"+created.ID, bytes.NewReader(renameBody))
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PATCH: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+	data, _ = os.ReadFile(rcPath)
+	if !strings.Contains(string(data), "claude-side-project") {
+		t.Errorf("expected renamed alias in %s, got %q", rcPath, data)
+	}
+
+	// Delete.
+	req, _ = http.NewRequest(http.MethodDelete, ts.URL+"/api/accounts/"+created.ID+"?confirm=true", nil)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE: %v", err)
+	}
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	if _, err := os.Stat(rcPath); !os.IsNotExist(err) {
+		t.Errorf("expected rc file removed once no accounts remain, stat err = %v", err)
+	}
+}
+
+func anyRcPath(home string) string {
+	for _, p := range shellrc.RcPaths(home) {
+		return p
+	}
+	return ""
+}
+
+func TestLoginFlowEndToEnd(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	createBody, _ := json.Marshal(map[string]string{"name": "Work"})
+	resp, _ := http.Post(ts.URL+"/api/accounts", "application/json", bytes.NewReader(createBody))
+	var account accounts.Account
+	json.NewDecoder(resp.Body).Decode(&account)
+	resp.Body.Close()
+
+	resp, err := http.Post(ts.URL+"/api/accounts/"+account.ID+"/login", "", nil)
+	if err != nil {
+		t.Fatalf("POST login: %v", err)
+	}
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp, err = http.Get(ts.URL + "/api/accounts/" + account.ID + "/login/events")
+	if err != nil {
+		t.Fatalf("GET login/events: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var sawURL, sawLinked bool
+	scanner := bufio.NewScanner(resp.Body)
+	deadline := time.Now().Add(10 * time.Second)
+	for scanner.Scan() && time.Now().Before(deadline) {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var ev ptyauth.Event
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &ev); err != nil {
+			continue
+		}
+		switch ev.Type {
+		case ptyauth.EventURL:
+			sawURL = true
+		case ptyauth.EventLinked:
+			sawLinked = true
+		}
+		if sawLinked {
+			break
+		}
+	}
+
+	if !sawURL {
+		t.Error("expected a url event over SSE")
+	}
+	if !sawLinked {
+		t.Error("expected a linked event over SSE")
+	}
+
+	// The account's stored status should now be "linked" too.
+	resp, _ = http.Get(ts.URL + "/api/accounts")
+	var list accountsResponse
+	json.NewDecoder(resp.Body).Decode(&list)
+	resp.Body.Close()
+	if len(list.Accounts) != 1 || list.Accounts[0].Status != accounts.StatusLinked {
+		t.Errorf("accounts = %+v, want one linked account", list.Accounts)
+	}
+}
+
+func TestLaunchTerminalUsesInjectedLauncher(t *testing.T) {
+	srv, _ := newTestServer(t)
+	var gotConfigDir string
+	srv.launchTerminal = func(configDir, label string) error {
+		gotConfigDir = configDir
+		return nil
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	createBody, _ := json.Marshal(map[string]string{"name": "Work"})
+	resp, _ := http.Post(ts.URL+"/api/accounts", "application/json", bytes.NewReader(createBody))
+	var account accounts.Account
+	json.NewDecoder(resp.Body).Decode(&account)
+	resp.Body.Close()
+
+	resp, err := http.Post(ts.URL+"/api/accounts/"+account.ID+"/launch-terminal", "", nil)
+	if err != nil {
+		t.Fatalf("POST launch-terminal: %v", err)
+	}
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	if gotConfigDir != account.ConfigDir {
+		t.Errorf("launchTerminal called with %q, want %q", gotConfigDir, account.ConfigDir)
+	}
+}
+
+func TestWebUIServedAtRoot(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body := new(bytes.Buffer)
+	body.ReadFrom(resp.Body)
+	if !strings.Contains(body.String(), "ccam") {
+		t.Errorf("expected the embedded UI to mention ccam, got %d bytes", body.Len())
+	}
+}

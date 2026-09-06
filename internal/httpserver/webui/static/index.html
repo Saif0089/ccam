@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ccam — Claude Code Account Manager</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>ccam</h1>
+  <p class="subtitle">Claude Code Account Manager</p>
+</header>
+
+<main>
+  <section class="toolbar">
+    <button id="add-account-btn" class="primary">+ Add account</button>
+  </section>
+
+  <section id="accounts-list" aria-live="polite"></section>
+  <p id="empty-state" hidden>No accounts yet. Click "Add account" to link your first Claude Code login.</p>
+</main>
+
+<dialog id="add-dialog">
+  <form id="add-form" method="dialog">
+    <h2>Add account</h2>
+    <label>
+      Name
+      <input id="add-name" type="text" placeholder="e.g. Work, Personal" required autofocus>
+    </label>
+    <div class="dialog-actions">
+      <button type="button" id="add-cancel">Cancel</button>
+      <button type="submit" class="primary">Create &amp; connect</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="login-dialog">
+  <div id="login-body">
+    <h2>Connect account</h2>
+    <p id="login-status">Starting login…</p>
+    <div id="login-url-box" hidden>
+      <p>Open this URL in your browser to finish logging in:</p>
+      <a id="login-url" href="#" target="_blank" rel="noopener"></a>
+      <button type="button" id="login-copy">Copy URL</button>
+    </div>
+  </div>
+  <div class="dialog-actions">
+    <button type="button" id="login-close">Close</button>
+  </div>
+</dialog>
+
+<dialog id="rename-dialog">
+  <form id="rename-form" method="dialog">
+    <h2>Rename account</h2>
+    <input type="hidden" id="rename-id">
+    <label>
+      Name
+      <input id="rename-name" type="text" required>
+    </label>
+    <div class="dialog-actions">
+      <button type="button" id="rename-cancel">Cancel</button>
+      <button type="submit" class="primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<template id="account-row-template">
+  <article class="account-card">
+    <div class="account-main">
+      <span class="account-name"></span>
+      <span class="status-badge"></span>
+    </div>
+    <div class="account-alias">
+      <code class="alias-text"></code>
+      <button class="copy-alias" type="button">Copy</button>
+    </div>
+    <div class="account-actions">
+      <button class="launch-terminal" type="button">Open terminal</button>
+      <button class="connect-btn" type="button" hidden>Connect</button>
+      <button class="rename-btn" type="button">Rename</button>
+      <button class="remove-btn danger" type="button">Remove</button>
+    </div>
+  </article>
+</template>
+
+<script src="app.js"></script>
+</body>
+</html>

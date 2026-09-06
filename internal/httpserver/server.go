@@ -1,0 +1,129 @@
+// Package httpserver serves ccam's REST/SSE API and embedded web UI on
+// 127.0.0.1 only — this tool manages login credentials, so it must never
+// be reachable from anything but the same machine.
+package httpserver
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"sync"
+	"time"
+
+	"ccam/internal/accounts"
+	"ccam/internal/config"
+	"ccam/internal/service"
+	"ccam/internal/shellrc"
+	"ccam/internal/termlauncher"
+)
+
+// Server holds every dependency the HTTP handlers need.
+type Server struct {
+	manager      *accounts.Manager
+	syncer       *shellrc.Syncer
+	claudeBinary string
+
+	// launchTerminal opens a terminal scoped to an account; a field
+	// (rather than calling termlauncher.Launch directly) so tests can
+	// stub it out without actually opening a window.
+	launchTerminal func(configDir, label string) error
+
+	mu     sync.Mutex
+	logins map[string]*loginBroadcast // accountID -> in-progress/last login, if any
+}
+
+// New builds a Server. claudeBinary is the executable to spawn for
+// logins and probes (normally "claude", overridable for tests).
+func New(manager *accounts.Manager, syncer *shellrc.Syncer, claudeBinary string) *Server {
+	return &Server{
+		manager:        manager,
+		syncer:         syncer,
+		claudeBinary:   claudeBinary,
+		launchTerminal: termlauncher.Launch,
+		logins:         map[string]*loginBroadcast{},
+	}
+}
+
+// Handler returns the complete http.Handler: the embedded web UI plus
+// the JSON/SSE API.
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+	s.registerRoutes(mux)
+	return withLogging(mux)
+}
+
+func withLogging(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		h.ServeHTTP(w, r)
+		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
+	})
+}
+
+// Serve runs the HTTP server on 127.0.0.1:port (0 to pick any free
+// port), writes the chosen port to ccam's port file so other ccam
+// invocations and the installer's health check can find it, records
+// this process's PID, and blocks until ctx is canceled — at which point
+// it shuts down gracefully and cleans up both files.
+func Serve(ctx context.Context, srv *Server, port int) error {
+	ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
+	if err != nil {
+		return fmt.Errorf("listening on 127.0.0.1:%d: %w", port, err)
+	}
+	actualPort := ln.Addr().(*net.TCPAddr).Port
+
+	if err := writePortFile(actualPort); err != nil {
+		ln.Close()
+		return err
+	}
+	defer removePortFile()
+
+	if err := service.RecordSelf(); err != nil {
+		log.Printf("warning: could not record pid file: %v", err)
+	}
+
+	httpSrv := &http.Server{Handler: srv.Handler()}
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- httpSrv.Serve(ln)
+	}()
+
+	log.Printf("ccam listening on http://127.0.0.1:%d", actualPort)
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = httpSrv.Shutdown(shutdownCtx)
+		return nil
+	case err := <-errCh:
+		if err != nil && err != http.ErrServerClosed {
+			return err
+		}
+		return nil
+	}
+}
+
+func writePortFile(port int) error {
+	path, err := config.PortFile()
+	if err != nil {
+		return err
+	}
+	if err := config.EnsureDir(filepath.Dir(path)); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(strconv.Itoa(port)), 0o600)
+}
+
+func removePortFile() {
+	path, err := config.PortFile()
+	if err != nil {
+		return
+	}
+	_ = os.Remove(path)
+}
