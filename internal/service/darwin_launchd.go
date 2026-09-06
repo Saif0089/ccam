@@ -73,12 +73,17 @@ func (d *darwinService) Install(binaryPath string, port int) (string, error) {
 		return "", err
 	}
 
-	target, err := guiTarget()
-	if err != nil {
-		return path, nil // plist is written; loading it can be retried by Start()
-	}
-	// Loading twice is harmless; launchctl reports an error we ignore.
-	_ = exec.Command("launchctl", "bootstrap", target, path).Run()
+	// Deliberately not `launchctl bootstrap`-ing it here: with
+	// RunAtLoad=true, bootstrapping loads *and* immediately starts it,
+	// racing with the Start() call every caller (ccam install, and our
+	// own tests) makes right after Install() — whichever of the two
+	// wins the race to bind the port leaves the other logging a
+	// harmless-looking "address already in use" error, and on a loaded
+	// CI runner the loser can occasionally be the one whose bind
+	// mattered. macOS already loads ~/Library/LaunchAgents/*.plist at
+	// the next real login on its own, so writing the file is enough
+	// for "start at login"; Start() is the sole "start it right now"
+	// path, matching generic.go's design (see its comment).
 	return path, nil
 }
 
