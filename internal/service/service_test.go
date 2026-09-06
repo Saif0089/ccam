@@ -1,10 +1,12 @@
 package service
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -62,7 +64,7 @@ func TestInstallStartStopUninstallLifecycle(t *testing.T) {
 		t.Skip("spawns a real background process; skipped in -short")
 	}
 	binary := buildCcam(t)
-	withFakeHome(t)
+	home := withFakeHome(t)
 
 	const port = 47999
 	svc := New(binary, port)
@@ -85,25 +87,25 @@ func TestInstallStartStopUninstallLifecycle(t *testing.T) {
 	if err := svc.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	// A generous window: on a loaded CI runner, launchd/systemd
-	// bootstrapping the autostart entry (which can itself start the
-	// process via RunAtLoad) and our own spawnDetached path can both
-	// take longer than they do on a quiet dev machine.
-	if !waitUntil(15*time.Second, func() bool {
+	// A generous window: a freshly built, unsigned binary's first
+	// execution on macOS CI runners can eat several seconds in
+	// Gatekeeper's syspolicyd check alone, on top of whatever the OS
+	// service manager itself needs.
+	if !waitUntil(30*time.Second, func() bool {
 		running, _ := svc.IsRunning()
 		return running
 	}) {
-		t.Fatal("service never came up after Start")
+		t.Fatalf("service never came up after Start\n%s", diagnostics(home))
 	}
 
 	if err := svc.Stop(); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
-	if !waitUntil(15*time.Second, func() bool {
+	if !waitUntil(30*time.Second, func() bool {
 		running, _ := svc.IsRunning()
 		return !running
 	}) {
-		t.Fatal("service still reports running after Stop")
+		t.Fatalf("service still reports running after Stop\n%s", diagnostics(home))
 	}
 
 	if err := svc.Uninstall(); err != nil {
@@ -112,6 +114,26 @@ func TestInstallStartStopUninstallLifecycle(t *testing.T) {
 	if installed, err := svc.IsInstalled(); err != nil || installed {
 		t.Fatalf("IsInstalled after Uninstall = %v, %v; want false, nil", installed, err)
 	}
+}
+
+// diagnostics dumps ccam's own log/pid/port files for a failed test's
+// error message, since the failure otherwise gives no clue whether the
+// process never started, started and crashed, or started but never
+// bound/answered.
+func diagnostics(home string) string {
+	var b strings.Builder
+	dump := func(label, path string) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			fmt.Fprintf(&b, "--- %s (%s): %v ---\n", label, path, err)
+			return
+		}
+		fmt.Fprintf(&b, "--- %s (%s) ---\n%s\n", label, path, data)
+	}
+	dump("ccam.log", filepath.Join(home, ".ccam", "ccam.log"))
+	dump("pidfile", filepath.Join(home, ".ccam", "ccam.pid"))
+	dump("port file", filepath.Join(home, ".ccam", "port"))
+	return b.String()
 }
 
 func waitUntil(timeout time.Duration, cond func() bool) bool {
