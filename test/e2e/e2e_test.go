@@ -157,7 +157,12 @@ func TestFullLifecycle(t *testing.T) {
 		t.Error("service still answering after uninstall")
 	}
 
-	if !waitUntilNot(5*time.Second, func() bool {
+	// On Windows the binary can't delete itself while still running, so
+	// uninstall schedules the delete to happen just after this process
+	// exits; Defender/handle-release adds further variance on CI
+	// runners. Give it a generous window rather than tightening the
+	// mechanism around CI's worst case.
+	if !waitUntilNot(20*time.Second, func() bool {
 		_, err := os.Stat(h.ccamBin)
 		return err == nil
 	}) {
