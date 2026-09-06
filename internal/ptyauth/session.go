@@ -192,14 +192,42 @@ func (s *Session) run(ctx context.Context, configDir string, prober *accounts.Pr
 	screens := make(chan string, 8)
 	go pumpScreen(s.pty, term, screens)
 
-	ticker := time.NewTicker(poll)
-	defer ticker.Stop()
+	// The completion probe runs in its own goroutine and reports through
+	// a channel. Calling it inline would block this loop for as long as
+	// the probe takes — and this loop is also what forwards the OAuth
+	// URL to the browser, so a slow probe would delay the one thing the
+	// user is waiting for.
+	linked := make(chan struct{})
+	probeCtx, stopProbe := context.WithCancel(ctx)
+	defer stopProbe()
+	go func() {
+		ticker := time.NewTicker(poll)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-probeCtx.Done():
+				return
+			case <-ticker.C:
+				if prober.IsLinked(probeCtx, configDir) {
+					close(linked)
+					return
+				}
+			}
+		}
+	}()
 
 	urlSent := false
+	// Deliberately not `case <-ctx.Done()` here: the terminal events
+	// (linked/timeout/failed) are emitted *because* ctx is already done,
+	// and a select with both cases ready picks at random — so half the
+	// time the final event was silently dropped and the UI waited
+	// forever for a result that never came. The channel is buffered and
+	// callers drain it until close; the timeout is only a backstop
+	// against a caller that abandoned it without reading.
 	emit := func(ev Event) {
 		select {
 		case s.events <- ev:
-		case <-ctx.Done():
+		case <-time.After(5 * time.Second):
 		}
 	}
 
@@ -209,7 +237,7 @@ func (s *Session) run(ctx context.Context, configDir string, prober *accounts.Pr
 			if !ok {
 				// claude's output ended. It may have just finished a
 				// successful login, so give the probe the last word.
-				if prober.IsLinked(ctx, configDir) {
+				if prober.IsLinked(context.Background(), configDir) {
 					emit(Event{Type: EventLinked})
 				} else {
 					emit(Event{Type: EventFailed, Message: "claude exited before completing login"})
@@ -222,11 +250,9 @@ func (s *Session) run(ctx context.Context, configDir string, prober *accounts.Pr
 					emit(Event{Type: EventURL, URL: url})
 				}
 			}
-		case <-ticker.C:
-			if prober.IsLinked(ctx, configDir) {
-				emit(Event{Type: EventLinked})
-				return
-			}
+		case <-linked:
+			emit(Event{Type: EventLinked})
+			return
 		case <-ctx.Done():
 			if prober.IsLinked(context.Background(), configDir) {
 				emit(Event{Type: EventLinked})

@@ -250,41 +250,57 @@ func (h *harness) driveLoginToLinked(accountID string) {
 	}
 	defer resp.Body.Close()
 
+	// scanner.Scan() blocks, so a deadline checked around it never fires
+	// while nothing is arriving. Read on a goroutine and close the body
+	// to break out, so a login that never completes fails with the
+	// frames it did see rather than hanging until the test binary's
+	// global timeout.
 	var sawURL, sawLinked bool
-	scanner := bufio.NewScanner(resp.Body)
-	deadline := time.Now().Add(20 * time.Second)
-	for scanner.Scan() {
-		if time.Now().After(deadline) {
-			break
-		}
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		// Decoded from the literal wire format the browser sees, NOT by
-		// reusing ptyauth.Event: this test previously declared
-		// `json:"Type"` and so happily passed while the real UI, which
-		// reads event.type, got undefined for every field.
-		var ev struct {
-			Type string `json:"type"`
-			URL  string `json:"url"`
-		}
-		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &ev); err != nil {
-			continue
-		}
-		switch ev.Type {
-		case "url":
-			sawURL = true
-			if len(ev.URL) < 400 {
-				h.t.Errorf("OAuth URL looks truncated (%d chars): %s", len(ev.URL), ev.URL)
+	var seen []string
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "data: ") {
+				continue
 			}
-		case "linked":
-			sawLinked = true
+			seen = append(seen, line)
+			// Decoded from the literal wire format the browser sees, NOT
+			// by reusing ptyauth.Event: this test previously declared
+			// `json:"Type"` and so happily passed while the real UI,
+			// which reads event.type, got undefined for every field.
+			var ev struct {
+				Type string `json:"type"`
+				URL  string `json:"url"`
+			}
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &ev); err != nil {
+				continue
+			}
+			switch ev.Type {
+			case "url":
+				sawURL = true
+				if len(ev.URL) < 400 {
+					h.t.Errorf("OAuth URL looks truncated (%d chars): %s", len(ev.URL), ev.URL)
+				}
+			case "linked":
+				sawLinked = true
+			}
+			if sawLinked {
+				return
+			}
 		}
-		if sawLinked {
-			break
-		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(60 * time.Second):
+		resp.Body.Close()
+		<-done
+		h.t.Errorf("timed out waiting for SSE events; frames seen: %v\nccam log:\n%s", seen, readLog(h))
 	}
+
 	if !sawURL {
 		h.t.Error("expected a url event over SSE")
 	}

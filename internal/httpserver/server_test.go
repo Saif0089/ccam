@@ -151,27 +151,44 @@ func TestLoginFlowEndToEnd(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
+	// scanner.Scan() blocks, so a deadline checked in the loop condition
+	// never fires while nothing is arriving — that turned a login that
+	// simply never completed into a ten-minute hang with no diagnosis.
+	// Read on a goroutine and close the body to break out instead.
 	var sawURL, sawLinked bool
-	scanner := bufio.NewScanner(resp.Body)
-	deadline := time.Now().Add(10 * time.Second)
-	for scanner.Scan() && time.Now().Before(deadline) {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
-			continue
+	var seen []string
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			seen = append(seen, line)
+			var ev ptyauth.Event
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &ev); err != nil {
+				continue
+			}
+			switch ev.Type {
+			case ptyauth.EventURL:
+				sawURL = true
+			case ptyauth.EventLinked:
+				sawLinked = true
+			}
+			if sawLinked {
+				return
+			}
 		}
-		var ev ptyauth.Event
-		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &ev); err != nil {
-			continue
-		}
-		switch ev.Type {
-		case ptyauth.EventURL:
-			sawURL = true
-		case ptyauth.EventLinked:
-			sawLinked = true
-		}
-		if sawLinked {
-			break
-		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(45 * time.Second):
+		resp.Body.Close()
+		<-done
+		t.Errorf("timed out waiting for SSE events; frames seen: %v", seen)
 	}
 
 	if !sawURL {
