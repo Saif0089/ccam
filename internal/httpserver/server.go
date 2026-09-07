@@ -33,6 +33,11 @@ type Server struct {
 	// stub it out without actually opening a window.
 	launchTerminal func(configDir, label string) error
 
+	// defaultCheck throttles re-detection of the default account, which
+	// costs a `claude auth status` subprocess.
+	defaultCheckMu   sync.Mutex
+	defaultCheckedAt time.Time
+
 	mu     sync.Mutex
 	logins map[string]*loginBroadcast // accountID -> in-progress/last login, if any
 	// startMu serialises login starts, which span a subprocess spawn
@@ -57,7 +62,7 @@ func New(manager *accounts.Manager, syncer *shellrc.Syncer, claudeBinary string)
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
-	return withLogging(mux)
+	return withLocalOnly(withLogging(mux))
 }
 
 func withLogging(h http.Handler) http.Handler {
@@ -89,6 +94,11 @@ func Serve(ctx context.Context, srv *Server, port int) error {
 	if err := service.RecordSelf(); err != nil {
 		log.Printf("warning: could not record pid file: %v", err)
 	}
+
+	// Adopt the account plain `claude` uses, and keep watching for it.
+	watchCtx, stopWatch := context.WithCancel(ctx)
+	defer stopWatch()
+	srv.StartDefaultAccountWatch(watchCtx)
 
 	httpSrv := &http.Server{Handler: srv.Handler()}
 	errCh := make(chan error, 1)

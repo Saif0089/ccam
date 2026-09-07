@@ -37,6 +37,7 @@ func NewProber() *Prober {
 type authStatus struct {
 	LoggedIn   bool   `json:"loggedIn"`
 	AuthMethod string `json:"authMethod"`
+	Email      string `json:"email"`
 }
 
 // IsLinked reports whether configDir is authenticated.
@@ -65,7 +66,9 @@ func (p *Prober) Status(ctx context.Context, configDir string) (authStatus, erro
 
 	name, args := claudebin.Invocation(binary, []string{"auth", "status", "--json"})
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = append(os.Environ(), "CLAUDE_CONFIG_DIR="+configDir)
+	// An empty configDir means the default account, which is reached by
+	// *removing* the variable — see EnvForConfigDir.
+	cmd.Env = EnvForConfigDir(configDir)
 	// Never inherit ccam's working directory: started by launchd at
 	// login that is "/", and claude treats its working directory as the
 	// project directory.

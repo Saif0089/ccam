@@ -53,15 +53,37 @@ func (m *Manager) Add(name string) (Account, error) {
 
 	var created Account
 	_, err := m.store.Mutate(func(list []Account) ([]Account, error) {
-		slug := uniqueSlug(slugify(name), list)
-		dir := filepath.Join(m.accountsDir, slug)
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return nil, fmt.Errorf("creating account dir: %w", err)
+		// Create the directory rather than accepting an existing one: a
+		// leftover from a removal that failed (routine on Windows, where
+		// an open handle blocks deletion) would otherwise be adopted
+		// silently, and the "new" account would already be signed in as
+		// the identity the user thought they had deleted.
+		base := slugify(name)
+		slug := uniqueSlug(base, list)
+		var dir string
+		for attempt := 0; ; attempt++ {
+			dir = filepath.Join(m.accountsDir, slug)
+			if err := os.MkdirAll(m.accountsDir, 0o700); err != nil {
+				return nil, fmt.Errorf("creating accounts dir: %w", err)
+			}
+			err := os.Mkdir(dir, 0o700)
+			if err == nil {
+				break
+			}
+			if !os.IsExist(err) {
+				return nil, fmt.Errorf("creating account dir: %w", err)
+			}
+			if attempt > 50 {
+				return nil, fmt.Errorf("creating account dir: %s already exists", dir)
+			}
+			slug = fmt.Sprintf("%s-%d", base, attempt+2)
+			slug = uniqueSlug(slug, list)
 		}
 		created = Account{
 			ID:        slug,
 			Name:      name,
 			Slug:      slug,
+			Kind:      KindManaged,
 			ConfigDir: dir,
 			Alias:     uniqueAlias(aliasFor(slug), list),
 			Status:    StatusPending,
@@ -160,9 +182,21 @@ func (m *Manager) Remove(id string) (Account, error) {
 	if !found {
 		return Account{}, fmt.Errorf("no account with id %q", id)
 	}
-	if removed.ConfigDir != "" {
-		// Best-effort: an account dir that's already gone isn't an error.
-		_ = os.RemoveAll(removed.ConfigDir)
+	if removed.IsDefault() {
+		// Removing the adopted default account only makes ccam forget
+		// it. Its directory is the user's main Claude Code login.
+		if err := m.store.SetDefaultDismissed(true); err != nil {
+			return removed, err
+		}
+		return removed, nil
+	}
+
+	if removed.OwnsConfigDir() {
+		if err := os.RemoveAll(removed.ConfigDir); err != nil && !os.IsNotExist(err) {
+			// Reporting success here is how a later Add lands on a
+			// directory that still holds the old credentials.
+			return removed, fmt.Errorf("account removed, but its directory %s could not be deleted: %w", removed.ConfigDir, err)
+		}
 	}
 	return removed, nil
 }

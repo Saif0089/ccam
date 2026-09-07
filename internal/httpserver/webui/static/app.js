@@ -66,11 +66,20 @@ function renderAccounts(accounts) {
 
     node.querySelector(".account-name").textContent = account.name;
 
+    const isDefault = account.kind === "default";
+    if (isDefault) card.classList.add("default-account");
+
     const badge = node.querySelector(".status-badge");
     badge.textContent = account.status;
     badge.classList.add(account.status === "linked" ? "linked" : "pending");
 
     node.querySelector(".alias-text").textContent = account.alias;
+    if (isDefault) {
+      // There is no generated alias for this one: typing `claude` is
+      // how you run it, which is also why nothing was written to any
+      // shell rc file for it.
+      node.querySelector(".alias-text").title = "This is the account plain `claude` already uses";
+    }
 
     const connectBtn = node.querySelector(".connect-btn");
     // Always offer Connect: a linked account's token can expire or be
@@ -94,7 +103,11 @@ function renderAccounts(accounts) {
       renameNameInput.value = account.name;
       renameDialog.showModal();
     });
-    node.querySelector(".remove-btn").addEventListener("click", () => removeAccount(account));
+    const removeBtn = node.querySelector(".remove-btn");
+    // ccam did not create the default account's directory and must
+    // never delete it, so the wording says what actually happens.
+    removeBtn.textContent = isDefault ? "Forget" : "Remove";
+    removeBtn.addEventListener("click", () => removeAccount(account, isDefault));
 
     accountsList.appendChild(node);
   }
@@ -113,8 +126,11 @@ async function copyToClipboard(text, button) {
   }, 1500);
 }
 
-async function removeAccount(account) {
-  if (!confirm(`Remove "${account.name}"? This deletes its local login state.`)) return;
+async function removeAccount(account, isDefault) {
+  const question = isDefault
+    ? `Stop showing "${account.name}" here? Your ~/.claude login is left completely untouched — ccam just forgets about it.`
+    : `Remove "${account.name}"? This deletes its local login state.`;
+  if (!confirm(question)) return;
   try {
     await api(`/api/accounts/${account.id}`, { method: "DELETE" });
   } catch (err) {

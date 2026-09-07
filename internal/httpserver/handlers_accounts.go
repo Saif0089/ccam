@@ -94,6 +94,12 @@ func (s *Server) syncAliases() error {
 	}
 	entries := make([]shellrc.AliasEntry, 0, len(list))
 	for _, a := range list {
+		// The default account is reached by typing `claude`; writing an
+		// `alias claude=...` would be redundant and a good way to break
+		// the user's actual claude command.
+		if a.IsDefault() {
+			continue
+		}
 		entries = append(entries, shellrc.AliasEntry{Alias: a.Alias, ConfigDir: a.ConfigDir})
 	}
 	return s.syncer.Sync(entries)

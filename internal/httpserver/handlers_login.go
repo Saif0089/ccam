@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"time"
 
 	"ccam/internal/accounts"
@@ -49,11 +48,10 @@ func (s *Server) handleStartLogin(w http.ResponseWriter, r *http.Request) {
 
 	s.cancelLogin(id) // retire a finished attempt before starting a new one
 
-	env := append(os.Environ(), "CLAUDE_CONFIG_DIR="+account.ConfigDir)
 	session, err := ptyauth.Start(context.Background(), ptyauth.Config{
 		ClaudeBinary: s.claudeBinary,
 		ConfigDir:    account.ConfigDir,
-		Env:          env,
+		Env:          accounts.EnvForConfigDir(account.ConfigDir),
 		Timeout:      10 * time.Minute,
 		PollInterval: 2 * time.Second,
 		Prober:       &accounts.Prober{ClaudeBinary: s.claudeBinary},

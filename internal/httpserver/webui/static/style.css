@@ -116,6 +116,10 @@ button.danger, .remove-btn {
 .status-badge.linked { color: var(--linked); border-color: var(--linked); }
 .status-badge.pending { color: var(--pending); border-color: var(--pending); }
 
+/* The adopted default account is not one ccam created; a quiet marker
+   distinguishes it without shouting. */
+.account-card.default-account { border-left: 3px solid var(--accent); }
+
 .account-alias {
   display: flex;
   align-items: center;

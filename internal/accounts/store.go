@@ -23,6 +23,10 @@ func NewStore(path string) *Store {
 
 type fileFormat struct {
 	Accounts []Account `json:"accounts"`
+	// DefaultDismissed records that the user removed the auto-adopted
+	// default account, so it is not silently adopted again on the next
+	// start — which would make removing it pointless.
+	DefaultDismissed bool `json:"defaultDismissed,omitempty"`
 }
 
 // Load returns the current account list. A missing file is treated as an
@@ -34,28 +38,78 @@ func (s *Store) Load() ([]Account, error) {
 }
 
 func (s *Store) load() ([]Account, error) {
-	data, err := os.ReadFile(s.path)
+	f, err := s.read()
 	if err != nil {
-		if os.IsNotExist(err) {
-			return []Account{}, nil
-		}
 		return nil, err
-	}
-	var f fileFormat
-	if err := json.Unmarshal(data, &f); err != nil {
-		return nil, fmt.Errorf("parsing %s: %w", s.path, err)
 	}
 	if f.Accounts == nil {
 		return []Account{}, nil
 	}
+	// Accounts written before Kind existed are managed ones; normalising
+	// here keeps every later check dealing with a real value.
+	for i := range f.Accounts {
+		if f.Accounts[i].Kind == "" {
+			f.Accounts[i].Kind = KindManaged
+		}
+	}
 	return f.Accounts, nil
 }
 
+// read returns the whole file, so callers that only touch one field
+// don't drop the others.
+func (s *Store) read() (fileFormat, error) {
+	data, err := os.ReadFile(s.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fileFormat{Accounts: []Account{}}, nil
+		}
+		return fileFormat{}, err
+	}
+	var f fileFormat
+	if err := json.Unmarshal(data, &f); err != nil {
+		return fileFormat{}, fmt.Errorf("parsing %s: %w", s.path, err)
+	}
+	return f, nil
+}
+
+// DefaultDismissed reports whether the user removed the auto-adopted
+// default account.
+func (s *Store) DefaultDismissed() (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f, err := s.read()
+	if err != nil {
+		return false, err
+	}
+	return f.DefaultDismissed, nil
+}
+
+// SetDefaultDismissed records (or clears) that decision.
+func (s *Store) SetDefaultDismissed(dismissed bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f, err := s.read()
+	if err != nil {
+		return err
+	}
+	f.DefaultDismissed = dismissed
+	return s.write(f)
+}
+
 func (s *Store) save(list []Account) error {
+	f, err := s.read()
+	if err != nil {
+		return err
+	}
+	f.Accounts = list
+	return s.write(f)
+}
+
+func (s *Store) write(f fileFormat) error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(fileFormat{Accounts: list}, "", "  ")
+	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
 		return err
 	}

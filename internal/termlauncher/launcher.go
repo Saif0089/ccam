@@ -12,9 +12,12 @@ import (
 	"time"
 )
 
-// Launch opens a new terminal window running `claude` with
-// CLAUDE_CONFIG_DIR set to configDir. label is shown in the window title
-// where the OS/terminal supports it.
+// Launch opens a new terminal window running `claude` for one account.
+//
+// An empty configDir means the default account, which is reached by
+// running plain `claude` with no CLAUDE_CONFIG_DIR at all — setting it
+// to the default path is a different identity as far as the CLI is
+// concerned.
 func Launch(configDir, label string) error {
 	switch runtime.GOOS {
 	case "darwin":
@@ -32,8 +35,8 @@ func launchDarwin(configDir, label string) error {
 	// (home directories contain spaces), then appleScriptQuote so the
 	// whole thing survives as one AppleScript string literal.
 	script := fmt.Sprintf(
-		`tell application "Terminal" to do script "env CLAUDE_CONFIG_DIR=%s claude; exec $SHELL" activate`,
-		appleScriptQuote(shellQuote(configDir)),
+		`tell application "Terminal" to do script "%s; exec $SHELL" activate`,
+		appleScriptQuote(unixClaudeCommand(configDir)),
 	)
 	_ = label // Terminal.app tab titles aren't reliably settable from here.
 	return startAndReap(exec.Command("osascript", "-e", script))
@@ -97,6 +100,15 @@ func (c *cappedBuffer) Write(p []byte) (int, error) {
 
 func (c *cappedBuffer) String() string { return c.buf.String() }
 
+// unixClaudeCommand is the shell command that runs claude for one
+// account: scoped with env for a managed account, bare for the default.
+func unixClaudeCommand(configDir string) string {
+	if configDir == "" {
+		return "claude"
+	}
+	return fmt.Sprintf("env CLAUDE_CONFIG_DIR=%s claude", shellQuote(configDir))
+}
+
 func appleScriptQuote(s string) string {
 	out := ""
 	for _, r := range s {
@@ -125,7 +137,7 @@ var linuxTerminals = []struct {
 
 func launchLinux(configDir, label string) error {
 	_ = label
-	shellCmd := fmt.Sprintf("env CLAUDE_CONFIG_DIR=%s claude; exec $SHELL", shellQuote(configDir))
+	shellCmd := unixClaudeCommand(configDir) + "; exec $SHELL"
 	var lastErr error
 	for _, t := range linuxTerminals {
 		if _, err := exec.LookPath(t.bin); err != nil {
@@ -164,7 +176,10 @@ func replaceAll(s, old, new string) string {
 
 func launchWindows(configDir, label string) error {
 	_ = label
-	psCmd := fmt.Sprintf(`$env:CLAUDE_CONFIG_DIR='%s'; claude`, psQuote(configDir))
+	psCmd := "claude"
+	if configDir != "" {
+		psCmd = fmt.Sprintf(`$env:CLAUDE_CONFIG_DIR='%s'; claude`, psQuote(configDir))
+	}
 
 	if wt, err := exec.LookPath("wt.exe"); err == nil {
 		cmd := exec.Command(wt, "powershell", "-NoExit", "-Command", psCmd)
