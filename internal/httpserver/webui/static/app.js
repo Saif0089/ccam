@@ -7,6 +7,12 @@ const emptyState = document.getElementById("empty-state");
 const rowTemplate = document.getElementById("account-row-template");
 const meterTemplate = document.getElementById("meter-template");
 const refreshedLabel = document.getElementById("refreshed");
+const buildTag = document.getElementById("build-tag");
+
+// How often the page re-reads everything. The numbers on this page are
+// the reason it is open, so it keeps them current by itself rather than
+// making someone press a button and wonder whether they had to.
+const POLL_MS = 5000;
 
 const addDialog = document.getElementById("add-dialog");
 const addForm = document.getElementById("add-form");
@@ -44,9 +50,18 @@ async function api(path, opts) {
   return JSON.parse(text);
 }
 
-async function loadAccounts(forceUsage) {
+// accountsGeneration counts changes this page made itself — add, rename,
+// remove. A list fetched before one of those landed describes a world
+// that no longer exists, and rendering it puts a removed account back on
+// screen until the next poll. Responses from an older generation are
+// dropped rather than drawn.
+let accountsGeneration = 0;
+
+async function loadAccounts() {
+  const generation = accountsGeneration;
   const data = await api("/api/accounts");
-  renderAccounts(data.accounts || [], forceUsage);
+  if (generation !== accountsGeneration) return;
+  await renderAccounts(data.accounts || []);
 }
 
 // --- time formatting --------------------------------------------------
@@ -124,15 +139,38 @@ function levelFor(percent, severity) {
 // refreshAccounts is loadAccounts for the places that can't await it
 // and must never raise an unhandled rejection.
 function refreshAccounts() {
+  accountsGeneration++;
   loadAccounts().catch((err) => {
-    loginStatus.textContent = "Could not refresh accounts: " + err.message;
+    refreshedLabel.textContent = "could not refresh: " + err.message;
   });
 }
 
-function renderAccounts(accounts, forceUsage) {
+// listSignature is what "the accounts changed" means: anything the card
+// itself is drawn from. The list is rebuilt only when one of these
+// moves, because rebuilding it every few seconds would throw away a
+// Copy button mid-"Copied" and restart every countdown on the page.
+function listSignature(accounts) {
+  return JSON.stringify(
+    accounts.map((a) => [a.id, a.name, a.alias, a.status, a.kind])
+  );
+}
+
+let renderedSignature = null;
+
+async function renderAccounts(accounts) {
+  const signature = listSignature(accounts);
+  if (signature === renderedSignature && accountsList.children.length === accounts.length) {
+    // Same accounts as last time: leave the cards alone and let the
+    // usage poll update what is inside them.
+    await refreshVisibleUsage(accounts);
+    return;
+  }
+  renderedSignature = signature;
+
   accountsList.innerHTML = "";
   emptyState.hidden = accounts.length > 0;
 
+  const pending = [];
   for (const account of accounts) {
     const node = rowTemplate.content.cloneNode(true);
     const card = node.querySelector(".account-card");
@@ -185,8 +223,22 @@ function renderAccounts(accounts, forceUsage) {
     removeBtn.addEventListener("click", () => removeAccount(account, isDefault));
 
     accountsList.appendChild(node);
-    loadUsage(account, card, forceUsage);
+    pending.push(loadUsage(account, card));
   }
+  await Promise.all(pending);
+}
+
+// refreshVisibleUsage re-reads the numbers for cards that are already on
+// screen, which is every poll after the first.
+function refreshVisibleUsage(accounts) {
+  const pending = [];
+  for (const account of accounts) {
+    const card = accountsList.querySelector(`.account-card[data-id="${CSS.escape(account.id)}"]`);
+    if (card) pending.push(loadUsage(account, card));
+  }
+  // Awaited by the poll, so a slow round of requests delays the next
+  // tick instead of stacking another round on top of it.
+  return Promise.all(pending);
 }
 
 // --- usage ------------------------------------------------------------
@@ -204,11 +256,10 @@ function setStatus(badge, status) {
   badge.textContent = STATUS_TEXT[status] || status;
 }
 
-async function loadUsage(account, card, force) {
-  const path = `/api/accounts/${account.id}/usage` + (force ? "?refresh=1" : "");
+async function loadUsage(account, card) {
   let snapshot;
   try {
-    snapshot = await api(path);
+    snapshot = await api(`/api/accounts/${account.id}/usage`);
   } catch (err) {
     snapshot = { error: "Could not read usage: " + err.message };
   }
@@ -217,10 +268,44 @@ async function loadUsage(account, card, force) {
   // account's numbers from reappearing under a live one.
   if (!card.isConnected) return;
   renderUsage(card, account, snapshot);
-  refreshedLabel.textContent = "updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return !snapshot.error;
 }
 
+// usageSignature is everything a card actually draws. The poll runs
+// every few seconds and most of those answers are identical, so this is
+// what tells them apart — without it, every poll would rebuild the
+// meters and the bars would flick back to zero as they re-animated.
+function usageSignature(account, snapshot) {
+  const limits = ((snapshot.usage && snapshot.usage.limits) || []).map((l) => [
+    l.label,
+    l.percent,
+    l.severity,
+    l.resetsAt || "",
+  ]);
+  const session = snapshot.session || {};
+  return JSON.stringify([
+    liveStatus(account, snapshot),
+    snapshot.error || "",
+    session.plan || "",
+    session.accessExpiresAt || "",
+    session.sessionExpiresAt || "",
+    limits,
+  ]);
+}
+
+// What each card was last drawn from, so an unchanged poll is a no-op.
+// Keyed by the element itself: a card that is replaced takes its entry
+// with it.
+const drawnFrom = new WeakMap();
+
 function renderUsage(card, account, snapshot) {
+  const signature = usageSignature(account, snapshot);
+  if (drawnFrom.get(card) === signature) return;
+  // First paint for this card is the one that animates; later ones are
+  // updates to something already on screen and must not replay it.
+  const firstPaint = !drawnFrom.has(card);
+  drawnFrom.set(card, signature);
+
   const meters = card.querySelector(".meters");
   const note = card.querySelector(".usage-note");
   const session = card.querySelector(".session");
@@ -235,7 +320,7 @@ function renderUsage(card, account, snapshot) {
 
   const limits = (snapshot.usage && snapshot.usage.limits) || [];
   for (const limit of limits) {
-    meters.appendChild(buildMeter(limit));
+    meters.appendChild(buildMeter(limit, firstPaint));
   }
 
   note.hidden = !snapshot.error;
@@ -251,7 +336,7 @@ function liveStatus(account, snapshot) {
   return snapshot.state || (account.status === "linked" ? "unknown" : account.status);
 }
 
-function buildMeter(limit) {
+function buildMeter(limit, animate) {
   const node = meterTemplate.content.cloneNode(true);
   const meter = node.querySelector(".meter");
   const percent = Math.max(0, Math.min(100, limit.percent || 0));
@@ -263,12 +348,18 @@ function buildMeter(limit) {
   const bar = node.querySelector(".bar");
   bar.setAttribute("aria-valuenow", Math.round(percent));
   bar.setAttribute("aria-label", limit.label);
-  // Painted after the frame so the width transitions in from zero:
-  // motion here reports that a number arrived, which is the one thing
-  // on this page worth animating.
-  requestAnimationFrame(() => {
-    meter.querySelector(".bar-fill").style.width = percent + "%";
-  });
+  const fill = node.querySelector(".bar-fill");
+  if (animate) {
+    // Painted after the frame so the width transitions in from zero:
+    // motion here reports that a number arrived, which is the one thing
+    // on this page worth animating.
+    requestAnimationFrame(() => {
+      fill.style.width = percent + "%";
+    });
+  } else {
+    // A number that changed while you were looking at it just changes.
+    fill.style.width = percent + "%";
+  }
 
   const reset = node.querySelector(".meter-reset");
   if (limit.resetsAt) {
@@ -370,19 +461,6 @@ document.getElementById("add-account-btn").addEventListener("click", () => {
   addDialog.showModal();
 });
 document.getElementById("add-cancel").addEventListener("click", () => addDialog.close());
-
-document.getElementById("refresh-btn").addEventListener("click", async (e) => {
-  const btn = e.currentTarget;
-  btn.disabled = true;
-  refreshedLabel.textContent = "updating…";
-  try {
-    await loadAccounts(true);
-  } catch (err) {
-    refreshedLabel.textContent = "could not refresh: " + err.message;
-  } finally {
-    btn.disabled = false;
-  }
-});
 
 addForm.addEventListener("submit", async (e) => {
   // Not method="dialog": the dialog must stay open until the request
@@ -571,6 +649,50 @@ window.addEventListener("pagehide", () => {
   if (activeLoginAccountId && !loginFinished) cancelLogin(activeLoginAccountId);
 });
 
-loadAccounts().catch((err) => {
+// --- staying current --------------------------------------------------
+
+// loadBuildTag shows which build is answering. Read on every poll, not
+// just at load: an automatic update restarts the server underneath an
+// open page, and the tag changing is how that becomes visible instead
+// of mysterious.
+async function loadBuildTag() {
+  try {
+    const status = await api("/api/status");
+    if (status && status.tag) buildTag.textContent = status.tag;
+  } catch (_) {
+    // A poll that failed says nothing worth putting on screen; the
+    // usage poll below is what reports a server that has gone away.
+  }
+}
+
+let polling = false;
+
+// poll is the whole refresh story: no button, no manual reload. A slow
+// answer must not stack up behind the next tick, so a poll already in
+// flight simply skips this one.
+async function poll() {
+  if (polling) return;
+  polling = true;
+  try {
+    await loadAccounts();
+    await loadBuildTag();
+    // Stamped here, once a whole round actually came back: the label is
+    // the only thing on the page that says the polling is still alive,
+    // so it must not tick while the answers are failing.
+    refreshedLabel.textContent =
+      "updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  } catch (err) {
+    // A server that is restarting into an update is unreachable for a
+    // second or two. Say what is true — the numbers are from before —
+    // rather than blanking the page.
+    refreshedLabel.textContent = "could not refresh: " + err.message;
+  } finally {
+    polling = false;
+  }
+}
+
+poll().catch((err) => {
   accountsList.textContent = "Could not load accounts: " + err.message;
 });
+
+setInterval(poll, POLL_MS);

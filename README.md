@@ -60,6 +60,31 @@ and the short-lived access token that Claude Code renews on its own (hours).
 The dot beside the name is checked live rather than remembered: `linked`,
 `login expired`, `signed out`, or `unknown` when Anthropic can't be reached.
 
+The page keeps itself current — it re-reads every few seconds, so there is
+no refresh button to press and nothing to reload. The build answering on
+that port is named in the top-right corner, which is how you tell a fix
+that shipped from a fix that is actually running.
+
+## Staying up to date
+
+ccam updates itself. The running service checks the published release every
+six hours, verifies the download against the checksums published beside it,
+replaces its own binary and restarts into it — then says so with a desktop
+notification, on macOS, Windows and Linux alike. Nothing to run, nothing to
+remember.
+
+Two rules keep that safe to leave alone:
+
+- A download whose SHA-256 doesn't match the release's `checksums.txt` is
+  discarded, not installed.
+- A release published *before* the binary you are running was written is
+  never installed over it — so a build you made yourself from a working
+  tree that is ahead of the release is left alone.
+
+Set `CCAM_AUTO_UPDATE=0` in the service's environment to turn it off, and
+`CCAM_NOTIFY=0` to keep the notifications quiet. To update by hand at any
+time, re-run the install command above.
+
 ## Uninstalling
 
 ```sh

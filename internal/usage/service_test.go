@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -224,5 +226,77 @@ func TestServiceKeepsSessionWhenAPIFails(t *testing.T) {
 	}
 	if snapshot.Session == nil || snapshot.Session.SessionExpiresAt == nil {
 		t.Error("want the session clock even without usage")
+	}
+}
+
+// The page polls every few seconds and a second tab doubles that, so
+// overlapping requests for one account must share a single call to
+// Anthropic rather than each starting their own.
+func TestOverlappingRequestsShareOneFetch(t *testing.T) {
+	dir := t.TempDir()
+	writeCredsFile(t, dir, time.Now().Add(8*time.Hour), time.Now().Add(30*24*time.Hour))
+
+	var calls atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		// Long enough that every caller below arrives while it runs.
+		time.Sleep(300 * time.Millisecond)
+		_, _ = w.Write([]byte(realPayload))
+	}))
+	defer srv.Close()
+
+	svc := NewServiceWithClient(&Client{Endpoint: srv.URL, HTTPClient: srv.Client()})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 6; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if got := svc.Get(context.Background(), "work", dir); got.Usage == nil {
+				t.Errorf("no usage returned: %s", got.Error)
+			}
+		}()
+		time.Sleep(20 * time.Millisecond)
+	}
+	wg.Wait()
+
+	if n := calls.Load(); n != 1 {
+		t.Errorf("made %d upstream calls for one cache miss, want 1", n)
+	}
+}
+
+// A request the browser abandoned must not leave its failure in the
+// cache for everyone who asks next.
+func TestACancelledRequestIsNotCached(t *testing.T) {
+	dir := t.TempDir()
+	writeCredsFile(t, dir, time.Now().Add(8*time.Hour), time.Now().Add(30*24*time.Hour))
+
+	release := make(chan struct{})
+	var calls atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		<-release
+		_, _ = w.Write([]byte(realPayload))
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	svc := NewServiceWithClient(&Client{Endpoint: srv.URL, HTTPClient: srv.Client()})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan Snapshot, 1)
+	go func() { done <- svc.Get(ctx, "work", dir) }()
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	if got := <-done; got.Usage != nil {
+		t.Fatal("want no usage from the abandoned request")
+	}
+
+	svc.mu.Lock()
+	_, cached := svc.entries["work"]
+	svc.mu.Unlock()
+	if cached {
+		t.Error("the abandoned request's failure was cached")
 	}
 }

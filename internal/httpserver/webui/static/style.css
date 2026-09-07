@@ -65,6 +65,17 @@ header h1 {
   font-size: 0.85rem;
 }
 
+header .spacer { flex: 1; }
+
+/* Which build is answering. Quiet by default — it only matters when
+   you are asking whether a fix is actually live — but always there. */
+#build-tag {
+  color: var(--faint);
+  font-size: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: nowrap;
+}
+
 main { padding-bottom: 4rem; }
 
 .toolbar {

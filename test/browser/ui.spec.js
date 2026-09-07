@@ -242,6 +242,57 @@ test("shows plan usage, reset countdowns and how long the login lasts", async ({
   await expect(page.locator(".status-badge")).toHaveText("linked");
 });
 
+// The page has no refresh button any more, so the only thing that keeps
+// it honest is that it re-reads by itself. If this stops, nothing on
+// screen changes and nothing looks broken — it just quietly shows
+// yesterday's numbers.
+test("re-reads usage on its own, with no button to press", async ({ page }) => {
+  const account = await createAccount("Polling");
+  writeCredentials(account.configDir, { accessToken: "fake-access-token", accessInHours: 8, refreshInDays: 27 });
+
+  const usageRequests = [];
+  page.on("request", (req) => {
+    if (req.url().includes(`/accounts/${account.id}/usage`)) usageRequests.push(req.url());
+  });
+
+  await page.goto(baseURL);
+  await expect(page.locator("#refresh-btn")).toHaveCount(0);
+
+  const card = page.locator(".account-card", { hasText: "Polling" });
+  await expect(card.locator(".meter").first()).toBeVisible();
+  const afterLoad = usageRequests.length;
+  expect(afterLoad).toBeGreaterThan(0);
+
+  // Two poll intervals plus room for a slow machine.
+  await page.waitForTimeout(11_000);
+  expect(usageRequests.length).toBeGreaterThan(afterLoad);
+
+  // And the numbers must not flicker back to zero on every poll: the
+  // bar is still its full width after several refreshes.
+  const width = await card
+    .locator(".meter")
+    .nth(1)
+    .locator(".bar-fill")
+    .evaluate((el) => el.getBoundingClientRect().width);
+  expect(width).toBeGreaterThan(0);
+
+  await deleteAccount(account.id);
+});
+
+// Which build is answering, in the corner of the page. It is the only
+// way to tell a fix that shipped from a fix that is actually running —
+// the question that comes up every time an update lands silently.
+test("names the running build in the header", async ({ page }) => {
+  await page.goto(baseURL);
+  const tag = page.locator("#build-tag");
+  await expect(tag).toBeVisible();
+  // A version, a commit, or both — never empty.
+  await expect(tag).toHaveText(/\S/);
+
+  const status = await (await fetch(`${baseURL}/api/status`)).json();
+  await expect(tag).toHaveText(status.tag);
+});
+
 // An account ccam knows about but has no login for must say so, rather
 // than keep showing the last status it saw.
 test("reports a signed-out account instead of claiming it is linked", async ({ page }) => {

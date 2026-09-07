@@ -191,7 +191,7 @@ jobs:
           if [ "${{ matrix.goos }}" = "windows" ]; then ext=".exe"; fi
           name="ccam_${{ matrix.goos }}_${{ matrix.goarch }}${ext}"
           mkdir -p dist
-          go build -trimpath -ldflags "-s -w -X ccam/internal/buildinfo.Version=${{ github.ref_name }}" \
+          go build -trimpath -ldflags "-s -w -X ccam/internal/buildinfo.Version=${{ github.ref_name }} -X ccam/internal/buildinfo.Commit=${{ github.sha }}" \
             -o "dist/${name}" ./cmd/ccam
           echo "ASSET_NAME=${name}" >> "$GITHUB_ENV"
 

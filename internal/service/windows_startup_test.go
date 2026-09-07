@@ -36,7 +36,15 @@ func buildCcamForStartup(t *testing.T, dir string) string {
 // set statement early) would look installed and simply never start
 // anything at the next logon, silently.
 func TestStartupScriptActuallyStartsTheService(t *testing.T) {
-	home := t.TempDir()
+	// A % in the home directory is not exotic: it is a legal character
+	// in a Windows account name, and both the working directory and the
+	// install path are derived from C:\Users\<account name>. cmd.exe
+	// eats a bare one at parse time, so a script built without escaping
+	// them starts ccam from the wrong place, or nowhere at all.
+	home := filepath.Join(t.TempDir(), "R%D user")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatalf("creating a %% -bearing home: %v", err)
+	}
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("HOME", home)
 	t.Setenv("APPDATA", filepath.Join(home, "AppData", "Roaming"))
@@ -72,6 +80,11 @@ func TestStartupScriptActuallyStartsTheService(t *testing.T) {
 	// to arrive doubled or the PATH silently loses entries.
 	if strings.Contains(string(script), "100%dir") {
 		t.Errorf("a bare %% survived into the .cmd; cmd.exe would mangle the PATH:\n%s", script)
+	}
+	// The same hazard on the other two lines: the directory ccam starts
+	// in, and the binary the script runs.
+	if strings.Contains(string(script), `R%D user`) {
+		t.Errorf("a bare %% survived into the .cmd's cd/start lines; cmd.exe would mangle the path:\n%s", script)
 	}
 
 	// Stop whatever Install started, so what follows is attributable to
