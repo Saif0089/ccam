@@ -216,6 +216,27 @@ func TestLoginFlowEndToEnd(t *testing.T) {
 	if len(list.Accounts) != 1 || list.Accounts[0].Status != accounts.StatusLinked {
 		t.Errorf("accounts = %+v, want one linked account", list.Accounts)
 	}
+
+	// A successful login is followed by marking Claude Code's own
+	// onboarding complete, so the first `claude` run under this account
+	// doesn't walk the first-run wizard. That happens on a goroutine
+	// after the event, so wait for it — both to assert it happens and
+	// so it isn't still writing into the temp dir during cleanup.
+	claudeConfig := filepath.Join(account.ConfigDir, ".claude.json")
+	if !waitForFile(claudeConfig, 20*time.Second) {
+		t.Errorf("expected %s to be written after a successful login", claudeConfig)
+	}
+}
+
+func waitForFile(path string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return false
 }
 
 func TestLaunchTerminalUsesInjectedLauncher(t *testing.T) {
