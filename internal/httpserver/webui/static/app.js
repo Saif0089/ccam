@@ -297,9 +297,26 @@ loginDialog.addEventListener("close", () => {
     activeEventSource = null;
   }
   if (activeLoginAccountId && !loginFinished) {
-    api(`/api/accounts/${activeLoginAccountId}/login/cancel`, { method: "POST" }).catch(() => {});
+    cancelLogin(activeLoginAccountId);
   }
   activeLoginAccountId = null;
+});
+
+// Closing a tab (or a headless browser at the end of a test) can tear
+// the page down before a plain fetch is flushed, leaving the `claude`
+// process running until its timeout. sendBeacon exists precisely for
+// this: the browser guarantees delivery after the page is gone.
+function cancelLogin(accountId) {
+  const path = `/api/accounts/${accountId}/login/cancel`;
+  if (navigator.sendBeacon && navigator.sendBeacon(path, new Blob([], { type: "text/plain" }))) {
+    return;
+  }
+  api(path, { method: "POST", keepalive: true }).catch(() => {});
+}
+
+// Also cancel when the whole page goes away, not just the dialog.
+window.addEventListener("pagehide", () => {
+  if (activeLoginAccountId && !loginFinished) cancelLogin(activeLoginAccountId);
 });
 
 loadAccounts().catch((err) => {

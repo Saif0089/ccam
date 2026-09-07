@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 )
 
@@ -115,12 +116,25 @@ func authLogin(configDir string) {
 			os.Exit(1)
 		}
 	default:
-		// Stand in for a human completing OAuth in a real browser.
-		time.Sleep(300 * time.Millisecond)
+		// Stand in for a human completing OAuth in a real browser. The
+		// delay is configurable because tests that watch the UI need the
+		// "here is your URL" state to be observable rather than blown
+		// past in a few hundred milliseconds.
+		time.Sleep(loginDelay())
 	}
 
 	writeCredentials(configDir)
 	fmt.Println("\nLogin successful. You are now authenticated.")
+}
+
+// loginDelay is how long the fake waits before completing a login.
+func loginDelay() time.Duration {
+	if raw := os.Getenv("FAKECLAUDE_LOGIN_DELAY_MS"); raw != "" {
+		if ms, err := strconv.Atoi(raw); err == nil && ms >= 0 {
+			return time.Duration(ms) * time.Millisecond
+		}
+	}
+	return 300 * time.Millisecond
 }
 
 func writeCredentials(configDir string) {

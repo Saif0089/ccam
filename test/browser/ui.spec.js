@@ -67,6 +67,10 @@ test.beforeAll(async () => {
       APPDATA: path.join(home, "AppData", "Roaming"),
       LOCALAPPDATA: path.join(home, "AppData", "Local"),
       CCAM_CLAUDE_BIN: fakeClaude,
+      // Keep the "here is your URL" state on screen long enough to be
+      // asserted on; the fake otherwise finishes in ~300ms and the UI
+      // races straight past it to "Connected".
+      FAKECLAUDE_LOGIN_DELAY_MS: "2500",
     },
     stdio: "inherit",
   });
@@ -116,6 +120,29 @@ test("adds an account, shows the full OAuth URL, and links it", async ({ page })
   await page.click("#login-close");
   await expect(page.locator(".status-badge")).toHaveText("linked");
   await expect(page.locator(".alias-text")).toHaveText("claude-work");
+});
+
+// Closing the dialog mid-login must leave the UI able to start another
+// one. The state machine behind that (activeLoginAccountId /
+// loginFinished / the EventSource) is easy to leave out of sync, and the
+// symptom is a dialog that opens showing a stale error and never renders
+// the new URL.
+test("can start another login after closing one mid-flight", async ({ page }) => {
+  await page.goto(baseURL);
+
+  await page.click(".connect-btn");
+  await expect(page.locator("#login-status")).toContainText("Open this URL");
+  await page.click("#login-close");
+  // Give the cancel time to actually leave the browser before teardown.
+  await page.waitForTimeout(1000);
+  await expect(page.locator("#login-dialog")).not.toBeVisible();
+
+  await page.click(".connect-btn");
+  await expect(page.locator("#login-status")).toContainText("Open this URL");
+  const url = await page.locator("#login-url").textContent();
+  expect(url.length).toBeGreaterThan(400);
+  await page.click("#login-close");
+  await page.waitForTimeout(1000);
 });
 
 test("renames an account and updates its alias", async ({ page }) => {
