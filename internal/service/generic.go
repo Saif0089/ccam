@@ -49,13 +49,22 @@ func (g generic) Stop() error {
 	// some other port (another install, another HOME) would make this
 	// report failure for a process it stopped perfectly well.
 	target := g.port
+	var serverPID int
 	if info, _ := Running(); info != nil {
 		target = info.Port
+		serverPID = info.PID
 	}
 
 	pid, err := readPID()
 	if err != nil {
 		return err
+	}
+	// Prefer the pid the live server reports over the pidfile's. A
+	// pidfile can be stale — written for a process that died, or left
+	// by an older install — and the OS recycles pids, so trusting it
+	// blindly means eventually signalling some unrelated process.
+	if serverPID > 0 {
+		pid = serverPID
 	}
 	if pid > 0 && processAlive(pid) {
 		if err := killProcess(pid); err != nil {
