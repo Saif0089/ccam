@@ -71,7 +71,14 @@ go build ./...
 go vet ./...
 go test ./...
 go test ./test/e2e/...   # full install → login → uninstall lifecycle
+
+cd test/browser && npm install && npx playwright install chromium webkit
+npx playwright test        # drives the real web UI in Chromium and WebKit
 ```
+
+The browser layer is not optional cover: the Go tests drive the HTTP API
+directly and never load the page, so a UI that was broken in every
+browser once passed CI while failing on every real machine.
 
 ### Releasing
 
