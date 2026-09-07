@@ -154,3 +154,57 @@ func TestHasBlock(t *testing.T) {
 		t.Fatalf("HasBlock after remove = %v, %v; want false, nil", has, err)
 	}
 }
+
+// TestUpsertBlockWritesThroughASymlink covers dotfile managers
+// (chezmoi, stow, yadm), which symlink ~/.zshrc into a repo. Replacing
+// that link with a regular file is worse than it sounds: the repo copy
+// silently stops reaching the shell, and every later `chezmoi apply`
+// appears to work while changing nothing.
+func TestUpsertBlockWritesThroughASymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "dotfiles-zshrc")
+	link := filepath.Join(dir, ".zshrc")
+
+	if err := os.WriteFile(target, []byte("# from my dotfiles repo\n"), 0o644); err != nil {
+		t.Fatalf("seeding target: %v", err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("creating symlink: %v", err)
+	}
+
+	if err := UpsertBlock(link, "alias claude-work='...'\n"); err != nil {
+		t.Fatalf("UpsertBlock: %v", err)
+	}
+
+	info, err := os.Lstat(link)
+	if err != nil {
+		t.Fatalf("Lstat: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("the symlink was replaced by a regular file")
+	}
+
+	// The content must have landed in the repo copy, where the dotfile
+	// manager will see it.
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("reading target: %v", err)
+	}
+	if !contains(string(data), "claude-work") {
+		t.Errorf("alias did not reach the symlink target:\n%s", data)
+	}
+	if !contains(string(data), "# from my dotfiles repo") {
+		t.Error("existing content was lost")
+	}
+
+	if err := RemoveBlock(link); err != nil {
+		t.Fatalf("RemoveBlock: %v", err)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Error("the symlink did not survive removal")
+	}
+	data, _ = os.ReadFile(target)
+	if string(data) != "# from my dotfiles repo\n" {
+		t.Errorf("target not restored:\n%s", data)
+	}
+}

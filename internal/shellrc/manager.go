@@ -15,11 +15,14 @@ func RcPaths(homeDir string) map[Shell]string {
 	paths := map[Shell]string{}
 	switch runtime.GOOS {
 	case "windows":
-		// PowerShell (7+) profile; Windows PowerShell 5.1 uses a
-		// different default path some setups still rely on, so keep
-		// both in sync.
-		docs := filepath.Join(homeDir, "Documents")
+		// Both PowerShells, because they read different profiles and the
+		// one shipped with Windows is 5.1 — which is what `powershell`
+		// resolves to, including from ccam's own "Open terminal". An
+		// alias written only to the 7+ profile does not exist in the
+		// shell a stock Windows user actually opens.
+		docs := documentsDir(homeDir)
 		paths[PowerShell] = filepath.Join(docs, "PowerShell", "Microsoft.PowerShell_profile.ps1")
+		paths[PowerShellDesktop] = filepath.Join(docs, "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1")
 	default:
 		paths[Bash] = filepath.Join(homeDir, ".bashrc")
 		paths[Zsh] = filepath.Join(homeDir, ".zshrc")

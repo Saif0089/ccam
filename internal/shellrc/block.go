@@ -132,6 +132,15 @@ func readFile(path string) (content string, existed bool, err error) {
 }
 
 func writeFile(path, content string, existed bool) error {
+	// Write through a symlink rather than over it. Dotfile managers
+	// (chezmoi, stow, yadm) symlink ~/.zshrc into a repo, and
+	// tmp-then-rename would silently replace that link with a regular
+	// file: the repo copy stops reaching the shell, and every later
+	// `chezmoi apply` quietly does nothing.
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("creating %s: %w", filepath.Dir(path), err)
 	}

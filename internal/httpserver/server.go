@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -89,7 +90,7 @@ func Serve(ctx context.Context, srv *Server, port int) error {
 		ln.Close()
 		return err
 	}
-	defer removePortFile()
+	defer removePortFile(actualPort)
 
 	if err := service.RecordSelf(); err != nil {
 		log.Printf("warning: could not record pid file: %v", err)
@@ -137,9 +138,21 @@ func writePortFile(port int) error {
 	return os.WriteFile(path, []byte(strconv.Itoa(port)), 0o600)
 }
 
-func removePortFile() {
+// removePortFile clears the record only if it still names this
+// server's port. A second `ccam serve --port N` on a different port is
+// a supported thing to do, and deleting the *first* one's record on the
+// way out would strand it: status stops finding it and stop can no
+// longer stop it.
+func removePortFile(port int) {
 	path, err := config.PortFile()
 	if err != nil {
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	if strings.TrimSpace(string(data)) != strconv.Itoa(port) {
 		return
 	}
 	_ = os.Remove(path)

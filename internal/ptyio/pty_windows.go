@@ -5,6 +5,7 @@ package ptyio
 import (
 	"context"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -13,6 +14,7 @@ import (
 
 type windowsSession struct {
 	cpty *conpty.ConPty
+	pid  int
 }
 
 func start(name string, args []string, env []string, dir string) (Session, error) {
@@ -37,7 +39,7 @@ func start(name string, args []string, env []string, dir string) (Session, error
 	if err != nil {
 		return nil, err
 	}
-	return &windowsSession{cpty: cpty}, nil
+	return &windowsSession{cpty: cpty, pid: cpty.Pid()}, nil
 }
 
 // buildCommandLine renders name+args as a single Windows command line,
@@ -53,7 +55,25 @@ func buildCommandLine(name string, args []string) string {
 
 func (s *windowsSession) Read(p []byte) (int, error)  { return s.cpty.Read(p) }
 func (s *windowsSession) Write(p []byte) (int, error) { return s.cpty.Write(p) }
-func (s *windowsSession) Close() error                { return s.cpty.Close() }
+
+// Close ends the session and the process it started.
+//
+// conpty's own Close only closes the pseudo-console and the handles —
+// it never terminates the child, and it discards the process handle, so
+// nothing can kill it afterwards. Without this, cancelling a login or
+// shutting the server down left `claude` running on Windows for its
+// full timeout (and holding an open handle on the account directory,
+// which then blocks deleting it). The child is killed as a tree because
+// the real claude may be a claude.cmd shim, i.e. cmd.exe with claude
+// underneath it.
+func (s *windowsSession) Close() error {
+	if s.pid > 0 {
+		kill := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(s.pid))
+		kill.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		_ = kill.Run()
+	}
+	return s.cpty.Close()
+}
 func (s *windowsSession) Resize(cols, rows int) error { return s.cpty.Resize(cols, rows) }
 
 func (s *windowsSession) Wait(ctx context.Context) (int, error) {

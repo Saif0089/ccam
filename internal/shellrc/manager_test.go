@@ -125,8 +125,12 @@ func TestRenderBodyEscapesForEachShell(t *testing.T) {
 func TestRcPathsMatchesCurrentOS(t *testing.T) {
 	paths := RcPaths(t.TempDir())
 	if runtime.GOOS == "windows" {
-		if _, ok := paths[PowerShell]; !ok || len(paths) != 1 {
-			t.Errorf("windows RcPaths = %v, want only PowerShell", paths)
+		// Both PowerShells: 5.1 ships with Windows and is what
+		// `powershell` opens, 7+ is what many developers install.
+		for _, shell := range []Shell{PowerShell, PowerShellDesktop} {
+			if _, ok := paths[shell]; !ok {
+				t.Errorf("missing %s in RcPaths on windows: %v", shell, paths)
+			}
 		}
 	} else {
 		for _, shell := range []Shell{Bash, Zsh, Fish, PowerShell} {

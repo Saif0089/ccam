@@ -22,6 +22,9 @@ const (
 	Zsh        Shell = "zsh"
 	Fish       Shell = "fish"
 	PowerShell Shell = "powershell"
+	// PowerShellDesktop is Windows PowerShell 5.1, the one that ships
+	// with Windows. Same syntax, different profile path.
+	PowerShellDesktop Shell = "powershell-desktop"
 )
 
 // RenderBody produces the managed block's body (no markers) for the
@@ -40,7 +43,7 @@ func RenderBody(shell Shell, entries []AliasEntry) string {
 			// is double-quoted inside it rather than nesting single
 			// quotes (which would terminate the outer quote early).
 			fmt.Fprintf(&b, "alias %s 'env CLAUDE_CONFIG_DIR=%s claude'\n", e.Alias, dquote(e.ConfigDir))
-		case PowerShell:
+		case PowerShell, PowerShellDesktop:
 			fmt.Fprintf(&b, "function %s { $env:CLAUDE_CONFIG_DIR = %s; claude @args }\n", e.Alias, psQuote(e.ConfigDir))
 		default: // bash, zsh
 			fmt.Fprintf(&b, "alias %s='CLAUDE_CONFIG_DIR=%s claude'\n", e.Alias, dquote(e.ConfigDir))
