@@ -61,7 +61,12 @@ The dot beside the name is checked live rather than remembered: `linked`,
 `login expired`, `signed out`, or `unknown` when Anthropic can't be reached.
 
 The page keeps itself current — it re-reads every few seconds, so there is
-no refresh button to press and nothing to reload. The build answering on
+no refresh button to press and nothing to reload. Those reads are answered
+by ccam itself; it asks Anthropic for fresh numbers at most once a minute
+per account. That endpoint is not a documented API and publishes no rate
+limit, so when it does refuse, ccam waits — a minute, then two, four,
+eight, up to fifteen — and keeps showing the last numbers it read rather
+than emptying the card. The build answering on
 that port is named in the top-right corner, which is how you tell a fix
 that shipped from a fix that is actually running.
 

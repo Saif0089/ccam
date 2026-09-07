@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -67,6 +68,25 @@ type apiResponse struct {
 // "usage is unavailable".
 var ErrLoginRejected = errors.New("this account's login was rejected, reconnect it")
 
+// RateLimited means Anthropic accepted the token and refused the
+// request anyway: too many of them, too fast.
+//
+// This endpoint publishes no rate-limit budget — there are no
+// anthropic-ratelimit-* headers on it, and the Retry-After it does send
+// with a 429 has been observed as "0", which is not a delay anyone can
+// wait. So the number that matters is decided here, not by the server:
+// RetryAfter is only set when the header names a real one.
+type RateLimited struct {
+	RetryAfter time.Duration
+}
+
+func (e *RateLimited) Error() string {
+	if e.RetryAfter > 0 {
+		return fmt.Sprintf("Anthropic is rate-limiting plan usage; it asked to wait %s", e.RetryAfter)
+	}
+	return "Anthropic is rate-limiting plan usage"
+}
+
 // Client fetches usage reports.
 type Client struct {
 	Endpoint   string
@@ -117,6 +137,8 @@ func (c *Client) Fetch(ctx context.Context, creds Credentials) (*Report, error) 
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized, resp.StatusCode == http.StatusForbidden:
 		return nil, ErrLoginRejected
+	case resp.StatusCode == http.StatusTooManyRequests:
+		return nil, &RateLimited{RetryAfter: retryAfter(resp.Header.Get("Retry-After"))}
 	case resp.StatusCode != http.StatusOK:
 		return nil, fmt.Errorf("plan usage is unavailable right now (HTTP %d)", resp.StatusCode)
 	}
@@ -161,6 +183,28 @@ func (c *Client) Fetch(ctx context.Context, creds Credentials) (*Report, error) 
 		return groupRank(report.Limits[i].Group) < groupRank(report.Limits[j].Group)
 	})
 	return report, nil
+}
+
+// retryAfter reads the header in both forms the spec allows — a count
+// of seconds, or an HTTP date — and returns zero for anything that is
+// not a delay worth waiting, including the "0" this endpoint sends.
+func retryAfter(header string) time.Duration {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(header); err == nil {
+		if seconds <= 0 {
+			return 0
+		}
+		return time.Duration(seconds) * time.Second
+	}
+	if at, err := http.ParseTime(header); err == nil {
+		if wait := time.Until(at); wait > 0 {
+			return wait
+		}
+	}
+	return 0
 }
 
 func groupRank(group string) int {

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -298,5 +299,123 @@ func TestACancelledRequestIsNotCached(t *testing.T) {
 	svc.mu.Unlock()
 	if cached {
 		t.Error("the abandoned request's failure was cached")
+	}
+}
+
+// A 429 is not a broken account and not a reason to blank the card. It
+// is a reason to stop asking for a while — which is the part that has
+// to be tested, because the wrong answer here is an endless retry loop
+// that keeps the rate limit alive.
+func TestRateLimitBacksOffAndKeepsTheLastNumbers(t *testing.T) {
+	dir := t.TempDir()
+	writeCredsFile(t, dir, time.Now().Add(8*time.Hour), time.Now().Add(30*24*time.Hour))
+
+	var calls atomic.Int64
+	limited := atomic.Bool{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if limited.Load() {
+			w.Header().Set("Retry-After", "0") // what this endpoint actually sends
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte(realPayload))
+	}))
+	defer srv.Close()
+
+	svc := NewServiceWithClient(&Client{Endpoint: srv.URL, HTTPClient: srv.Client()})
+	now := time.Now()
+	svc.now = func() time.Time { return now }
+
+	// A good read first, so there is something to keep showing.
+	if got := svc.Get(context.Background(), "work", dir); got.Usage == nil {
+		t.Fatalf("no usage on the first read: %s", got.Error)
+	}
+
+	limited.Store(true)
+	now = now.Add(TTL + time.Second)
+	got := svc.Get(context.Background(), "work", dir)
+
+	if got.State != StateLinked {
+		t.Errorf("State = %q, want %q: being throttled says the login works", got.State, StateLinked)
+	}
+	if got.Usage == nil {
+		t.Error("want the last numbers kept on screen rather than an empty card")
+	}
+	if !strings.Contains(got.Error, "rate-limiting") {
+		t.Errorf("note = %q, want it to say what happened", got.Error)
+	}
+
+	// Now the part that matters: retries follow the backoff, not the
+	// cache. Ten cache misses over ten minutes must not be ten more
+	// requests — the backoff schedule (1, 2, 4, 8 minutes) allows about
+	// four, and every poll in between is answered without asking.
+	before := calls.Load()
+	for i := 0; i < 10; i++ {
+		now = now.Add(TTL)
+		svc.Get(context.Background(), "work", dir)
+	}
+	if after := calls.Load() - before; after > 5 {
+		t.Errorf("made %d requests across 10 cache misses, want the backoff to allow ~4", after)
+	}
+
+	// Once the current wait expires, it tries again — and a success
+	// clears the backoff.
+	limited.Store(false)
+	now = now.Add(backoffMax + time.Second)
+	if got := svc.Get(context.Background(), "work", dir); got.Usage == nil || got.Error != "" {
+		t.Errorf("want a clean read once the backoff expired, got error %q", got.Error)
+	}
+	svc.mu.Lock()
+	_, stillWaiting := svc.cooldowns["work"]
+	svc.mu.Unlock()
+	if stillWaiting {
+		t.Error("a successful read must clear the backoff")
+	}
+}
+
+// Each refusal waits longer than the last, so a limit that is not
+// letting up is not met with the same request rate forever.
+func TestBackoffDoubles(t *testing.T) {
+	svc := NewServiceWithClient(&Client{})
+	now := time.Now()
+	svc.now = func() time.Time { return now }
+
+	want := []time.Duration{backoffFirst, 2 * backoffFirst, 4 * backoffFirst, 8 * backoffFirst, backoffMax, backoffMax}
+	for i, expected := range want {
+		until := svc.refused("work", 0)
+		if got := until.Sub(now); got != expected {
+			t.Errorf("refusal %d waits %s, want %s", i+1, got, expected)
+		}
+	}
+}
+
+// A Retry-After worth waiting is honoured; the "0" this endpoint sends
+// is not a delay and must not shorten the backoff.
+func TestRetryAfterHeader(t *testing.T) {
+	if got := retryAfter("120"); got != 2*time.Minute {
+		t.Errorf("retryAfter(\"120\") = %s, want 2m", got)
+	}
+	if got := retryAfter("0"); got != 0 {
+		t.Errorf("retryAfter(\"0\") = %s, want 0", got)
+	}
+	if got := retryAfter(""); got != 0 {
+		t.Errorf("retryAfter(\"\") = %s, want 0", got)
+	}
+	if got := retryAfter(time.Now().Add(90 * time.Second).UTC().Format(http.TimeFormat)); got < time.Minute {
+		t.Errorf("an HTTP-date Retry-After gave %s, want about 90s", got)
+	}
+
+	svc := NewServiceWithClient(&Client{})
+	now := time.Now()
+	svc.now = func() time.Time { return now }
+	if got := svc.refused("work", 10*time.Minute).Sub(now); got != 10*time.Minute {
+		t.Errorf("a 10m Retry-After produced %s, want it honoured", got)
+	}
+	// ...but it never shortens what the backoff already decided.
+	svc2 := NewServiceWithClient(&Client{})
+	svc2.now = func() time.Time { return now }
+	if got := svc2.refused("work", time.Second).Sub(now); got != backoffFirst {
+		t.Errorf("a 1s Retry-After produced %s, want the %s backoff to win", got, backoffFirst)
 	}
 }

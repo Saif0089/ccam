@@ -56,12 +56,27 @@ type SessionInfo struct {
 //
 // The page polls every few seconds and never asks anyone to press a
 // refresh button, so this is what decides how often that polling
-// actually reaches Anthropic: three or four page polls share one
-// upstream call. Short enough that a number you are watching move
-// updates while you watch it; long enough that an open page is not
-// hammering an endpoint that is not a documented, rate-limit-friendly
-// API.
-const TTL = 15 * time.Second
+// actually reaches Anthropic: a dozen page polls share one upstream
+// call. This endpoint is not a documented API and publishes no
+// rate-limit budget of any kind, and a shorter TTL here — four calls a
+// minute per account — was enough to earn a 429 in an afternoon. One a
+// minute per account is the rate a page left open all day can hold.
+const TTL = time.Minute
+
+// Rate-limit backoff. Nothing tells us what the limit is, so a refusal
+// is answered by waiting longer each time rather than by guessing a
+// safe rate: a minute, then two, four, eight, capped at fifteen. One
+// success clears it.
+const (
+	backoffFirst = time.Minute
+	backoffMax   = 15 * time.Minute
+)
+
+// cooldown is how long one account is not asking Anthropic anything.
+type cooldown struct {
+	until time.Time
+	step  time.Duration
+}
 
 type cacheEntry struct {
 	snapshot Snapshot
@@ -83,6 +98,12 @@ type Service struct {
 	mu       sync.Mutex
 	entries  map[string]cacheEntry
 	inflight map[string]*load
+	// cooldowns holds off accounts Anthropic has refused; lastReport
+	// keeps the numbers they had when it did, because a rate limit is a
+	// reason to stop asking, not a reason to blank a card that was
+	// showing something true a minute ago.
+	cooldowns  map[string]cooldown
+	lastReport map[string]*Report
 }
 
 // NewService returns a Service using the default endpoint.
@@ -94,10 +115,12 @@ func NewService() *Service {
 // tests.
 func NewServiceWithClient(c *Client) *Service {
 	return &Service{
-		client:   c,
-		now:      time.Now,
-		entries:  map[string]cacheEntry{},
-		inflight: map[string]*load{},
+		client:     c,
+		now:        time.Now,
+		entries:    map[string]cacheEntry{},
+		inflight:   map[string]*load{},
+		cooldowns:  map[string]cooldown{},
+		lastReport: map[string]*Report{},
 	}
 }
 
@@ -127,7 +150,7 @@ func (s *Service) Get(ctx context.Context, accountID, configDir string) Snapshot
 	s.inflight[accountID] = pending
 	s.mu.Unlock()
 
-	snapshot := s.fetch(ctx, configDir)
+	snapshot := s.fetch(ctx, accountID, configDir)
 
 	s.mu.Lock()
 	// A request the browser gave up on (a reload, a closed tab) cancels
@@ -152,7 +175,54 @@ func (s *Service) Forget(accountID string) {
 	s.mu.Unlock()
 }
 
-func (s *Service) fetch(ctx context.Context, configDir string) Snapshot {
+// waiting reports how long this account is still holding off, and the
+// numbers it last managed to read.
+func (s *Service) waiting(accountID string) (time.Time, *Report) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	until := time.Time{}
+	if c, ok := s.cooldowns[accountID]; ok && s.now().Before(c.until) {
+		until = c.until
+	}
+	return until, s.lastReport[accountID]
+}
+
+// refused starts or lengthens an account's cooldown after a rate limit,
+// and returns when it may ask again.
+func (s *Service) refused(accountID string, retryAfter time.Duration) time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	step := s.cooldowns[accountID].step
+	if step <= 0 {
+		step = backoffFirst
+	} else if step < backoffMax {
+		step *= 2
+	}
+	if step > backoffMax {
+		step = backoffMax
+	}
+	// A Retry-After worth waiting wins, but never shortens the backoff:
+	// the server has already said no more than it is willing to say.
+	if retryAfter > step {
+		step = retryAfter
+	}
+	until := s.now().Add(step)
+	s.cooldowns[accountID] = cooldown{until: until, step: step}
+	return until
+}
+
+// allowed clears an account's cooldown after a successful read.
+func (s *Service) allowed(accountID string, report *Report) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.cooldowns, accountID)
+	if report != nil {
+		s.lastReport[accountID] = report
+	}
+}
+
+func (s *Service) fetch(ctx context.Context, accountID, configDir string) Snapshot {
 	creds, err := ReadCredentials(configDir)
 	switch {
 	case errors.Is(err, errNoLogin), errors.Is(err, fs.ErrNotExist):
@@ -188,22 +258,48 @@ func (s *Service) fetch(ctx context.Context, configDir string) Snapshot {
 		return snapshot
 	}
 
+	// Still serving a rate limit: say so, keep the last numbers on
+	// screen, and ask nobody anything.
+	if until, last := s.waiting(accountID); !until.IsZero() {
+		snapshot.Usage = last
+		snapshot.Error = pausedNote(until)
+		return snapshot
+	}
+
 	report, err := s.client.Fetch(ctx, creds)
 	if err != nil {
 		// The session clock is still worth showing even when the plan
 		// numbers aren't: it answers a different question.
 		snapshot.Error = err.Error()
-		if errors.Is(err, ErrLoginRejected) {
+
+		var limited *RateLimited
+		switch {
+		case errors.Is(err, ErrLoginRejected):
 			snapshot.State = StateExpired
-		} else {
+		case errors.As(err, &limited):
+			// A refusal for asking too often says the login is fine —
+			// it was accepted and then throttled. Leave the account
+			// linked, keep whatever numbers it last had, and wait.
+			_, last := s.waiting(accountID)
+			snapshot.Usage = last
+			snapshot.Error = pausedNote(s.refused(accountID, limited.RetryAfter))
+		default:
 			// Reaching Anthropic failed, which says nothing about
 			// whether this account works. Don't claim it is broken.
 			snapshot.State = StateUnknown
 		}
 		return snapshot
 	}
+	s.allowed(accountID, report)
 	snapshot.Usage = report
 	return snapshot
+}
+
+// pausedNote is what the card says while an account is waiting out a
+// rate limit: what happened, and when it will try again.
+func pausedNote(until time.Time) string {
+	return "Anthropic is rate-limiting plan usage. These numbers are from the last successful read; trying again at " +
+		until.Local().Format("15:04") + "."
 }
 
 func sessionInfo(creds Credentials) *SessionInfo {
