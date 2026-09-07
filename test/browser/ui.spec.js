@@ -33,14 +33,60 @@ function usagePayload() {
   });
 }
 
+// The one token this stub refuses, so a test can put an account in the
+// "the API rejected this login" state without expiring anything.
+const REJECTED_TOKEN = "revoked-access-token";
+
 function startUsageStub() {
   return new Promise((resolve) => {
     const srv = http.createServer((req, res) => {
+      if ((req.headers.authorization || "").includes(REJECTED_TOKEN)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end("{}");
+        return;
+      }
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(usagePayload());
     });
     srv.listen(0, "127.0.0.1", () => resolve(srv));
   });
+}
+
+// writeCredentials plants a login for an account directly, which is how
+// a test picks the two clocks: the short access token and the long
+// refresh one that decides whether the login is over.
+function writeCredentials(configDir, { accessToken, accessInHours, refreshInDays }) {
+  fs.writeFileSync(
+    path.join(configDir, ".credentials.json"),
+    JSON.stringify({
+      claudeAiOauth: {
+        accessToken,
+        refreshToken: "fake-refresh-token",
+        expiresAt: Date.now() + accessInHours * 3600_000,
+        refreshTokenExpiresAt: Date.now() + refreshInDays * 24 * 3600_000,
+        subscriptionType: "max",
+        rateLimitTier: "default_claude_max_20x",
+      },
+    })
+  );
+}
+
+async function createAccount(name) {
+  const res = await fetch(`${baseURL}/api/accounts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: baseURL },
+    body: JSON.stringify({ name }),
+  });
+  expect(res.ok).toBeTruthy();
+  return res.json();
+}
+
+async function deleteAccount(id) {
+  const res = await fetch(`${baseURL}/api/accounts/${id}`, {
+    method: "DELETE",
+    headers: { Origin: baseURL },
+  });
+  expect(res.ok).toBeTruthy();
 }
 
 function build(pkg, outPath) {
@@ -217,6 +263,45 @@ test("reports a signed-out account instead of claiming it is linked", async ({ p
     headers: { Origin: baseURL },
   });
   expect(removed.ok).toBeTruthy();
+});
+
+// The bug: the account being used at that very moment showed the red
+// "login expired" badge. Claude Code only refreshes the short access
+// token when it runs, so between runs ccam held a stale one, the API
+// answered 401, and a working login was reported as rejected.
+test("calls an account with a stale access token linked, not expired", async ({ page }) => {
+  const account = await createAccount("Stale Token");
+  // The stale token is one the API refuses, exactly as a real expired
+  // one is: the fix is that ccam never sends it in the first place.
+  writeCredentials(account.configDir, { accessToken: REJECTED_TOKEN, accessInHours: -1, refreshInDays: 27 });
+
+  await page.goto(baseURL);
+  const card = page.locator(".account-card", { hasText: "Stale Token" });
+  await expect(card.locator(".status-badge")).toHaveText("linked");
+  await expect(card.locator(".meter")).toHaveCount(0);
+  await expect(card.locator(".usage-note")).toContainText("refreshes");
+  // The login clock is the one still running, and it must still run.
+  await expect(card.locator(".session")).toContainText(/2\dd \d+h left/);
+  await expect(card.locator(".session")).not.toContainText("ended");
+
+  await deleteAccount(account.id);
+});
+
+// A login the API really does reject is expired — but its refresh
+// window can still have weeks left, and the card used to announce that
+// future date as the day the session "ended".
+test("never dates a rejected login as having ended in the future", async ({ page }) => {
+  const account = await createAccount("Revoked Login");
+  writeCredentials(account.configDir, { accessToken: REJECTED_TOKEN, accessInHours: 8, refreshInDays: 27 });
+
+  await page.goto(baseURL);
+  const card = page.locator(".account-card", { hasText: "Revoked Login" });
+  await expect(card.locator(".status-badge")).toHaveText("login expired");
+  await expect(card.locator(".usage-note")).toContainText("rejected");
+  await expect(card.locator(".session")).toContainText("Login session");
+  await expect(card.locator(".session")).not.toContainText("ended");
+
+  await deleteAccount(account.id);
 });
 
 // Closing the dialog mid-login must leave the UI able to start another

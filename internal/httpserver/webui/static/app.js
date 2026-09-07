@@ -287,10 +287,16 @@ function buildSession(container, info, state) {
   if (!info) return;
 
   // A login that is over has no clocks left to run. Showing them ticking
-  // would contradict the note right above.
+  // would contradict the note right above. Only the date that has
+  // actually passed may be called "ended": a rejected login whose
+  // window is still open would otherwise be reported as ending on a day
+  // that has not happened yet.
   if (state === "expired") {
     const end = new Date(info.sessionExpiresAt);
-    if (!isNaN(end)) sessionItem(container, "Login session", "").textContent = "ended " + fullDate(end);
+    if (isNaN(end)) return;
+    const over = end.getTime() <= Date.now();
+    sessionItem(container, "Login session", "").textContent =
+      (over ? "ended " : "until ") + fullDate(end);
     return;
   }
 
