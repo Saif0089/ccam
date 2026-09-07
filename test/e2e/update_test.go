@@ -51,11 +51,7 @@ func TestAutoUpdateInstallsAndRestartsIntoIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ccam install failed: %v\n%s", err, out)
 	}
-	t.Cleanup(func() {
-		if out, err := h.run("uninstall", "--port", fmt.Sprint(h.port)); err != nil {
-			t.Logf("uninstall after the test: %v\n%s", err, out)
-		}
-	})
+	t.Cleanup(func() { stopAndRelease(t, h) })
 
 	if !h.waitForHTTP(15 * time.Second) {
 		t.Fatalf("service never answered; log:\n%s", readLog(h))
@@ -131,11 +127,7 @@ func TestAutoUpdateLeavesANewerLocalBuildAlone(t *testing.T) {
 	if out, err := h.run("install", "--port", fmt.Sprint(h.port)); err != nil {
 		t.Fatalf("ccam install failed: %v\n%s", err, out)
 	}
-	t.Cleanup(func() {
-		if out, err := h.run("uninstall", "--port", fmt.Sprint(h.port)); err != nil {
-			t.Logf("uninstall after the test: %v\n%s", err, out)
-		}
-	})
+	t.Cleanup(func() { stopAndRelease(t, h) })
 	if !h.waitForHTTP(15 * time.Second) {
 		t.Fatalf("service never answered; log:\n%s", readLog(h))
 	}
@@ -149,6 +141,35 @@ func TestAutoUpdateLeavesANewerLocalBuildAlone(t *testing.T) {
 	}
 	if v := statusVersion(h.baseURL()); v != "dev" {
 		t.Errorf("version = %q, want the local build's own %q", v, "dev")
+	}
+}
+
+// stopAndRelease uninstalls, then waits for the log file to actually be
+// free.
+//
+// It is an assertion, not politeness: after an update the server that is
+// running is one this test never started — the successor the outgoing
+// process handed over to — and the only evidence from outside that
+// uninstall really stopped *that* process is its grip on the log file
+// letting go. Windows says so plainly by refusing the delete; on Unix
+// the remove succeeds first time.
+func stopAndRelease(t *testing.T, h *harness) {
+	t.Helper()
+	if out, err := h.run("uninstall", "--port", fmt.Sprint(h.port)); err != nil {
+		t.Logf("uninstall after the test: %v\n%s", err, out)
+	}
+
+	logPath := filepath.Join(h.home, ".ccam", "ccam.log")
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if err := os.Remove(logPath); err == nil || os.IsNotExist(err) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("%s is still held open 20s after uninstall: a ccam process outlived it", logPath)
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 }
 
