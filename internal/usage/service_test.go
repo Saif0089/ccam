@@ -419,3 +419,111 @@ func TestRetryAfterHeader(t *testing.T) {
 		t.Errorf("a 1s Retry-After produced %s, want the %s backoff to win", got, backoffFirst)
 	}
 }
+
+// The numbers survive a restart, which is the whole point: ccam
+// restarts itself whenever it updates, and landing in the middle of a
+// rate limit with an empty card is exactly the case this exists for.
+func TestLastGoodNumbersSurviveARestart(t *testing.T) {
+	dir := t.TempDir()
+	writeCredsFile(t, dir, time.Now().Add(8*time.Hour), time.Now().Add(30*24*time.Hour))
+	cache := filepath.Join(t.TempDir(), "usage.json")
+
+	limited := atomic.Bool{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if limited.Load() {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte(realPayload))
+	}))
+	defer srv.Close()
+
+	// One good read, by the service that is about to "restart".
+	before := NewServiceWithClient(&Client{Endpoint: srv.URL, HTTPClient: srv.Client()})
+	before.CachePath = cache
+	if got := before.Get(context.Background(), "work", dir); got.Usage == nil {
+		t.Fatalf("no usage on the first read: %s", got.Error)
+	}
+
+	// A new process, the same machine, and Anthropic now refusing.
+	limited.Store(true)
+	after := NewServiceWithClient(&Client{Endpoint: srv.URL, HTTPClient: srv.Client()})
+	after.CachePath = cache
+	after.loadReports()
+
+	got := after.Get(context.Background(), "work", dir)
+	if got.Usage == nil || len(got.Usage.Limits) == 0 {
+		t.Fatalf("want the saved numbers on the card, got error %q", got.Error)
+	}
+	if !strings.Contains(got.Error, "rate-limiting") {
+		t.Errorf("note = %q, want it to say why they are not fresh", got.Error)
+	}
+	// And the note has to say how old they are, or they read as current.
+	if !strings.Contains(got.Error, got.Usage.FetchedAt.Local().Format("15:04")) {
+		t.Errorf("note = %q, want it to name when the numbers were read", got.Error)
+	}
+}
+
+// Numbers older than the shortest window on the page have rolled over,
+// so they are not stale — they are wrong, and must not come back.
+func TestReportsTooOldToMeanAnythingAreDropped(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "usage.json")
+	old := time.Now().Add(-StaleReportAge - time.Hour)
+	writeFile(t, cache, fmt.Sprintf(
+		`{"accounts":{"work":{"limits":[{"kind":"session","label":"Current session","percent":42}],"fetchedAt":%q}}}`,
+		old.UTC().Format(time.RFC3339)))
+
+	svc := NewServiceWithClient(&Client{})
+	svc.CachePath = cache
+	svc.loadReports()
+
+	svc.mu.Lock()
+	_, kept := svc.lastReport["work"]
+	svc.mu.Unlock()
+	if kept {
+		t.Error("a report from before the session window rolled was kept")
+	}
+}
+
+// A Service nobody pointed at a cache file writes nothing, anywhere.
+// This is what keeps a test run from reaching into the real ~/.ccam.
+func TestPersistenceIsOffWithoutACachePath(t *testing.T) {
+	dir := t.TempDir()
+	writeCredsFile(t, dir, time.Now().Add(8*time.Hour), time.Now().Add(30*24*time.Hour))
+	srv := stubUsage(t, http.StatusOK, realPayload)
+
+	svc := NewServiceWithClient(&Client{Endpoint: srv.URL, HTTPClient: srv.Client()})
+	if svc.cachePath() != "" {
+		t.Fatalf("cachePath = %q, want persistence off by default", svc.cachePath())
+	}
+	svc.Get(context.Background(), "work", dir)
+	svc.Forget("work")
+	// Nothing to assert about the filesystem beyond this: with no path
+	// there is no file to write, and cachePath being empty is what the
+	// save and load paths both check first.
+}
+
+// Forgetting an account takes its saved numbers with it, so an account
+// removed and recreated under the same id cannot inherit them.
+func TestForgetDropsTheSavedNumbers(t *testing.T) {
+	dir := t.TempDir()
+	writeCredsFile(t, dir, time.Now().Add(8*time.Hour), time.Now().Add(30*24*time.Hour))
+	cache := filepath.Join(t.TempDir(), "usage.json")
+	srv := stubUsage(t, http.StatusOK, realPayload)
+
+	svc := NewServiceWithClient(&Client{Endpoint: srv.URL, HTTPClient: srv.Client()})
+	svc.CachePath = cache
+	svc.Get(context.Background(), "work", dir)
+
+	svc.Forget("work")
+
+	reborn := NewServiceWithClient(&Client{})
+	reborn.CachePath = cache
+	reborn.loadReports()
+	reborn.mu.Lock()
+	_, kept := reborn.lastReport["work"]
+	reborn.mu.Unlock()
+	if kept {
+		t.Error("the removed account's numbers were still on disk")
+	}
+}

@@ -66,7 +66,11 @@ by ccam itself; it asks Anthropic for fresh numbers at most once a minute
 per account. That endpoint is not a documented API and publishes no rate
 limit, so when it does refuse, ccam waits — a minute, then two, four,
 eight, up to fifteen — and keeps showing the last numbers it read rather
-than emptying the card. The build answering on
+than emptying the card. Those numbers are kept in `~/.ccam/usage.json`
+(percentages and reset times, never a credential), so a restart in the
+middle of a rate limit still has something true to show; anything older
+than six hours is discarded, because by then the shortest window on the
+page has rolled over. The build answering on
 that port is named in the top-right corner, which is how you tell a fix
 that shipped from a fix that is actually running.
 

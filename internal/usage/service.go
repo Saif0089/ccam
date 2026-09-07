@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"sync"
 	"time"
+
+	"ccam/internal/config"
 )
 
 // Snapshot is what the page shows for one account: whether the login
@@ -95,6 +97,10 @@ type Service struct {
 	client *Client
 	now    func() time.Time
 
+	// CachePath overrides where the last good numbers are kept, for
+	// tests. Empty means ~/.ccam/usage.json.
+	CachePath string
+
 	mu       sync.Mutex
 	entries  map[string]cacheEntry
 	inflight map[string]*load
@@ -106,14 +112,23 @@ type Service struct {
 	lastReport map[string]*Report
 }
 
-// NewService returns a Service using the default endpoint.
+// NewService returns a Service using the default endpoint, keeping its
+// last good numbers under ~/.ccam so a restart does not lose them.
 func NewService() *Service {
-	return NewServiceWithClient(NewClient())
+	s := NewServiceWithClient(NewClient())
+	if path, err := config.UsageCacheFile(); err == nil {
+		s.CachePath = path
+		s.loadReports()
+	}
+	return s
 }
 
 // NewServiceWithClient returns a Service using a specific client, for
 // tests.
 func NewServiceWithClient(c *Client) *Service {
+	// No CachePath: nothing is read from or written to disk. Only the
+	// running service sets one, so a test constructing a Service can
+	// never reach into the real ~/.ccam — which it did, once.
 	return &Service{
 		client:     c,
 		now:        time.Now,
@@ -172,7 +187,14 @@ func (s *Service) Get(ctx context.Context, accountID, configDir string) Snapshot
 func (s *Service) Forget(accountID string) {
 	s.mu.Lock()
 	delete(s.entries, accountID)
+	// The saved numbers go too. Every caller means "what ccam knows
+	// about this account no longer applies" — it was removed, or signed
+	// in as someone else — and numbers that outlived that would come
+	// back under an account they were never about.
+	delete(s.lastReport, accountID)
+	delete(s.cooldowns, accountID)
 	s.mu.Unlock()
+	s.saveReports()
 }
 
 // waiting reports how long this account is still holding off, and the
@@ -212,13 +234,20 @@ func (s *Service) refused(accountID string, retryAfter time.Duration) time.Time 
 	return until
 }
 
-// allowed clears an account's cooldown after a successful read.
+// allowed clears an account's cooldown after a successful read and
+// keeps the numbers for the next time one is refused.
 func (s *Service) allowed(accountID string, report *Report) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	delete(s.cooldowns, accountID)
+	changed := false
 	if report != nil {
 		s.lastReport[accountID] = report
+		changed = true
+	}
+	s.mu.Unlock()
+
+	if changed {
+		s.saveReports()
 	}
 }
 
@@ -262,7 +291,7 @@ func (s *Service) fetch(ctx context.Context, accountID, configDir string) Snapsh
 	// screen, and ask nobody anything.
 	if until, last := s.waiting(accountID); !until.IsZero() {
 		snapshot.Usage = last
-		snapshot.Error = pausedNote(until)
+		snapshot.Error = pausedNote(until, last)
 		return snapshot
 	}
 
@@ -282,7 +311,7 @@ func (s *Service) fetch(ctx context.Context, accountID, configDir string) Snapsh
 			// linked, keep whatever numbers it last had, and wait.
 			_, last := s.waiting(accountID)
 			snapshot.Usage = last
-			snapshot.Error = pausedNote(s.refused(accountID, limited.RetryAfter))
+			snapshot.Error = pausedNote(s.refused(accountID, limited.RetryAfter), last)
 		default:
 			// Reaching Anthropic failed, which says nothing about
 			// whether this account works. Don't claim it is broken.
@@ -296,10 +325,15 @@ func (s *Service) fetch(ctx context.Context, accountID, configDir string) Snapsh
 }
 
 // pausedNote is what the card says while an account is waiting out a
-// rate limit: what happened, and when it will try again.
-func pausedNote(until time.Time) string {
-	return "Anthropic is rate-limiting plan usage. These numbers are from the last successful read; trying again at " +
-		until.Local().Format("15:04") + "."
+// rate limit: what happened, how old the numbers under it are, and when
+// ccam will try again.
+func pausedNote(until time.Time, last *Report) string {
+	when := "No numbers have been read yet"
+	if last != nil && !last.FetchedAt.IsZero() {
+		when = "These numbers are from " + last.FetchedAt.Local().Format("15:04")
+	}
+	return "Anthropic is rate-limiting plan usage. " + when +
+		"; trying again at " + until.Local().Format("15:04") + "."
 }
 
 func sessionInfo(creds Credentials) *SessionInfo {

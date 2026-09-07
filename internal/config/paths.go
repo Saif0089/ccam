@@ -44,6 +44,21 @@ func AccountsFile() (string, error) {
 	return filepath.Join(base, "accounts.json"), nil
 }
 
+// UsageCacheFile returns the path the last successful plan-usage read is
+// kept at, per account.
+//
+// It holds numbers, never credentials: percentages and reset times, the
+// same things the page shows. Its whole job is that a restart — and ccam
+// restarts itself whenever it updates — does not leave a card blank
+// while Anthropic is refusing to answer.
+func UsageCacheFile() (string, error) {
+	base, err := HomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "usage.json"), nil
+}
+
 // LogFile returns the path ccam's background service writes its own
 // stdout/stderr to, so install issues are debuggable without a terminal.
 func LogFile() (string, error) {
