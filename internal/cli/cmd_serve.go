@@ -2,12 +2,12 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -15,8 +15,10 @@ import (
 	"ccam/internal/claudebin"
 	"ccam/internal/config"
 	"ccam/internal/httpserver"
+	"ccam/internal/notify"
 	"ccam/internal/service"
 	"ccam/internal/shellrc"
+	"ccam/internal/updater"
 )
 
 func cmdServe(args []string) int {
@@ -73,8 +75,16 @@ func cmdServe(args []string) int {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	startAutoUpdate(ctx, srv)
+
 	if err := httpserver.Serve(ctx, srv, *port); err != nil {
 		fmt.Fprintln(os.Stderr, "ccam:", err)
+		// An update that installed but could not restart leaves no
+		// server running, and this process is about to be gone. The
+		// notification is the only thing that will tell anyone.
+		if errors.Is(err, httpserver.ErrRestartFailed) {
+			_ = notify.Send("Updated, but ccam could not restart. Run `ccam start` to bring it back.")
+		}
 		return 1
 	}
 	return 0
@@ -103,15 +113,62 @@ func capLogFile() {
 
 // resolveBinaryPath returns the absolute, symlink-resolved path to the
 // currently running ccam executable — what autostart registration and
-// the manual start/stop lifecycle should point at.
+// the manual start/stop lifecycle should point at, and what an update
+// replaces.
 func resolveBinaryPath() (string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", fmt.Errorf("resolving own executable path: %w", err)
+	return service.SelfPath()
+}
+
+// startAutoUpdate keeps this installation current in the background.
+//
+// The service is the only part of ccam that is always running, so it is
+// the only place an update can happen without waiting for someone to
+// remember. When one lands, the person gets a desktop notification —
+// the binary changing underneath them is not something to discover by
+// accident — and the server restarts into it.
+func startAutoUpdate(ctx context.Context, srv *httpserver.Server) {
+	// A server someone is watching in their own terminal must not
+	// replace its binary and hand over to a detached process: that
+	// would look exactly like `ccam serve` quitting on its own, with a
+	// daemon left behind that they never asked for. Updating belongs to
+	// the copy started at login, whose output goes to the log file.
+	if isTerminal(os.Stdout) {
+		log.Print("automatic updates are off while running in a terminal")
+		return
 	}
-	resolved, err := filepath.EvalSymlinks(exe)
+
+	binaryPath, err := service.SelfPath()
 	if err != nil {
-		return exe, nil // fall back to the unresolved path rather than failing outright
+		log.Printf("automatic updates are off: %v", err)
+		return
 	}
-	return resolved, nil
+	// Finish whatever the last update could not: on Windows the
+	// displaced executable can only be deleted once it is nobody's
+	// running image, which is now.
+	updater.CleanupOldBinary(binaryPath)
+
+	up := updater.New(binaryPath)
+	if err := up.Validate(); err != nil {
+		log.Printf("automatic updates are off: %v", err)
+		return
+	}
+
+	go up.Run(ctx, func(release updater.Release) {
+		if err := notify.Send("Updated to " + release.Name + ". Restarting."); err != nil {
+			// A desktop that shows nothing is not a reason to keep
+			// running the old binary.
+			log.Printf("update: %v", err)
+		}
+		srv.RequestRestart()
+	})
+}
+
+// isTerminal reports whether f is a character device — a real terminal
+// rather than the log file the service's output is redirected to.
+func isTerminal(f *os.File) bool {
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }

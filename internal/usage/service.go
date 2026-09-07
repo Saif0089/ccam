@@ -52,14 +52,27 @@ type SessionInfo struct {
 	RateLimitTier    string     `json:"rateLimitTier,omitempty"`
 }
 
-// TTL is how long a fetched report is reused: long enough that opening
-// the page repeatedly doesn't hammer the API, short enough that the
-// numbers still feel live.
-const TTL = 60 * time.Second
+// TTL is how long a fetched report is reused.
+//
+// The page polls every few seconds and never asks anyone to press a
+// refresh button, so this is what decides how often that polling
+// actually reaches Anthropic: three or four page polls share one
+// upstream call. Short enough that a number you are watching move
+// updates while you watch it; long enough that an open page is not
+// hammering an endpoint that is not a documented, rate-limit-friendly
+// API.
+const TTL = 15 * time.Second
 
 type cacheEntry struct {
 	snapshot Snapshot
 	at       time.Time
+}
+
+// load is one in-flight fetch for one account, which every request that
+// arrives while it runs waits on instead of starting its own.
+type load struct {
+	done     chan struct{}
+	snapshot Snapshot
 }
 
 // Service caches usage per account.
@@ -67,8 +80,9 @@ type Service struct {
 	client *Client
 	now    func() time.Time
 
-	mu      sync.Mutex
-	entries map[string]cacheEntry
+	mu       sync.Mutex
+	entries  map[string]cacheEntry
+	inflight map[string]*load
 }
 
 // NewService returns a Service using the default endpoint.
@@ -79,7 +93,12 @@ func NewService() *Service {
 // NewServiceWithClient returns a Service using a specific client, for
 // tests.
 func NewServiceWithClient(c *Client) *Service {
-	return &Service{client: c, now: time.Now, entries: map[string]cacheEntry{}}
+	return &Service{
+		client:   c,
+		now:      time.Now,
+		entries:  map[string]cacheEntry{},
+		inflight: map[string]*load{},
+	}
 }
 
 // Get returns the snapshot for one account, fetching it when the cached
@@ -91,13 +110,37 @@ func (s *Service) Get(ctx context.Context, accountID, configDir string) Snapshot
 		s.mu.Unlock()
 		return entry.snapshot
 	}
+	// One fetch per account at a time. The page polls every few seconds
+	// and a second tab, or a slow answer from Anthropic, would otherwise
+	// have every overlapping request start its own upstream call for the
+	// same numbers.
+	if pending, ok := s.inflight[accountID]; ok {
+		s.mu.Unlock()
+		select {
+		case <-pending.done:
+			return pending.snapshot
+		case <-ctx.Done():
+			return Snapshot{State: StateUnknown, Error: "Reading plan usage was interrupted."}
+		}
+	}
+	pending := &load{done: make(chan struct{})}
+	s.inflight[accountID] = pending
 	s.mu.Unlock()
 
-	snapshot := s.load(ctx, configDir)
+	snapshot := s.fetch(ctx, configDir)
 
 	s.mu.Lock()
-	s.entries[accountID] = cacheEntry{snapshot: snapshot, at: s.now()}
+	// A request the browser gave up on (a reload, a closed tab) cancels
+	// its context mid-fetch. That failure says nothing about the
+	// account, and caching it would blame it for the next TTL.
+	if ctx.Err() == nil {
+		s.entries[accountID] = cacheEntry{snapshot: snapshot, at: s.now()}
+	}
+	delete(s.inflight, accountID)
 	s.mu.Unlock()
+
+	pending.snapshot = snapshot
+	close(pending.done)
 	return snapshot
 }
 
@@ -109,7 +152,7 @@ func (s *Service) Forget(accountID string) {
 	s.mu.Unlock()
 }
 
-func (s *Service) load(ctx context.Context, configDir string) Snapshot {
+func (s *Service) fetch(ctx context.Context, configDir string) Snapshot {
 	creds, err := ReadCredentials(configDir)
 	switch {
 	case errors.Is(err, errNoLogin), errors.Is(err, fs.ErrNotExist):

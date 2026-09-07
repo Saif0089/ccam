@@ -5,6 +5,7 @@ package httpserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -43,6 +44,14 @@ type Server struct {
 	defaultCheckMu   sync.Mutex
 	defaultCheckedAt time.Time
 
+	// restart is closed when something — in practice the updater,
+	// after replacing this binary — asks the server to hand over to a
+	// fresh process. Closing a channel rather than calling a function
+	// keeps the actual restart in Serve, which is the only place that
+	// knows the port it bound and can close the listener first.
+	restart     chan struct{}
+	restartOnce sync.Once
+
 	mu     sync.Mutex
 	logins map[string]*loginBroadcast // accountID -> in-progress/last login, if any
 	// startMu serialises login starts, which span a subprocess spawn
@@ -60,7 +69,15 @@ func New(manager *accounts.Manager, syncer *shellrc.Syncer, claudeBinary string)
 		usage:          usage.NewService(),
 		launchTerminal: termlauncher.Launch,
 		logins:         map[string]*loginBroadcast{},
+		restart:        make(chan struct{}),
 	}
+}
+
+// RequestRestart asks the server to shut down and start its replacement
+// from the binary now on disk. Safe to call more than once; only the
+// first call is acted on.
+func (s *Server) RequestRestart() {
+	s.restartOnce.Do(func() { close(s.restart) })
 }
 
 // Handler returns the complete http.Handler: the embedded web UI plus
@@ -95,7 +112,16 @@ func Serve(ctx context.Context, srv *Server, port int) error {
 		ln.Close()
 		return err
 	}
-	defer removePortFile(actualPort)
+	// Cleared when this process is handing the port to a successor:
+	// the replacement writes the same port file on its way up, and
+	// removing it on the way out would strand it — nothing could find
+	// the server that is actually serving.
+	handingOver := false
+	defer func() {
+		if !handingOver {
+			removePortFile(actualPort)
+		}
+	}()
 
 	if err := service.RecordSelf(); err != nil {
 		log.Printf("warning: could not record pid file: %v", err)
@@ -124,12 +150,70 @@ func Serve(ctx context.Context, srv *Server, port int) error {
 		defer cancel()
 		_ = httpSrv.Shutdown(shutdownCtx)
 		return nil
+	case <-srv.restart:
+		// An update replaced this binary on disk. Shut down first so
+		// the port is free, then start the file that is there now: no
+		// service manager supervises ccam (see internal/service), so
+		// nothing else would ever bring it back.
+		srv.stopAllLogins()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = httpSrv.Shutdown(shutdownCtx)
+
+		// Someone asked ccam to stop while it was handing over —
+		// `ccam stop`, `ccam uninstall`, or a logout. Starting a
+		// successor now would leave a server running that the thing
+		// which just stopped us no longer knows how to stop.
+		if ctx.Err() != nil {
+			log.Print("update installed, but ccam was asked to stop before it could restart")
+			return nil
+		}
+
+		path, err := service.SelfPath()
+		if err != nil {
+			return fmt.Errorf("%w: %v", ErrRestartFailed, err)
+		}
+		// Set before the handover, not after: on Unix, Respawn replaces
+		// this process image outright and never returns, so anything
+		// after it is Windows-only or a failure. Either way the port
+		// file now belongs to the successor.
+		handingOver = true
+		if err := service.Respawn(path, actualPort); err != nil {
+			handingOver = false
+			return fmt.Errorf("%w: %v", ErrRestartFailed, err)
+		}
+		// A successor that never comes up is the one outcome nobody
+		// would notice: this process is gone, so there is nothing left
+		// to retry or report it. Wait for it to answer, and say so
+		// plainly when it does not.
+		if !waitForSuccessor(actualPort, 15*time.Second) {
+			return fmt.Errorf("%w: the replacement never answered on port %d", ErrRestartFailed, actualPort)
+		}
+		log.Printf("restarted into the updated binary on port %d", actualPort)
+		return nil
 	case err := <-errCh:
 		if err != nil && err != http.ErrServerClosed {
 			return err
 		}
 		return nil
 	}
+}
+
+// ErrRestartFailed means an update was installed but this process could
+// not hand over to it. The caller turns that into something the person
+// sees, because the service is now down and only they can start it.
+var ErrRestartFailed = errors.New("ccam updated itself but could not restart")
+
+// waitForSuccessor reports whether a ccam is answering on port again.
+func waitForSuccessor(port int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if info, err := service.Running(); err == nil && info != nil && info.Port == port {
+			return true
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return false
 }
 
 func writePortFile(port int) error {

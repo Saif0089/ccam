@@ -75,8 +75,13 @@ func (w *windowsService) Install(binaryPath string, port int) (string, error) {
 // %SOMETHING% (common on Windows) would be silently mangled unless the
 // percent signs are doubled.
 func autostartScript(binaryPath string, port int) string {
+	// Every interpolated value goes through batchEscape, not just PATH:
+	// the home directory and the install path both sit under
+	// C:\Users\<account name>, and % is a legal character in a Windows
+	// account name. Left bare, cmd.exe would eat it at parse time and
+	// silently start ccam from the wrong directory — or not at all.
 	return fmt.Sprintf("@echo off\r\nset \"PATH=%s\"\r\ncd /d \"%s\"\r\nstart \"\" /min \"%s\" serve --port %d\r\n",
-		batchEscape(servicePATH()), serviceWorkingDir(), binaryPath, port)
+		batchEscape(servicePATH()), batchEscape(serviceWorkingDir()), batchEscape(binaryPath), port)
 }
 
 // installScheduledTaskFallback covers the rare case where the per-user
