@@ -74,6 +74,14 @@ amd64/arm64 (`CGO_ENABLED=0`).
   ccam — they're used only to start it once at login — so there's no risk of
   a service manager silently reviving a process this package just stopped.
 
+- **`internal/usage`** — reads an account's stored OAuth record and reports
+  what the page shows next to it: plan limits with their reset times, how
+  long the login lasts, and the account's live state
+  (`linked`/`expired`/`signed-out`/`unknown`). Results are cached for 60s per
+  account. Access tokens are used to call the API and are never logged or
+  sent to the browser — a test asserts the response body doesn't contain
+  one.
+
 - **`internal/httpserver`** — the REST + SSE API and the embedded web UI
   (`internal/httpserver/webui`, plain HTML/CSS/JS via `embed.FS`, no build
   step). Binds `127.0.0.1` only.
@@ -93,6 +101,23 @@ whatever `CLAUDE_CONFIG_DIR` it's given. That's correct regardless of which
 backend a given OS/version uses, costs nothing (it's a local check, unlike
 the `claude -p ping` call this used to make, which spent real tokens on
 every poll), and keeps `CGO_ENABLED=0` viable everywhere.
+
+`internal/usage` is the one exception, because a "does this work?" answer
+isn't enough there: reporting plan usage means calling Anthropic with the
+account's own access token, which means reading the token itself. So it does
+derive the Keychain item name — `Claude Code-credentials` for the default
+account, `Claude Code-credentials-<first 8 hex of sha256(configDir)>` for
+every other — and falls back to `<configDir>/.credentials.json`, which is
+where Claude Code stores the record when no Keychain is available (over SSH,
+in containers, and on Linux and Windows generally).
+
+That derivation is Claude Code's, not ours, so it can change. Everything
+downstream is built to degrade rather than break: a miss here means the card
+says usage is unavailable, and nothing else in ccam is affected. Reading
+goes through `/usr/bin/security` rather than the Keychain API on purpose —
+Keychain access is granted per executable, and the item belongs to Claude
+Code, so using the same tool a person would use by hand inherits that access
+instead of prompting under ccam's unfamiliar name.
 
 ## Testing strategy
 

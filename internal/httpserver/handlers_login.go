@@ -90,6 +90,9 @@ func (s *Server) watchLoginOutcome(id string, broadcast *loginBroadcast) {
 				continue
 			}
 			_ = s.syncAliases()
+			// A fresh login means new credentials and a new session
+			// clock, so the cached numbers are stale.
+			s.usage.Forget(id)
 
 			// Claude Code treats logging in and finishing onboarding as
 			// separate things, so without this the first `claude` run

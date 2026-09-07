@@ -139,8 +139,24 @@ func loginDelay() time.Duration {
 	return 300 * time.Millisecond
 }
 
+// writeCredentials mirrors the record the real CLI stores, down to the
+// field names: ccam reads it back to report the plan and how long the
+// login lasts, so a placeholder blob here would make the page show a
+// signed-out account right after a successful login.
 func writeCredentials(configDir string) {
-	creds := fmt.Sprintf(`{"fake":true,"issuedAt":%q}`, time.Now().UTC().Format(time.RFC3339))
+	now := time.Now()
+	creds := fmt.Sprintf(`{"claudeAiOauth":{
+		"accessToken":"fake-access-token",
+		"refreshToken":"fake-refresh-token",
+		"expiresAt":%d,
+		"refreshTokenExpiresAt":%d,
+		"scopes":["user:inference","user:profile"],
+		"subscriptionType":"max",
+		"rateLimitTier":"default_claude_max_20x"},
+		"fake":true,"issuedAt":%q}`,
+		now.Add(8*time.Hour).UnixMilli(),
+		now.Add(30*24*time.Hour).UnixMilli(),
+		now.UTC().Format(time.RFC3339))
 	if err := os.WriteFile(credentialsPath(configDir), []byte(creds), 0o600); err != nil {
 		fmt.Fprintln(os.Stderr, "fakeclaude: writing credentials:", err)
 		os.Exit(1)

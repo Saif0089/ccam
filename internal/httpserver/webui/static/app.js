@@ -5,6 +5,8 @@
 const accountsList = document.getElementById("accounts-list");
 const emptyState = document.getElementById("empty-state");
 const rowTemplate = document.getElementById("account-row-template");
+const meterTemplate = document.getElementById("meter-template");
+const refreshedLabel = document.getElementById("refreshed");
 
 const addDialog = document.getElementById("add-dialog");
 const addForm = document.getElementById("add-form");
@@ -42,9 +44,81 @@ async function api(path, opts) {
   return JSON.parse(text);
 }
 
-async function loadAccounts() {
+async function loadAccounts(forceUsage) {
   const data = await api("/api/accounts");
-  renderAccounts(data.accounts || []);
+  renderAccounts(data.accounts || [], forceUsage);
+}
+
+// --- time formatting --------------------------------------------------
+//
+// Every number on this page is a duration, and durations are what people
+// misread first. Two units, never three: "1d 6h", never "1d 6h 12m".
+
+function formatLeft(ms) {
+  if (!(ms > 0)) return "now";
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 1) return "under a minute";
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const mins = minutes % 60;
+  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  if (hours > 0) return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+  return `${mins}m`;
+}
+
+// formatWhen answers "when exactly?" — the part a countdown alone can't
+// tell you when you're planning tomorrow morning's work.
+function formatWhen(date) {
+  const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const dayIndex = Math.floor((date - midnight) / 86400000);
+  if (dayIndex === 0) return `today ${time}`;
+  if (dayIndex === 1) return `tomorrow ${time}`;
+  if (dayIndex > 1 && dayIndex < 7) {
+    return `${date.toLocaleDateString([], { weekday: "long" })} ${time}`;
+  }
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+// Countdowns tick in the browser from the absolute timestamps the server
+// sent, so the page stays honest while it sits open without polling.
+const countdowns = [];
+
+function countdown(el, isoTime, render) {
+  const at = new Date(isoTime);
+  if (isNaN(at)) return false;
+  const entry = { el, at, render };
+  countdowns.push(entry);
+  tickOne(entry);
+  return true;
+}
+
+function tickOne(entry) {
+  entry.el.textContent = entry.render(entry.at - Date.now(), entry.at);
+}
+
+setInterval(() => {
+  for (let i = countdowns.length - 1; i >= 0; i--) {
+    // Cards are replaced wholesale on every refresh; their countdowns
+    // leave with them.
+    if (!countdowns[i].el.isConnected) countdowns.splice(i, 1);
+    else tickOne(countdowns[i]);
+  }
+}, 1000);
+
+function planLabel(plan) {
+  if (!plan) return "";
+  const known = { max: "Max", pro: "Pro", team: "Team", enterprise: "Enterprise", free: "Free" };
+  const key = plan.toLowerCase();
+  return (known[key] || plan.charAt(0).toUpperCase() + plan.slice(1)) + " plan";
+}
+
+// levelFor decides the one thing colour is allowed to say here.
+function levelFor(percent, severity) {
+  if (severity === "critical" || severity === "error" || percent >= 90) return "level-crit";
+  if (severity === "warning" || severity === "warn" || percent >= 70) return "level-warn";
+  return "level-ok";
 }
 
 // refreshAccounts is loadAccounts for the places that can't await it
@@ -55,7 +129,7 @@ function refreshAccounts() {
   });
 }
 
-function renderAccounts(accounts) {
+function renderAccounts(accounts, forceUsage) {
   accountsList.innerHTML = "";
   emptyState.hidden = accounts.length > 0;
 
@@ -69,9 +143,10 @@ function renderAccounts(accounts) {
     const isDefault = account.kind === "default";
     if (isDefault) card.classList.add("default-account");
 
+    // The stored status is what ccam last saw; the usage request that
+    // follows replaces it with what is true right now.
     const badge = node.querySelector(".status-badge");
-    badge.textContent = account.status;
-    badge.classList.add(account.status === "linked" ? "linked" : "pending");
+    setStatus(badge, account.status);
 
     node.querySelector(".alias-text").textContent = account.alias;
     if (isDefault) {
@@ -110,7 +185,149 @@ function renderAccounts(accounts) {
     removeBtn.addEventListener("click", () => removeAccount(account, isDefault));
 
     accountsList.appendChild(node);
+    loadUsage(account, card, forceUsage);
   }
+}
+
+// --- usage ------------------------------------------------------------
+
+const STATUS_TEXT = {
+  linked: "linked",
+  pending: "not connected",
+  expired: "login expired",
+  "signed-out": "signed out",
+  unknown: "unknown",
+};
+
+function setStatus(badge, status) {
+  badge.className = "status-badge " + status;
+  badge.textContent = STATUS_TEXT[status] || status;
+}
+
+async function loadUsage(account, card, force) {
+  const path = `/api/accounts/${account.id}/usage` + (force ? "?refresh=1" : "");
+  let snapshot;
+  try {
+    snapshot = await api(path);
+  } catch (err) {
+    snapshot = { error: "Could not read usage: " + err.message };
+  }
+  // The list is re-rendered wholesale, so a slow response can arrive
+  // after its card is gone. Dropping it here is what keeps a stale
+  // account's numbers from reappearing under a live one.
+  if (!card.isConnected) return;
+  renderUsage(card, account, snapshot);
+  refreshedLabel.textContent = "updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function renderUsage(card, account, snapshot) {
+  const meters = card.querySelector(".meters");
+  const note = card.querySelector(".usage-note");
+  const session = card.querySelector(".session");
+  meters.innerHTML = "";
+  session.innerHTML = "";
+
+  const state = liveStatus(account, snapshot);
+  setStatus(card.querySelector(".status-badge"), state);
+
+  const plan = snapshot.session && snapshot.session.plan;
+  card.querySelector(".plan-chip").textContent = planLabel(plan);
+
+  const limits = (snapshot.usage && snapshot.usage.limits) || [];
+  for (const limit of limits) {
+    meters.appendChild(buildMeter(limit));
+  }
+
+  note.hidden = !snapshot.error;
+  if (snapshot.error) note.textContent = snapshot.error;
+
+  buildSession(session, snapshot.session, state);
+}
+
+// liveStatus is the one word that says whether this account will work if
+// you run it right now. The server decides it; the page only falls back
+// to the stored status when the request itself failed.
+function liveStatus(account, snapshot) {
+  return snapshot.state || (account.status === "linked" ? "unknown" : account.status);
+}
+
+function buildMeter(limit) {
+  const node = meterTemplate.content.cloneNode(true);
+  const meter = node.querySelector(".meter");
+  const percent = Math.max(0, Math.min(100, limit.percent || 0));
+
+  meter.classList.add(levelFor(percent, limit.severity));
+  node.querySelector(".meter-label").textContent = limit.label;
+  node.querySelector(".meter-pct").textContent = Math.round(percent) + "% used";
+
+  const bar = node.querySelector(".bar");
+  bar.setAttribute("aria-valuenow", Math.round(percent));
+  bar.setAttribute("aria-label", limit.label);
+  // Painted after the frame so the width transitions in from zero:
+  // motion here reports that a number arrived, which is the one thing
+  // on this page worth animating.
+  requestAnimationFrame(() => {
+    meter.querySelector(".bar-fill").style.width = percent + "%";
+  });
+
+  const reset = node.querySelector(".meter-reset");
+  if (limit.resetsAt) {
+    countdown(reset, limit.resetsAt, (ms, at) =>
+      ms > 0 ? `resets in ${formatLeft(ms)} (${formatWhen(at)})` : "resetting now"
+    );
+  } else {
+    reset.remove();
+  }
+  return node;
+}
+
+// buildSession answers "how long am I signed in for?" — two clocks that
+// are easy to confuse, so each is named for what it actually does.
+function buildSession(container, info, state) {
+  if (!info) return;
+
+  // A login that is over has no clocks left to run. Showing them ticking
+  // would contradict the note right above.
+  if (state === "expired") {
+    const end = new Date(info.sessionExpiresAt);
+    if (!isNaN(end)) sessionItem(container, "Login session", "").textContent = "ended " + fullDate(end);
+    return;
+  }
+
+  if (info.sessionExpiresAt) {
+    const end = new Date(info.sessionExpiresAt);
+    const item = sessionItem(container, "Login session", isNaN(end) ? "" : "until " + fullDate(end));
+    countdown(item, info.sessionExpiresAt, (ms) => `${formatLeft(ms)} left`);
+  }
+  if (info.accessExpiresAt) {
+    // Named for what it does, because this is the short clock that makes
+    // people think they are about to be signed out. They aren't: Claude
+    // Code renews this one on its own.
+    const item = sessionItem(container, "Access token", "renews on its own");
+    countdown(item, info.accessExpiresAt, (ms) => (ms > 0 ? `${formatLeft(ms)} left` : "renewing"));
+  }
+}
+
+function sessionItem(container, label, detail) {
+  const wrap = document.createElement("span");
+  wrap.className = "session-item";
+  const name = document.createElement("span");
+  name.className = "detail";
+  name.textContent = label + " ";
+  const value = document.createElement("b");
+  wrap.append(name, value);
+  if (detail) {
+    const tail = document.createElement("span");
+    tail.className = "detail";
+    tail.textContent = " " + detail;
+    wrap.append(tail);
+  }
+  container.appendChild(wrap);
+  return value;
+}
+
+function fullDate(date) {
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 async function copyToClipboard(text, button) {
@@ -147,6 +364,19 @@ document.getElementById("add-account-btn").addEventListener("click", () => {
   addDialog.showModal();
 });
 document.getElementById("add-cancel").addEventListener("click", () => addDialog.close());
+
+document.getElementById("refresh-btn").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  refreshedLabel.textContent = "updating…";
+  try {
+    await loadAccounts(true);
+  } catch (err) {
+    refreshedLabel.textContent = "could not refresh: " + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 addForm.addEventListener("submit", async (e) => {
   // Not method="dialog": the dialog must stay open until the request

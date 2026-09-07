@@ -21,6 +21,7 @@ import (
 	"ccam/internal/service"
 	"ccam/internal/shellrc"
 	"ccam/internal/termlauncher"
+	"ccam/internal/usage"
 )
 
 // Server holds every dependency the HTTP handlers need.
@@ -28,6 +29,9 @@ type Server struct {
 	manager      *accounts.Manager
 	syncer       *shellrc.Syncer
 	claudeBinary string
+
+	// usage reports plan limits and login lifetime per account.
+	usage *usage.Service
 
 	// launchTerminal opens a terminal scoped to an account; a field
 	// (rather than calling termlauncher.Launch directly) so tests can
@@ -53,6 +57,7 @@ func New(manager *accounts.Manager, syncer *shellrc.Syncer, claudeBinary string)
 		manager:        manager,
 		syncer:         syncer,
 		claudeBinary:   claudeBinary,
+		usage:          usage.NewService(),
 		launchTerminal: termlauncher.Launch,
 		logins:         map[string]*loginBroadcast{},
 	}

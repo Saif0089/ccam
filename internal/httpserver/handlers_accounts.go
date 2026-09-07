@@ -72,6 +72,7 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	s.cancelLogin(id) // an in-progress login for this account can't outlive it
+	s.usage.Forget(id)
 
 	if _, err := s.manager.Remove(id); err != nil {
 		writeError(w, http.StatusNotFound, err.Error())

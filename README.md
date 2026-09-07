@@ -53,6 +53,13 @@ open the URL it shows you to finish logging in — the account flips to
 (`claude-work`, etc.); open a new terminal and that alias is ready to use, or
 click **Open terminal** to launch one already scoped to that account.
 
+Each card also shows that account's plan usage — the same numbers as
+`/usage` inside Claude Code — with a live countdown to each reset, and two
+separate clocks for the login itself: how long you stay signed in (weeks),
+and the short-lived access token that Claude Code renews on its own (hours).
+The dot beside the name is checked live rather than remembered: `linked`,
+`login expired`, `signed out`, or `unknown` when Anthropic can't be reached.
+
 ## Uninstalling
 
 ```sh

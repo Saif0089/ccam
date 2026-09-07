@@ -4,6 +4,7 @@
 const { test, expect } = require("@playwright/test");
 const { spawn, execFileSync } = require("child_process");
 const fs = require("fs");
+const http = require("http");
 const net = require("net");
 const os = require("os");
 const path = require("path");
@@ -15,6 +16,32 @@ const exe = (name) => (isWindows ? `${name}.exe` : name);
 let server;
 let baseURL;
 let workDir;
+let usageServer;
+
+// A stand-in for Anthropic's usage endpoint. Reset times are relative so
+// the countdowns in the page are always in the future, whenever the
+// suite happens to run.
+function usagePayload() {
+  const inHours = (h) => new Date(Date.now() + h * 3600_000).toISOString();
+  return JSON.stringify({
+    limits: [
+      { kind: "session", group: "session", percent: 12, severity: "normal", resets_at: inHours(3), is_active: true },
+      { kind: "weekly_all", group: "weekly", percent: 94, severity: "normal", resets_at: inHours(50), is_active: true },
+      { kind: "weekly_scoped", group: "weekly", percent: 71, severity: "normal", resets_at: inHours(50), is_active: true, scope: { model: { display_name: "Fable" } } },
+    ],
+    extra_usage: { is_enabled: false },
+  });
+}
+
+function startUsageStub() {
+  return new Promise((resolve) => {
+    const srv = http.createServer((req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(usagePayload());
+    });
+    srv.listen(0, "127.0.0.1", () => resolve(srv));
+  });
+}
 
 function build(pkg, outPath) {
   execFileSync("go", ["build", "-o", outPath, pkg], { cwd: repoRoot, stdio: "inherit" });
@@ -59,6 +86,9 @@ test.beforeAll(async () => {
   const port = await freePort();
   baseURL = `http://127.0.0.1:${port}`;
 
+  usageServer = await startUsageStub();
+  const usageURL = `http://127.0.0.1:${usageServer.address().port}/usage`;
+
   server = spawn(ccamBin, ["serve", "--port", String(port)], {
     env: {
       ...process.env,
@@ -67,6 +97,8 @@ test.beforeAll(async () => {
       APPDATA: path.join(home, "AppData", "Roaming"),
       LOCALAPPDATA: path.join(home, "AppData", "Local"),
       CCAM_CLAUDE_BIN: fakeClaude,
+      // Never let the suite call Anthropic for real.
+      CCAM_USAGE_ENDPOINT: usageURL,
       // Keep the "here is your URL" state on screen long enough to be
       // asserted on; the fake otherwise finishes in ~300ms and the UI
       // races straight past it to "Connected".
@@ -80,6 +112,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   if (server) server.kill();
+  if (usageServer) usageServer.close();
 });
 
 // Fail any test that logs a page error or a console error: the bug that
@@ -120,6 +153,70 @@ test("adds an account, shows the full OAuth URL, and links it", async ({ page })
   await page.click("#login-close");
   await expect(page.locator(".status-badge")).toHaveText("linked");
   await expect(page.locator(".alias-text")).toHaveText("claude-work");
+});
+
+test("shows plan usage, reset countdowns and how long the login lasts", async ({ page }) => {
+  await page.goto(baseURL);
+
+  const meters = page.locator(".meter");
+  await expect(meters).toHaveCount(3);
+
+  await expect(meters.nth(0).locator(".meter-label")).toHaveText("Current session");
+  await expect(meters.nth(1).locator(".meter-label")).toHaveText("This week, all models");
+  await expect(meters.nth(2).locator(".meter-label")).toHaveText("This week, Fable");
+
+  await expect(meters.nth(0).locator(".meter-pct")).toHaveText("12% used");
+  await expect(meters.nth(1).locator(".meter-pct")).toHaveText("94% used");
+  await expect(meters.nth(2).locator(".meter-pct")).toHaveText("71% used");
+
+  // Colour carries one meaning on this page: how much headroom is left.
+  // If these classes stop tracking the numbers, a nearly-exhausted week
+  // renders in the same calm green as an untouched one.
+  await expect(meters.nth(0)).toHaveClass(/level-ok/);
+  await expect(meters.nth(1)).toHaveClass(/level-crit/);
+  await expect(meters.nth(2)).toHaveClass(/level-warn/);
+
+  // The bar has to actually move; a fill left at zero width would look
+  // identical for every account.
+  const width = await meters.nth(1).locator(".bar-fill").evaluate((el) => el.getBoundingClientRect().width);
+  expect(width).toBeGreaterThan(0);
+
+  await expect(meters.nth(0).locator(".meter-reset")).toHaveText(/resets in \d+h \d+m \(.+\)/);
+  await expect(meters.nth(1).locator(".meter-reset")).toHaveText(/resets in 2d \d+h \(.+\)/);
+
+  // The two clocks people confuse: the login itself, and the short-lived
+  // access token that renews behind their back.
+  const session = page.locator(".session");
+  await expect(session).toContainText("Login session");
+  await expect(session).toContainText(/2\dd \d+h left/);
+  await expect(session).toContainText("Access token");
+  await expect(session).toContainText("renews on its own");
+
+  await expect(page.locator(".plan-chip")).toHaveText("Max plan");
+  await expect(page.locator(".status-badge")).toHaveText("linked");
+});
+
+// An account ccam knows about but has no login for must say so, rather
+// than keep showing the last status it saw.
+test("reports a signed-out account instead of claiming it is linked", async ({ page }) => {
+  const created = await fetch(`${baseURL}/api/accounts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: baseURL },
+    body: JSON.stringify({ name: "Never Connected" }),
+  });
+  expect(created.ok).toBeTruthy();
+
+  await page.goto(baseURL);
+  const card = page.locator(".account-card", { hasText: "Never Connected" });
+  await expect(card.locator(".status-badge")).toHaveText("signed out");
+  await expect(card.locator(".meter")).toHaveCount(0);
+  await expect(card.locator(".usage-note")).toBeVisible();
+
+  const removed = await fetch(`${baseURL}/api/accounts/${(await created.json()).id}`, {
+    method: "DELETE",
+    headers: { Origin: baseURL },
+  });
+  expect(removed.ok).toBeTruthy();
 });
 
 // Closing the dialog mid-login must leave the UI able to start another

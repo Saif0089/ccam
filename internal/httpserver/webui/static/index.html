@@ -14,7 +14,10 @@
 
 <main>
   <section class="toolbar">
-    <button id="add-account-btn" class="primary">+ Add account</button>
+    <button id="add-account-btn" class="primary">Add account</button>
+    <span class="spacer"></span>
+    <span id="refreshed" aria-live="polite"></span>
+    <button id="refresh-btn" type="button">Refresh usage</button>
   </section>
 
   <section id="accounts-list"></section>
@@ -79,11 +82,15 @@
     <div class="account-main">
       <span class="account-name"></span>
       <span class="status-badge"></span>
+      <span class="plan-chip"></span>
     </div>
     <div class="account-alias">
       <code class="alias-text"></code>
       <button class="copy-alias" type="button">Copy</button>
     </div>
+    <div class="meters"></div>
+    <p class="usage-note" hidden></p>
+    <div class="session"></div>
     <div class="account-actions">
       <button class="launch-terminal" type="button">Open terminal</button>
       <button class="connect-btn" type="button">Connect</button>
@@ -91,6 +98,19 @@
       <button class="remove-btn danger" type="button">Remove</button>
     </div>
   </article>
+</template>
+
+<template id="meter-template">
+  <div class="meter">
+    <div class="meter-head">
+      <span class="meter-label"></span>
+      <span class="meter-pct"></span>
+    </div>
+    <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+      <div class="bar-fill"></div>
+    </div>
+    <div class="meter-reset"></div>
+  </div>
 </template>
 
 <script src="app.js"></script>
