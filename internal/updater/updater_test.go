@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -116,7 +117,9 @@ func TestAppliesANewerRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat: %v", err)
 	}
-	if info.Mode().Perm()&0o100 == 0 {
+	// Windows has no execute bit — Go reports 0666 for every regular
+	// file there — so this only means something on Unix.
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o100 == 0 {
 		t.Errorf("mode = %v, want it executable", info.Mode().Perm())
 	}
 	// Stamped with the release's own time, so the next check compares
@@ -277,6 +280,11 @@ func TestAClockSkewedBinaryStillUpdates(t *testing.T) {
 // The mode of the installed binary is the mode its replacement keeps: an
 // install tightened by hand must not be widened by an update.
 func TestKeepsTheInstalledBinarysMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// Windows permissions carry only the read-only attribute, so
+		// there is no 0700 to preserve and Chmod cannot set one.
+		t.Skip("file modes are a Unix concern")
+	}
 	published := time.Now().Add(-time.Hour)
 	srv := stubRelease(t, []byte("the new build"), published, false)
 	path := installedBinary(t, "the old build", published.Add(-24*time.Hour))

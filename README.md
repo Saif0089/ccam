@@ -68,9 +68,10 @@ that shipped from a fix that is actually running.
 ## Staying up to date
 
 ccam updates itself. The running service checks the published release every
-six hours, verifies the download against the checksums published beside it,
-replaces its own binary and restarts into it — then says so with a desktop
-notification, on macOS, Windows and Linux alike. Nothing to run, nothing to
+five minutes, verifies the download against the checksums published beside
+it, replaces its own binary and restarts into it — then says so with a
+desktop notification, on macOS, Windows and Linux alike. A fix pushed to
+main is running on your machine minutes later; nothing to run, nothing to
 remember.
 
 Two rules keep that safe to leave alone:

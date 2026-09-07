@@ -44,10 +44,12 @@ const DefaultRepo = "Saif0089/ccam"
 const DefaultAPIBase = "https://api.github.com"
 
 const (
-	// CheckInterval is how often the running service looks. Releases
-	// are a human-paced event, so this is deliberately far slower than
-	// anything the page does.
-	CheckInterval = 6 * time.Hour
+	// CheckInterval is how often the running service looks. A check is
+	// one unauthenticated GitHub API call, so twelve an hour sits well
+	// inside the 60/hour limit — and the point of this is that a fix
+	// pushed to main is running on the machine minutes later, not at
+	// some point tomorrow.
+	CheckInterval = 5 * time.Minute
 	// FirstCheckDelay keeps the check away from startup, where the
 	// machine is busy with login items and the person is waiting for
 	// the page to paint.

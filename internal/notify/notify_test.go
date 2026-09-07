@@ -38,8 +38,13 @@ func TestNotifyCommandQuotesTheBody(t *testing.T) {
 			t.Errorf("want the quotes escaped for AppleScript, got: %s", joined)
 		}
 	case "windows":
-		// PowerShell single-quoted literals escape ' by doubling it.
-		if !strings.Contains(joined, `'''; echo pwned; #'`) {
+		// PowerShell single-quoted literals escape ' by doubling it, so
+		// the body must not appear as it was written — an apostrophe
+		// arriving intact would close the literal early.
+		if strings.Contains(joined, body) {
+			t.Errorf("the body went in unescaped, so its apostrophe would end the string: %s", joined)
+		}
+		if !strings.Contains(joined, `''; echo pwned; #`) {
 			t.Errorf("want the apostrophe doubled for PowerShell, got: %s", joined)
 		}
 	case "linux":
