@@ -44,6 +44,15 @@ func (g generic) Start() error {
 // `ccam uninstall` ends up deleting its own binary and autostart entry
 // while leaving an unstoppable server holding the port.
 func (g generic) Stop() error {
+	// Pin the port being stopped up front. Verifying with a fresh
+	// lookup instead would ask "is any ccam running?", and a server on
+	// some other port (another install, another HOME) would make this
+	// report failure for a process it stopped perfectly well.
+	target := g.port
+	if info, _ := Running(); info != nil {
+		target = info.Port
+	}
+
 	pid, err := readPID()
 	if err != nil {
 		return err
@@ -66,25 +75,16 @@ func (g generic) Stop() error {
 	}
 
 	// Whatever the pidfile said, the question that matters is whether
-	// anything is still serving.
+	// that port is still serving ccam.
 	for i := 0; i < 20; i++ {
-		running, err := IsHTTPRunning()
-		if err != nil {
-			return err
-		}
-		if !running {
+		if _, state := probeStatus(target); state != listeningCcam {
 			return nil
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	info, _ := Running()
-	port := g.port
-	if info != nil {
-		port = info.Port
-	}
 	return fmt.Errorf("a ccam server is still answering on port %d and could not be stopped "+
-		"(no matching pid on file); stop that process manually, then retry", port)
+		"(no matching pid on file); stop that process manually, then retry", target)
 }
 
 func (g generic) IsRunning() (bool, error) {

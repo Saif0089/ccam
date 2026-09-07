@@ -206,6 +206,12 @@ function startLogin(account) {
 }
 
 function openLoginStream(accountId) {
+  // The POST that precedes this is async, so a slow start for account A
+  // can resolve after the user already closed that dialog and started
+  // account B. Without this guard A's stream would replace B's, and the
+  // dialog — showing B — would report A's cancelled session as a lost
+  // connection while B's URL never appeared.
+  if (accountId !== activeLoginAccountId) return;
   if (activeEventSource) activeEventSource.close();
   const es = new EventSource(`/api/accounts/${accountId}/login/events`);
   activeEventSource = es;

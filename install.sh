@@ -73,6 +73,7 @@ fi
 
 chmod +x "$tmp"
 mv "$tmp" "$install_dir/ccam"
+rm -f "$sums"
 trap - EXIT
 
 echo "Installed $install_dir/ccam"

@@ -49,8 +49,11 @@ func launchDarwin(configDir, label string) error {
 // an un-waited child would linger as a zombie for the life of the
 // service.
 func startAndReap(cmd *exec.Cmd) error {
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	// Capped: cmd.Wait() keeps draining stderr for as long as the
+	// terminal window is open (hours), and an uncapped buffer would
+	// accumulate everything it ever printed in ccam's heap.
+	stderr := &cappedBuffer{limit: 4 << 10}
+	cmd.Stderr = stderr
 
 	if err := cmd.Start(); err != nil {
 		return err
@@ -75,6 +78,24 @@ func startAndReap(cmd *exec.Cmd) error {
 		return nil
 	}
 }
+
+// cappedBuffer keeps at most limit bytes and silently drops the rest.
+type cappedBuffer struct {
+	limit int
+	buf   bytes.Buffer
+}
+
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	if room := c.limit - c.buf.Len(); room > 0 {
+		if len(p) > room {
+			p = p[:room]
+		}
+		c.buf.Write(p)
+	}
+	return len(p), nil // report full consumption so the child never blocks
+}
+
+func (c *cappedBuffer) String() string { return c.buf.String() }
 
 func appleScriptQuote(s string) string {
 	out := ""

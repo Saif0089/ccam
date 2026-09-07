@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"ccam/internal/accounts"
 	"ccam/internal/claudebin"
@@ -50,6 +51,14 @@ func cmdServe(args []string) int {
 	}
 
 	capLogFile()
+	// And keep capping it: every request is logged, so a service left
+	// running with a page open would otherwise grow the log without
+	// bound until the next restart.
+	go func() {
+		for range time.Tick(5 * time.Minute) {
+			capLogFile()
+		}
+	}()
 
 	manager := accounts.NewManager(accounts.NewStore(accountsFile), accountsDir)
 	syncer := shellrc.NewSyncer(home)

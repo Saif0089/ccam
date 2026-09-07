@@ -35,6 +35,9 @@ type Server struct {
 
 	mu     sync.Mutex
 	logins map[string]*loginBroadcast // accountID -> in-progress/last login, if any
+	// startMu serialises login starts, which span a subprocess spawn
+	// and so can't be done under mu.
+	startMu sync.Mutex
 }
 
 // New builds a Server. claudeBinary is the executable to spawn for

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -31,13 +32,20 @@ func (s *Server) handleStartLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Held across the whole start: the Connect button can be clicked
+	// twice, and a check-then-act here would let both requests see "no
+	// login in progress" and spawn a `claude` each, with the loser left
+	// running unreferenced for its full timeout.
+	s.startMu.Lock()
+	defer s.startMu.Unlock()
+
 	s.mu.Lock()
-	if existing := s.logins[id]; existing != nil && !existing.finished() {
-		s.mu.Unlock()
+	existing := s.logins[id]
+	s.mu.Unlock()
+	if existing != nil && !existing.finished() {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
-	s.mu.Unlock()
 
 	s.cancelLogin(id) // retire a finished attempt before starting a new one
 
@@ -74,7 +82,12 @@ func (s *Server) watchLoginOutcome(id string, broadcast *loginBroadcast) {
 	defer unsubscribe()
 	for ev := range ch {
 		if ev.Type == ptyauth.EventLinked {
-			if _, err := s.manager.SetStatus(id, accounts.StatusLinked); err == nil {
+			if _, err := s.manager.SetStatus(id, accounts.StatusLinked); err != nil {
+				// The UI has already been told the login succeeded, so a
+				// silent failure here shows "Connected" next to a row
+				// still marked pending, with nothing explaining why.
+				log.Printf("login succeeded for %s but recording it failed: %v", id, err)
+			} else {
 				_ = s.syncAliases()
 			}
 		}

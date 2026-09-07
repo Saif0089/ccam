@@ -129,6 +129,9 @@ func Start(ctx context.Context, cfg Config) (*Session, error) {
 	if prober == nil {
 		prober = &accounts.Prober{ClaudeBinary: binary}
 	}
+	// A bounded probe for the shutdown paths: the default 20s would keep
+	// a cancelled login's teardown waiting that long.
+	finalProber := &accounts.Prober{ClaudeBinary: prober.ClaudeBinary, Timeout: 5 * time.Second}
 
 	workingDir := cfg.WorkingDir
 	if workingDir == "" {
@@ -147,7 +150,7 @@ func Start(ctx context.Context, cfg Config) (*Session, error) {
 		pty:    pty,
 		cancel: cancel,
 	}
-	go s.run(ctx, cfg.ConfigDir, prober, poll)
+	go s.run(ctx, cfg.ConfigDir, prober, finalProber, poll)
 	return s, nil
 }
 
@@ -177,22 +180,50 @@ func (s *Session) SubmitCode(code string) error {
 }
 
 // Close ends the attempt and the child process.
+//
+// The pty is closed here rather than only in run()'s defer: run() can
+// be sitting in a completion probe (a whole `claude auth status`
+// subprocess) when Close is called, and callers — server shutdown,
+// cancelling a login, deleting an account — need the child gone by the
+// time Close returns, not seconds later once that probe finishes. On
+// server shutdown "seconds later" never arrives at all, and the child,
+// which has its own session (setsid), is orphaned.
 func (s *Session) Close() {
 	s.cancel()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.closed {
+		s.closed = true
+		s.pty.Close()
+	}
 }
 
-func (s *Session) run(ctx context.Context, configDir string, prober *accounts.Prober, poll time.Duration) {
+func (s *Session) run(ctx context.Context, configDir string, prober, finalProber *accounts.Prober, poll time.Duration) {
 	defer close(s.events)
 	defer func() {
 		s.mu.Lock()
-		s.closed = true
+		if !s.closed {
+			s.closed = true
+			s.pty.Close()
+		}
 		s.mu.Unlock()
-		s.pty.Close()
 	}()
 
 	term := vt10x.New(vt10x.WithSize(ptyio.DefaultCols, ptyio.DefaultRows))
 	screens := make(chan string, 8)
 	go pumpScreen(s.pty, term, screens)
+	// pumpScreen blocks sending into `screens` (buffered, but claude's
+	// TUI repaints constantly), and this loop is its only reader. Once
+	// this function returns — a cancelled or timed-out login — nothing
+	// would drain it and that goroutine would park forever, holding a
+	// megabyte-plus virtual terminal for the life of the service.
+	defer func() {
+		go func() {
+			for range screens {
+			}
+		}()
+	}()
 
 	// The completion probe runs in its own goroutine and reports through
 	// a channel. Calling it inline would block this loop for as long as
@@ -239,7 +270,7 @@ func (s *Session) run(ctx context.Context, configDir string, prober *accounts.Pr
 			if !ok {
 				// claude's output ended. It may have just finished a
 				// successful login, so give the probe the last word.
-				if prober.IsLinked(context.Background(), configDir) {
+				if finalProber.IsLinked(context.Background(), configDir) {
 					emit(Event{Type: EventLinked})
 				} else {
 					emit(Event{Type: EventFailed, Message: "claude exited before completing login"})
@@ -256,7 +287,7 @@ func (s *Session) run(ctx context.Context, configDir string, prober *accounts.Pr
 			emit(Event{Type: EventLinked})
 			return
 		case <-ctx.Done():
-			if prober.IsLinked(context.Background(), configDir) {
+			if finalProber.IsLinked(context.Background(), configDir) {
 				emit(Event{Type: EventLinked})
 			} else {
 				emit(Event{Type: EventTimeout, Message: "timed out waiting for login to complete"})

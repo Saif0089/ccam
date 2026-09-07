@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"ccam/internal/config"
 )
@@ -57,8 +58,12 @@ func (w *windowsService) Install(binaryPath string, port int) (string, error) {
 	// console, so it keeps running after the launching script exits.
 	// PATH is set first so ccam can find `claude` (and the node it
 	// needs), which a logon-launched process would not otherwise have.
+	// cmd.exe expands %VAR% when it parses the line, so a PATH that
+	// still contains a literal %SOMETHING% (common on Windows) would be
+	// silently mangled — dropping exactly the entries this exists to
+	// preserve. Doubling the percent signs escapes them.
 	script := fmt.Sprintf("@echo off\r\nset \"PATH=%s\"\r\ncd /d \"%s\"\r\nstart \"\" /min \"%s\" serve --port %d\r\n",
-		servicePATH(), serviceWorkingDir(), binaryPath, port)
+		batchEscape(servicePATH()), serviceWorkingDir(), binaryPath, port)
 
 	if err := config.EnsureDir(filepath.Dir(path)); err != nil {
 		return w.installScheduledTaskFallback(binaryPath, port)
@@ -74,7 +79,12 @@ func (w *windowsService) Install(binaryPath string, port int) (string, error) {
 // Scheduled Task run at logon with /RL LIMITED still needs no
 // admin/elevation — it runs at the standard user's own privilege level.
 func (w *windowsService) installScheduledTaskFallback(binaryPath string, port int) (string, error) {
-	taskCmd := fmt.Sprintf(`"%s" serve --port %d`, binaryPath, port)
+	// The task gets the same PATH and working directory as the Startup
+	// script; without them this fallback — used precisely on the
+	// managed profiles where the Startup folder isn't writable —
+	// reproduces the bug where ccam can't find claude at all.
+	taskCmd := fmt.Sprintf(`cmd /c set "PATH=%s" && cd /d "%s" && "%s" serve --port %d`,
+		batchEscape(servicePATH()), serviceWorkingDir(), binaryPath, port)
 	cmd := exec.Command("schtasks", "/Create", "/F",
 		"/SC", "ONLOGON",
 		"/RL", "LIMITED",
@@ -85,6 +95,14 @@ func (w *windowsService) installScheduledTaskFallback(binaryPath string, port in
 		return "", fmt.Errorf("installing autostart (Startup folder and Scheduled Task both failed): %w", err)
 	}
 	return "schtasks:ccam", nil
+}
+
+// batchEscape makes a value safe to embed in a .cmd line: cmd.exe
+// expands %VAR% at parse time, and a quote would terminate the set
+// statement early.
+func batchEscape(s string) string {
+	s = strings.ReplaceAll(s, `"`, "")
+	return strings.ReplaceAll(s, "%", "%%")
 }
 
 func (w *windowsService) Uninstall() error {

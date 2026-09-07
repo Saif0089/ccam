@@ -52,8 +52,15 @@ try {
       throw "checksum mismatch for $asset (expected $expected, got $actual)"
     }
   }
-} catch [System.Net.WebException] {
-  # Release without checksums; continue.
+} catch {
+  # A release without checksums.txt is fine; anything else is not.
+  # Windows PowerShell 5.1 raises WebException here while PowerShell 7
+  # raises HttpResponseException, and catching only the former made a
+  # missing checksums.txt abort the whole install under $ErrorActionPreference = "Stop".
+  $type = $_.Exception.GetType().FullName
+  if ($type -ne "System.Net.WebException" -and $type -ne "Microsoft.PowerShell.Commands.HttpResponseException") {
+    throw
+  }
 }
 
 Move-Item -Force -Path $tmp -Destination $dest

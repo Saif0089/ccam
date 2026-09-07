@@ -84,7 +84,7 @@ Restart=no
 
 [Install]
 WantedBy=default.target
-`, binaryPath, port, serviceWorkingDir(), servicePATH())
+`, systemdEscape(binaryPath), port, systemdEscape(serviceWorkingDir()), systemdEscape(servicePATH()))
 
 	if err := os.WriteFile(path, []byte(unit), 0o644); err != nil {
 		return "", err
@@ -152,6 +152,15 @@ func (l *linuxService) removeXDGAutostart() {
 	if desktopPath, err := xdgAutostartPath(); err == nil {
 		_ = os.Remove(desktopPath)
 	}
+}
+
+// systemdEscape makes a value safe inside a unit file: "%" starts a
+// specifier systemd would try to expand (refusing to load the unit if
+// it is unknown), and a quote would close the quoted value early.
+func systemdEscape(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return strings.ReplaceAll(s, "%", "%%")
 }
 
 // desktopEntryEscape escapes a value for a Desktop Entry Exec= field,

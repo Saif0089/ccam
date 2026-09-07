@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"ccam/internal/config"
@@ -51,10 +52,36 @@ func cmdInstall(args []string) int {
 
 	if info := waitForRunning(15 * time.Second); info != nil {
 		fmt.Printf("ccam is running: http://127.0.0.1:%d\n", info.Port)
-	} else {
-		fmt.Println("ccam was started but isn't answering yet; check `ccam status` shortly, or the log at ~/.ccam/ccam.log")
+		return 0
 	}
-	return 0
+
+	fmt.Fprintln(os.Stderr, "ccam: started, but nothing is answering.")
+	if reason := lastLogLine(); reason != "" {
+		fmt.Fprintln(os.Stderr, "  last log line:", reason)
+	}
+	fmt.Fprintln(os.Stderr, "  full log: ~/.ccam/ccam.log")
+	return 1
+}
+
+// lastLogLine returns the final non-empty line of ccam's log, which is
+// where the actual reason a start failed ends up — most often
+// "bind: address already in use".
+func lastLogLine() string {
+	path, err := config.LogFile()
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if line := strings.TrimSpace(lines[i]); line != "" {
+			return line
+		}
+	}
+	return ""
 }
 
 // waitForRunning polls until a ccam server answers, returning what it

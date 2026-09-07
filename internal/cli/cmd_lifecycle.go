@@ -37,10 +37,15 @@ func cmdStart(args []string) int {
 	}
 	if info := waitForRunning(15 * time.Second); info != nil {
 		fmt.Printf("ccam is running: http://127.0.0.1:%d\n", info.Port)
-	} else {
-		fmt.Println("ccam was started but isn't answering yet; check `ccam status` shortly.")
+		return 0
 	}
-	return 0
+
+	fmt.Fprintln(os.Stderr, "ccam: started, but nothing is answering.")
+	if reason := lastLogLine(); reason != "" {
+		fmt.Fprintln(os.Stderr, "  last log line:", reason)
+	}
+	fmt.Fprintln(os.Stderr, "  full log: ~/.ccam/ccam.log")
+	return 1
 }
 
 func cmdStop(args []string) int {
