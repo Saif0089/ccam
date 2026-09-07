@@ -82,13 +82,24 @@ func (s *Server) watchLoginOutcome(id string, broadcast *loginBroadcast) {
 	defer unsubscribe()
 	for ev := range ch {
 		if ev.Type == ptyauth.EventLinked {
-			if _, err := s.manager.SetStatus(id, accounts.StatusLinked); err != nil {
-				// The UI has already been told the login succeeded, so a
-				// silent failure here shows "Connected" next to a row
-				// still marked pending, with nothing explaining why.
+			// Status first, and only then the slower work: the browser
+			// refreshes its account list as soon as it sees this event,
+			// so anything ahead of SetStatus is time the UI spends
+			// saying "Connected" beside a row still marked pending.
+			account, err := s.manager.SetStatus(id, accounts.StatusLinked)
+			if err != nil {
 				log.Printf("login succeeded for %s but recording it failed: %v", id, err)
-			} else {
-				_ = s.syncAliases()
+				continue
+			}
+			_ = s.syncAliases()
+
+			// Claude Code treats logging in and finishing onboarding as
+			// separate things, so without this the first `claude` run
+			// under a freshly linked account walks the whole first-run
+			// wizard and asks to pick a login method on an account that
+			// is already signed in.
+			if err := accounts.MarkOnboarded(account.ConfigDir, s.claudeBinary); err != nil {
+				log.Printf("could not mark onboarding complete for %s: %v", id, err)
 			}
 		}
 	}

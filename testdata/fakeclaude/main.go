@@ -33,6 +33,8 @@ func main() {
 
 	args := os.Args[1:]
 	switch {
+	case hasArgs(args, "--version"):
+		fmt.Println("9.9.9 (Claude Code)")
 	case hasArgs(args, "auth", "status"):
 		authStatus(configDir)
 	case hasArgs(args, "auth", "login"):
