@@ -1,6 +1,7 @@
 package shellrc
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 )
@@ -29,6 +30,26 @@ func RcPaths(homeDir string) map[Shell]string {
 	return paths
 }
 
+// OptionalRcPaths returns login-shell startup files that are managed
+// only when they already exist.
+//
+// A bash *login* shell — what macOS Terminal.app starts, and what an
+// ssh session gets — reads ~/.bash_profile or ~/.profile and never
+// touches ~/.bashrc, so an alias written only to .bashrc silently isn't
+// there for those users. These are never created, though: creating a
+// ~/.bash_profile where none existed would stop bash reading ~/.profile
+// at all, which is a much worse thing to do to someone's shell than
+// missing an alias.
+func OptionalRcPaths(homeDir string) map[Shell]string {
+	if runtime.GOOS == "windows" {
+		return map[Shell]string{}
+	}
+	return map[Shell]string{
+		Bash:      filepath.Join(homeDir, ".bash_profile"),
+		BashLogin: filepath.Join(homeDir, ".profile"),
+	}
+}
+
 // Syncer keeps the managed alias block in every rc file under HomeDir
 // consistent with the current account list.
 type Syncer struct {
@@ -46,25 +67,37 @@ func NewSyncer(homeDir string) *Syncer {
 // empty, the managed block (if any) is removed rather than left empty.
 func (s *Syncer) Sync(entries []AliasEntry) error {
 	for shell, path := range RcPaths(s.HomeDir) {
-		if len(entries) == 0 {
-			if err := RemoveBlock(path); err != nil {
-				return err
-			}
+		if err := s.sync(shell, path, entries); err != nil {
+			return err
+		}
+	}
+	// Login-shell files are only updated when the user already has them.
+	for shell, path := range OptionalRcPaths(s.HomeDir) {
+		if _, err := os.Stat(path); err != nil {
 			continue
 		}
-		if err := UpsertBlock(path, RenderBody(shell, entries)); err != nil {
+		if err := s.sync(shell, path, entries); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+func (s *Syncer) sync(shell Shell, path string, entries []AliasEntry) error {
+	if len(entries) == 0 {
+		return RemoveBlock(path)
+	}
+	return UpsertBlock(path, RenderBody(shell, entries))
+}
+
 // RemoveAll strips the managed block from every rc file, used by
 // `ccam uninstall` so no generated content is left behind.
 func (s *Syncer) RemoveAll() error {
-	for _, path := range RcPaths(s.HomeDir) {
-		if err := RemoveBlock(path); err != nil {
-			return err
+	for _, paths := range []map[Shell]string{RcPaths(s.HomeDir), OptionalRcPaths(s.HomeDir)} {
+		for _, path := range paths {
+			if err := RemoveBlock(path); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

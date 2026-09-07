@@ -18,6 +18,7 @@ type Shell string
 
 const (
 	Bash       Shell = "bash"
+	BashLogin  Shell = "bash-login"
 	Zsh        Shell = "zsh"
 	Fish       Shell = "fish"
 	PowerShell Shell = "powershell"

@@ -107,8 +107,32 @@ jobs:
           path: test/browser/test-results/
           retention-days: 7
 
+  # A real Linux user's install, in a container: an ordinary non-root
+  # user, no systemd user bus (so the XDG autostart fallback is what
+  # gets written), and the service then started from that entry's own
+  # command line with the bare PATH a login-started process actually
+  # gets. The hosted runner exercises none of that — it has the full
+  # runner PATH and starts ccam directly.
+  linux-install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install, log in and uninstall as a plain Linux user
+        run: |
+          docker run --rm -v "$PWD":/src -w /src golang:1.26-bookworm bash -c '
+            useradd -m -u 1000 tester
+            apt-get update -qq >/dev/null 2>&1
+            apt-get install -y -qq curl python3 >/dev/null 2>&1
+            mkdir -p /home/tester/.config/fish
+            chown -R tester /home/tester
+            chmod 777 /tmp
+            su tester -c "GOCACHE=/tmp/gocache GOPATH=/tmp/gopath GOFLAGS=-mod=mod bash /src/test/linux/run.sh"
+          '
+
   build:
-    needs: [test, e2e, browser]
+    needs: [test, e2e, browser, linux-install]
     if: github.event_name == 'push'
     strategy:
       matrix:

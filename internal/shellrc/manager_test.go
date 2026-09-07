@@ -136,3 +136,49 @@ func TestRcPathsMatchesCurrentOS(t *testing.T) {
 		}
 	}
 }
+
+// TestSyncerWritesLoginShellFilesOnlyWhenPresent covers bash login
+// shells — what macOS Terminal.app starts and what ssh gives you. They
+// read ~/.bash_profile or ~/.profile and never look at ~/.bashrc, so an
+// alias written only to .bashrc isn't there for those users. Creating
+// those files where they don't exist is not an option: a new
+// ~/.bash_profile stops bash reading ~/.profile entirely.
+func TestSyncerWritesLoginShellFilesOnlyWhenPresent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("login-shell startup files are a unix concern")
+	}
+	home := t.TempDir()
+	profile := filepath.Join(home, ".bash_profile")
+	if err := os.WriteFile(profile, []byte("# my login shell setup\n"), 0o644); err != nil {
+		t.Fatalf("seeding .bash_profile: %v", err)
+	}
+
+	s := NewSyncer(home)
+	if err := s.Sync([]AliasEntry{{Alias: "claude-work", ConfigDir: home}}); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	data, err := os.ReadFile(profile)
+	if err != nil {
+		t.Fatalf("reading .bash_profile: %v", err)
+	}
+	if !contains(string(data), "claude-work") {
+		t.Errorf("expected the alias in an existing .bash_profile, got:\n%s", data)
+	}
+	if !contains(string(data), "# my login shell setup") {
+		t.Error("existing content was lost")
+	}
+
+	// ~/.profile did not exist, and must not have been created.
+	if _, err := os.Stat(filepath.Join(home, ".profile")); !os.IsNotExist(err) {
+		t.Errorf("~/.profile was created; stat err = %v", err)
+	}
+
+	if err := s.RemoveAll(); err != nil {
+		t.Fatalf("RemoveAll: %v", err)
+	}
+	data, _ = os.ReadFile(profile)
+	if string(data) != "# my login shell setup\n" {
+		t.Errorf(".bash_profile not restored, got:\n%s", data)
+	}
+}
