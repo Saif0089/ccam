@@ -134,6 +134,17 @@ func (s *Service) load(ctx context.Context, configDir string) Snapshot {
 		return snapshot
 	}
 
+	// The stored access token is short-lived and only Claude Code
+	// refreshes it — it does that when it runs, not on a timer. Between
+	// runs the stored one goes stale while the login itself is fine, so
+	// sending it would earn a 401 and make a working account read as
+	// rejected. Say what is actually true instead: linked, numbers
+	// pending the next run.
+	if !creds.ExpiresAt.IsZero() && !s.now().Before(creds.ExpiresAt) {
+		snapshot.Error = "Plan usage will show again once Claude Code refreshes this account's token — run it once."
+		return snapshot
+	}
+
 	report, err := s.client.Fetch(ctx, creds)
 	if err != nil {
 		// The session clock is still worth showing even when the plan

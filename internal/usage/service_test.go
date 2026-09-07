@@ -133,6 +133,37 @@ func TestServiceStates(t *testing.T) {
 		}
 	})
 
+	// The bug this guards: Claude Code only refreshes the access token
+	// when it runs, so between runs the stored one is stale while the
+	// login is perfectly good. Sending it earned a 401 and the account
+	// read as "login expired" — including the account the person was
+	// using at that moment.
+	t.Run("stale access token is still a linked account", func(t *testing.T) {
+		dir := t.TempDir()
+		writeCredsFile(t, dir, past, future)
+		var called bool
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			called = true
+			w.WriteHeader(http.StatusUnauthorized)
+		}))
+		defer srv.Close()
+
+		got := NewServiceWithClient(&Client{Endpoint: srv.URL, HTTPClient: srv.Client()}).
+			Get(context.Background(), "a", dir)
+		if got.State != StateLinked {
+			t.Errorf("State = %q, want %q", got.State, StateLinked)
+		}
+		if called {
+			t.Error("a token we already know is stale must not be sent")
+		}
+		if got.Error == "" {
+			t.Error("want a note saying why the numbers are missing")
+		}
+		if got.Session == nil || got.Session.SessionExpiresAt == nil {
+			t.Error("want the login clock, which is the one still running")
+		}
+	})
+
 	t.Run("token rejected", func(t *testing.T) {
 		dir := t.TempDir()
 		writeCredsFile(t, dir, time.Now().Add(time.Hour), future)
