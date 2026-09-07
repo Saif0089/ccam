@@ -131,6 +131,30 @@ jobs:
             su tester -c "GOCACHE=/tmp/gocache GOPATH=/tmp/gopath GOFLAGS=-mod=mod bash /src/test/linux/run.sh"
           '
 
+  # The real published install.sh, against the real published release,
+  # in a clean container: architecture detection, the download, the
+  # checksums CI publishes beside it, and a per-user install with no
+  # root. Nothing else covers the first thing a Linux user does.
+  #
+  # Skipped on pull requests, where there is no published build for the
+  # branch to install.
+  linux-installer:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install from the published release
+        run: |
+          docker run --rm -v "$PWD":/src -w /src debian:bookworm-slim bash -c '
+            useradd -m -u 4242 tester
+            apt-get update -qq >/dev/null 2>&1
+            apt-get install -y -qq curl python3 ca-certificates >/dev/null 2>&1
+            chown -R tester /home/tester
+            su tester -c "bash /src/test/linux/install-script.sh"
+          '
+
   build:
     needs: [test, e2e, browser, linux-install]
     if: github.event_name == 'push'

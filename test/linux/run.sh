@@ -19,8 +19,11 @@ export HOME=/home/tester
 export PATH="$HOME/.local/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
 
 mkdir -p "$HOME/.local/bin"
-go build -o "$HOME/.local/bin/ccam" ./cmd/ccam
-go build -o "$HOME/.local/bin/claude" ./testdata/fakeclaude
+# -buildvcs=false: the repo is bind-mounted and owned by another uid,
+# so git refuses to report status ("dubious ownership") and Go turns
+# that into a build failure. The version stamp is irrelevant here.
+go build -buildvcs=false -o "$HOME/.local/bin/ccam" ./cmd/ccam
+go build -buildvcs=false -o "$HOME/.local/bin/claude" ./testdata/fakeclaude
 ok "built ccam and the fake claude into ~/.local/bin"
 
 PORT=47955
