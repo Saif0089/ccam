@@ -74,6 +74,23 @@ page has rolled over. The build answering on
 that port is named in the top-right corner, which is how you tell a fix
 that shipped from a fix that is actually running.
 
+## Token usage, per account
+
+If the machine also runs the Claude usage monitor, its agent reports every
+ccam account separately: each login is its own account on the dashboard,
+under the one device, rather than every account's tokens piling up in a
+single number for the machine. There is nothing to configure per account
+and nothing to re-run after adding one. The agent re-reads
+`~/.ccam/accounts.json` on every sync, takes each account's `configDir`,
+and scans that directory's own transcripts — so an account you add now
+starts reporting within a sync tick, and an account you delete simply
+stops.
+
+That is the reason `accounts.json` is treated as a contract rather than an
+internal file (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)): renaming
+one of its fields still compiles and still passes ccam's own tests, but it
+quietly sends another tool's numbers to the wrong account.
+
 ## Staying up to date
 
 ccam updates itself. The running service checks the published release every

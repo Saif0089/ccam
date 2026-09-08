@@ -90,6 +90,29 @@ amd64/arm64 (`CGO_ENABLED=0`).
   `stop`, `status`, `serve`, `version`). The only package that touches
   `os.Args`, exit codes, or signal handling.
 
+## `~/.ccam/accounts.json` is a contract, not an internal file
+
+ccam is the only thing on a machine that knows how many Claude accounts
+exist and where each one lives, so other tools read its store to find out —
+the Claude usage monitor parses it to attribute usage per account. That
+makes the JSON field names an external interface even though nothing in Go
+enforces it: a rename in `accounts.Account` compiles, passes every other
+test, and silently sends another tool's numbers to the wrong account.
+
+What a reader can rely on: a top-level `accounts` array, each entry with
+`id`, `name`, `slug`, `kind`, `configDir`, `alias`, `status`, `createdAt`
+and `lastUsedAt`. `slug` is the stable short id — a rename changes `name`
+and `alias`, never `slug`, `id`, or `configDir`. `configDir` is the
+account's absolute `CLAUDE_CONFIG_DIR`, the directory holding its own
+`.claude.json` and its `projects/` transcripts, and it is empty for exactly
+one row: the `kind: "default"` account, which is reached by *removing* the
+variable rather than setting it, so its data is in the user's `~/.claude`
+instead. New fields may appear — a reader should ignore what it doesn't
+recognise — but the ones above don't move.
+`internal/accounts/contract_test.go` asserts all of that against the bytes
+the store actually writes, and says in its failure message why it exists, so
+whoever renames a field finds out here rather than from a bug report.
+
 ## Why `claude auth status`, not Keychain code
 
 Claude Code's credential storage is file-based on Linux/Windows, and on
