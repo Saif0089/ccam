@@ -132,20 +132,6 @@ func Serve(ctx context.Context, srv *Server, port int) error {
 	defer stopWatch()
 	srv.StartDefaultAccountWatch(watchCtx)
 
-	// Rewrite the shell aliases once on boot. Until now they were only
-	// regenerated on an account mutation, so a ccam that updated itself
-	// (the updater replaces the binary and restarts) kept whatever alias
-	// text the previous version wrote — a user who never adds or removes
-	// an account after upgrading would run the old alias body forever.
-	// The managed block's format is exactly what changes when the way an
-	// account is scoped changes, so syncing here is what carries such a
-	// change to everyone on the next restart, with nothing to type.
-	// Best-effort: a home directory whose rc files cannot be written must
-	// not stop the server, so the failure is logged and swallowed.
-	if err := srv.syncAliases(); err != nil {
-		log.Printf("warning: could not refresh shell aliases on startup: %v", err)
-	}
-
 	// De-isolation migration, in the background: move any still-isolated
 	// managed account's transcripts into the shared ~/.claude and flip it to
 	// credentials-only. Deliberately AFTER the port file is written and off
@@ -174,6 +160,17 @@ func Serve(ctx context.Context, srv *Server, port int) error {
 				log.Printf("de-isolation: account %q kept on old scheme, %d files could not be copied, will retry", a.ID, a.Failed)
 			case a.Flipped:
 				log.Printf("de-isolation: migrated %q — %d transcripts copied, %d already shared", a.ID, a.Copied, a.Skipped)
+			}
+		}
+
+		// An account that just changed how it is scoped needs its alias
+		// rewritten in the new form. Doing it here — once, and only when the
+		// migration actually flipped something — is what carries the new alias
+		// body to an installation that only ever auto-updates, without writing
+		// to the user's rc files on every single boot.
+		if report.Migrated() {
+			if err := srv.syncAliases(); err != nil {
+				log.Printf("de-isolation: could not refresh shell aliases: %v", err)
 			}
 		}
 	}()
