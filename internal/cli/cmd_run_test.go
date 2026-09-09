@@ -28,11 +28,16 @@ func seedRunEnv(t *testing.T) string {
 	mustMkdir(t, ehtiDir)
 	mustMkdir(t, workDir)
 
-	accountsJSON := `{"accounts":[
-      {"id":"ehti","slug":"ehti","kind":"managed","configDir":"` + ehtiDir + `","alias":"claude-ehti","isolation":"credentials-only"},
-      {"id":"work","slug":"work","kind":"managed","configDir":"` + workDir + `","alias":"claude-work","isolation":"credentials-only"}
-    ]}`
-	mustWrite(t, filepath.Join(home, ".ccam", "accounts.json"), accountsJSON)
+	// Marshal rather than hand-build the JSON: on Windows the configDir paths
+	// contain backslashes, which are invalid unescaped in a JSON string.
+	accountsData, err := json.Marshal(map[string]any{"accounts": []map[string]any{
+		{"id": "ehti", "slug": "ehti", "kind": "managed", "configDir": ehtiDir, "alias": "claude-ehti", "isolation": "credentials-only"},
+		{"id": "work", "slug": "work", "kind": "managed", "configDir": workDir, "alias": "claude-work", "isolation": "credentials-only"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(home, ".ccam", "accounts.json"), string(accountsData))
 	mustWrite(t, filepath.Join(home, ".claude.json"), `{"oauthAccount":{"accountUuid":"orig"}}`)
 	// Give "work" an identity stub so the switch also exercises applyIdentity.
 	mustWrite(t, filepath.Join(workDir, ".claude.json"), `{"oauthAccount":{"accountUuid":"work-uuid"}}`)

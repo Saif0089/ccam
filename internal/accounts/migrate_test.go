@@ -3,6 +3,7 @@ package accounts
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -114,6 +115,9 @@ func TestMigrateCopiesTranscriptsAndFlipsIsolation(t *testing.T) {
 // stranded). A regular file where a directory is expected makes os.Stat of
 // "<file>/projects" return ENOTDIR, which is not os.IsNotExist.
 func TestCopyProjectsTreePropagatesRealStatError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("relies on POSIX filesystem error semantics")
+	}
 	dir := t.TempDir()
 	notADir := filepath.Join(dir, "notadir")
 	if err := os.WriteFile(notADir, []byte("x"), 0o600); err != nil {
@@ -132,6 +136,9 @@ func TestCopyProjectsTreePropagatesRealStatError(t *testing.T) {
 // not abort the whole account: the good transcript is still copied and the
 // bad one is counted as failed (so the caller declines to flip and retries).
 func TestCopyProjectsTreeContinuesPastUnreadableEntry(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("relies on POSIX filesystem error semantics")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("root bypasses directory permissions")
 	}
