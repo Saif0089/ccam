@@ -290,6 +290,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          # Only the build binaries — never the browser job's playwright-report
+          # (a directory tree uploaded on a flaky failure), which would otherwise
+          # land in dist and break the checksum and the release upload.
+          pattern: ccam_*
           merge-multiple: true
 
       - name: Checksums
