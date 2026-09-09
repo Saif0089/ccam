@@ -27,7 +27,10 @@ hash, so moving to the narrower one keeps every existing login working. ccam:
   `ccam <account>` (e.g. `ccam work`), then type `ccam <name>` at the Claude
   prompt to hand off to another account in place — same terminal, same thread,
   resumed on the other login. (`claude-<account>` stays the plain, direct
-  launch; `ccam <account>` is the switchable one.)
+  launch; `ccam <account>` is the switchable one.) The switch is the *prompt*,
+  not a shell command: `!ccam <name>` typed inside a session runs in a shell
+  with no terminal attached, which can only start a second, nested session, so
+  ccam stops there and says where to type it instead.
 - runs as a per-user background service that starts at login and serves the
   UI at `http://127.0.0.1:47932`.
 

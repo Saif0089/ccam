@@ -27,6 +27,10 @@ var switchPollInterval = 150 * time.Millisecond
 // supervisor terminated it for a switch). Swapped out in tests.
 var claudeRunner = runClaudeOnce
 
+// stdinIsTTY reports whether the session would own a real terminal. Swapped
+// out in tests, which run with stdin on a pipe.
+var stdinIsTTY = func() bool { return isatty(os.Stdin.Fd()) }
+
 // cmdRun is the switchable session supervisor. It launches Claude Code for one
 // account and stays resident: when the in-session `ccam <name>` hook records a
 // switch, it relaunches Claude Code as the new account with the conversation
@@ -77,6 +81,21 @@ func cmdRun(args []string) int {
 	acct, ok := switching.ResolveAccount(list, startName)
 	if !ok {
 		fmt.Fprintf(os.Stderr, "ccam: no account %q\n", startName)
+		return 1
+	}
+
+	// A bare `ccam <account>` starts an interactive Claude Code session, which
+	// needs a terminal on stdin. Without one — `!ccam ehti` from inside a
+	// Claude Code session, a CI step, a pipe — Claude Code falls back to
+	// --print mode and dies with "Input must be provided either through stdin
+	// or as a prompt argument", which says nothing about the real problem. Say
+	// it here instead. Passthrough args mean the caller is driving Claude Code
+	// deliberately (`ccam ehti -p "..."`), so those are left alone.
+	if len(passthrough) == 0 && !stdinIsTTY() {
+		fmt.Fprintf(os.Stderr, "ccam: `ccam %s` needs an interactive terminal, and stdin is not one.\n", startName)
+		fmt.Fprintf(os.Stderr, "      Inside a Claude Code session, `!ccam %s` cannot switch the session you are in:\n", startName)
+		fmt.Fprintf(os.Stderr, "        - started by ccam? type `ccam %s` as a prompt (no `!`) to switch in place\n", startName)
+		fmt.Fprintf(os.Stderr, "        - otherwise exit, and run `ccam %s` in your terminal\n", startName)
 		return 1
 	}
 

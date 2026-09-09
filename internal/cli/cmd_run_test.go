@@ -41,6 +41,12 @@ func seedRunEnv(t *testing.T) string {
 	mustWrite(t, filepath.Join(home, ".claude.json"), `{"oauthAccount":{"accountUuid":"orig"}}`)
 	// Give "work" an identity stub so the switch also exercises applyIdentity.
 	mustWrite(t, filepath.Join(workDir, ".claude.json"), `{"oauthAccount":{"accountUuid":"work-uuid"}}`)
+
+	// `go test` runs with stdin on a pipe. Claim the terminal so cmdRun's
+	// interactive guard does not turn every supervisor test into a refusal.
+	origTTY := stdinIsTTY
+	stdinIsTTY = func() bool { return true }
+	t.Cleanup(func() { stdinIsTTY = origTTY })
 	return home
 }
 
@@ -154,6 +160,52 @@ func TestRunClaudeOnceReturnsChildExitCode(t *testing.T) {
 	}
 	if code != 7 {
 		t.Errorf("exit code = %d, want 7 (the child's)", code)
+	}
+}
+
+// TestRunRefusesWithoutATerminal covers `!ccam ehti` from inside a Claude Code
+// session: no tty, no passthrough args, so ccam must explain itself rather than
+// launch a Claude Code that dies on "Input must be provided...".
+func TestRunRefusesWithoutATerminal(t *testing.T) {
+	seedRunEnv(t)
+	stdinIsTTY = func() bool { return false }
+
+	launched := false
+	origRunner := claudeRunner
+	t.Cleanup(func() { claudeRunner = origRunner })
+	claudeRunner = func(bin string, args, env []string, handoff string) (int, bool) {
+		launched = true
+		return 0, false
+	}
+
+	if code := cmdRun([]string{"ehti"}); code == 0 {
+		t.Error("cmdRun without a terminal should fail, got exit 0")
+	}
+	if launched {
+		t.Error("cmdRun should not launch Claude Code when there is no terminal")
+	}
+}
+
+// A caller who passes Claude Code arguments is driving it deliberately
+// (`ccam ehti -p "..."`), so the guard stays out of the way.
+func TestRunWithArgsSkipsTheTerminalGuard(t *testing.T) {
+	seedRunEnv(t)
+	stdinIsTTY = func() bool { return false }
+
+	var got []string
+	origRunner := claudeRunner
+	t.Cleanup(func() { claudeRunner = origRunner })
+	claudeRunner = func(bin string, args, env []string, handoff string) (int, bool) {
+		got = append([]string{}, args...)
+		return 0, false
+	}
+
+	if code := cmdRun([]string{"ehti", "-p", "hello"}); code != 0 {
+		t.Fatalf("cmdRun exit = %d, want 0", code)
+	}
+	want := []string{"-p", "hello"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("launch args = %v, want %v", got, want)
 	}
 }
 
