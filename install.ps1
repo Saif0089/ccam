@@ -1,7 +1,9 @@
-# Installs ccam for the current user only: no admin/elevation, no
-# system directories, only a per-user install dir and a per-user PATH
-# entry (HKCU, not HKLM). Safe to pipe straight into a normal
-# (non-elevated) PowerShell prompt:
+# Installs ccam for the current user: no system directories, only a
+# per-user install dir and a per-user PATH entry (HKCU, not HKLM). The
+# default install needs no admin and prompts for none — elevation is
+# requested only if CCAM_INSTALL_DIR points somewhere this account
+# cannot write, and only after Windows has actually refused. Safe to
+# pipe straight into a normal (non-elevated) PowerShell prompt:
 #
 #   irm https://raw.githubusercontent.com/Saif0089/ccam/main/install.ps1 | iex
 $ErrorActionPreference = "Stop"
@@ -21,8 +23,44 @@ if ($version -eq "latest") {
   $url = "https://github.com/$Repo/releases/download/$version/$asset"
 }
 
+# Elevation is never needed for the install this script is designed for:
+# %LOCALAPPDATA% and a HKCU PATH entry both belong to the user. But the
+# directory is overridable, and an administrator pointing CCAM_INSTALL_DIR
+# at Program Files — or an enterprise image that pre-creates it — leaves a
+# location this account cannot write. Rather than fail there, ask for
+# rights, and only once Windows has actually refused. Nothing below
+# prompts on an ordinary install.
+function Invoke-Elevated([string]$script) {
+  # -EncodedCommand rather than quoting: install paths carry spaces as a
+  # matter of course (C:\Users\John Smith\...) and apostrophes are legal
+  # in a Windows user name, so base64 removes the quoting question
+  # instead of answering it by inspection.
+  $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
+  $p = Start-Process powershell -Verb RunAs -Wait -PassThru -WindowStyle Hidden `
+        -ArgumentList '-NoProfile', '-NonInteractive', '-EncodedCommand', $enc
+  if ($p.ExitCode -ne 0) {
+    throw "this location needs administrator rights, and the prompt was declined or the elevated step failed (exit $($p.ExitCode))"
+  }
+}
+
+function Test-AccessDenied($errorRecord) {
+  # Only "Windows refused for want of rights". A missing parent, a full
+  # disk or a locked file are not fixed by elevation, and prompting for
+  # them is noise the user has to dismiss.
+  if ($errorRecord.Exception -is [System.UnauthorizedAccessException]) { return $true }
+  return $errorRecord.CategoryInfo.Category -eq 'PermissionDenied'
+}
+
+function ps1Quote([string]$s) { "'" + $s.Replace("'", "''") + "'" }
+
 $installDir = if ($env:CCAM_INSTALL_DIR) { $env:CCAM_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "ccam\bin" }
-New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+try {
+  New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+} catch {
+  if (-not (Test-AccessDenied $_)) { throw }
+  Write-Host "$installDir needs administrator rights to create - prompting..."
+  Invoke-Elevated "New-Item -ItemType Directory -Force -Path $(ps1Quote $installDir) | Out-Null"
+}
 $dest = Join-Path $installDir "ccam.exe"
 
 Write-Host "Downloading ccam (windows/$arch)..."
@@ -36,7 +74,11 @@ if (Test-Path $dest) {
   Start-Sleep -Milliseconds 500
 }
 
-$tmp = "$dest.download"
+# Download into TEMP, not next to $dest: when the install directory is
+# one this account cannot write, putting the download there fails before
+# the move is ever reached, and the elevation below would never get a
+# chance to help. TEMP always belongs to the user.
+$tmp = Join-Path ([System.IO.Path]::GetTempPath()) "ccam-$([guid]::NewGuid().ToString('N')).download"
 Invoke-WebRequest -Uri $url -OutFile $tmp
 
 # Verify against the checksums published alongside the binary.
@@ -63,7 +105,15 @@ try {
   }
 }
 
-Move-Item -Force -Path $tmp -Destination $dest
+try {
+  Move-Item -Force -Path $tmp -Destination $dest
+} catch {
+  if (-not (Test-AccessDenied $_)) { throw }
+  Write-Host "$dest needs administrator rights to write - prompting..."
+  Invoke-Elevated "Move-Item -Force -LiteralPath $(ps1Quote $tmp) -Destination $(ps1Quote $dest)"
+  if (-not (Test-Path $dest)) { throw "the elevated step reported success but $dest is not there" }
+}
+Remove-Item $tmp -Force -ErrorAction SilentlyContinue
 
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if (-not $userPath) { $userPath = "" }

@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"ccam/internal/buildinfo"
+	"ccam/internal/switching"
 )
 
 // Run executes the subcommand named by args[0] and returns a process
@@ -32,6 +33,12 @@ func Run(args []string) int {
 		return cmdStop(args[1:])
 	case "status":
 		return cmdStatus(args[1:])
+	case "run":
+		return cmdRun(args[1:])
+	case "hook":
+		return cmdHook(args[1:])
+	case "prune":
+		return cmdPrune(args[1:])
 	case "version", "--version", "-v":
 		fmt.Println(buildinfo.Version)
 		return 0
@@ -39,6 +46,15 @@ func Run(args []string) int {
 		printUsage(os.Stdout)
 		return 0
 	default:
+		// Bare `ccam <account>` is shorthand for `ccam run <account>`: it
+		// starts a switchable session for that account. Only a name that
+		// actually resolves to an account is treated this way; anything else
+		// is an unknown command.
+		if list, err := loadAccounts(); err == nil {
+			if _, ok := switching.ResolveAccount(list, args[0]); ok {
+				return cmdRun(args)
+			}
+		}
 		fmt.Fprintf(os.Stderr, "ccam: unknown command %q\n\n", args[0])
 		printUsage(os.Stderr)
 		return 1
@@ -55,6 +71,9 @@ Usage:
   ccam stop                  Stop the background service
   ccam status                Report whether the service is running, and its URL
   ccam serve [--port N]      Run the server in the foreground (this is what the service actually runs)
+  ccam <account> [args...]   Start a switchable Claude session for an account; inside it, type
+                             ` + "`ccam <name>`" + ` to switch accounts in place, keeping the conversation
+  ccam prune [--yes] [id...] Reclaim disk from migrated accounts (previews unless --yes)
   ccam version                Print the version
 
 Once running, open the printed URL in a browser to manage accounts.

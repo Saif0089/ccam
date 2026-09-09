@@ -85,6 +85,7 @@ func (m *Manager) Add(name string) (Account, error) {
 			Slug:      slug,
 			Kind:      KindManaged,
 			ConfigDir: dir,
+			Isolation: IsolationCredentialsOnly,
 			Alias:     uniqueAlias(aliasFor(slug), list),
 			Status:    StatusPending,
 			CreatedAt: time.Now().UTC(),

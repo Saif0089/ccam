@@ -155,6 +155,84 @@ jobs:
             su tester -c "bash /src/test/linux/install-script.sh"
           '
 
+  # The Windows counterpart of linux-install/linux-installer. Two things
+  # nothing else covers: that install.ps1 actually parses (a syntax error
+  # in a script piped into `iex` is only ever discovered by a user), and
+  # that a default install raises NO elevation prompt.
+  #
+  # The prompt check is the timeout. A GitHub runner is a non-elevated
+  # account with no way to answer UAC, so a script that asked for it
+  # would hang here rather than fail — which is precisely the signal we
+  # want, and why this job's timeout is deliberately short.
+  windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "install.ps1 and every shipped .ps1 parses"
+        shell: pwsh
+        run: |
+          $bad = 0
+          foreach ($f in Get-ChildItem -Recurse -Filter *.ps1 | Where-Object { $_.FullName -notmatch 'node_modules' }) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors -and $errors.Count -gt 0) {
+              Write-Host "PARSE ERRORS in $($f.Name):"
+              $errors | ForEach-Object { Write-Host "  $($_.Extent.StartLineNumber): $($_.Message)" }
+              $bad = 1
+            } else {
+              Write-Host "OK $($f.Name)"
+            }
+          }
+          if ($bad) { throw "PowerShell parse errors" }
+
+      - name: "Elevation is requested only when Windows refuses"
+        shell: pwsh
+        run: |
+          # Exercise the helpers directly rather than the whole install,
+          # so this runs on pull requests too (where no release exists).
+          # Dot-sourcing would run the installer, so pull the functions
+          # out of the parsed AST instead.
+          $src = Get-Content install.ps1 -Raw
+          $ast = [System.Management.Automation.Language.Parser]::ParseInput($src, [ref]$null, [ref]$null)
+          $fns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+          $names = $fns | ForEach-Object { $_.Name }
+          foreach ($want in @('Invoke-Elevated', 'Test-AccessDenied', 'ps1Quote')) {
+            if ($names -notcontains $want) { throw "install.ps1 lost $want" }
+          }
+          ($fns | Where-Object { $_.Name -in @('Test-AccessDenied','ps1Quote') } |
+            ForEach-Object { $_.Extent.Text }) -join "`n" | Invoke-Expression
+
+          # A permission error must elevate; nothing else may, or a user
+          # gets a UAC prompt for a full disk.
+          $denied = New-Object System.Management.Automation.ErrorRecord(
+            (New-Object System.UnauthorizedAccessException "denied"), 'x',
+            [System.Management.Automation.ErrorCategory]::PermissionDenied, $null)
+          if (-not (Test-AccessDenied $denied)) { throw "UnauthorizedAccessException must count as access denied" }
+          $other = New-Object System.Management.Automation.ErrorRecord(
+            (New-Object System.IO.IOException "disk full"), 'x',
+            [System.Management.Automation.ErrorCategory]::WriteError, $null)
+          if (Test-AccessDenied $other) { throw "a disk-full error must NOT trigger an elevation prompt" }
+
+          if ((ps1Quote "C:\Users\O'Brien\ccam.exe") -ne "'C:\Users\O''Brien\ccam.exe'") { throw "ps1Quote escaping wrong" }
+          Write-Host "elevation trigger + quoting: OK"
+
+      - name: "Default install completes with no elevation prompt"
+        if: github.event_name == 'push'
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          # The real published install.ps1 flow. If it ever asks for
+          # administrator rights on a default per-user install, there is
+          # nobody here to answer and this step times out.
+          ./install.ps1
+          $dest = Join-Path $env:LOCALAPPDATA "ccam\bin\ccam.exe"
+          if (-not (Test-Path $dest)) { throw "ccam.exe not installed at $dest" }
+          & $dest version
+          & $dest uninstall
+          Write-Host "per-user install with no elevation: OK"
+
   build:
     needs: [test, e2e, browser, linux-install]
     if: github.event_name == 'push'

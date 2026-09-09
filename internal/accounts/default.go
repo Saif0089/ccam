@@ -70,6 +70,10 @@ func (m *Manager) EnsureDefault(ctx context.Context, prober *Prober) (bool, erro
 			Slug:      DefaultAccountID,
 			Kind:      KindDefault,
 			ConfigDir: "", // deliberately empty: no override
+			// The default account already *is* ~/.claude, so nothing is
+			// swapped out from under it and its transcripts are found
+			// where they have always been.
+			Isolation: IsolationConfigDir,
 			Alias:     DefaultAccountAlias,
 			Status:    StatusLinked,
 			CreatedAt: time.Now().UTC(),

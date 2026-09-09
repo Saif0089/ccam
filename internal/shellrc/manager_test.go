@@ -109,15 +109,44 @@ func TestRenderBodyEscapesForEachShell(t *testing.T) {
 	entries := []AliasEntry{{Alias: "claude-work", ConfigDir: "/home/me/.ccam/accounts/work"}}
 
 	cases := map[Shell]string{
-		Bash:       `alias claude-work='CLAUDE_CONFIG_DIR="/home/me/.ccam/accounts/work" claude'`,
-		Zsh:        `alias claude-work='CLAUDE_CONFIG_DIR="/home/me/.ccam/accounts/work" claude'`,
-		Fish:       `alias claude-work 'env CLAUDE_CONFIG_DIR="/home/me/.ccam/accounts/work" claude'`,
-		PowerShell: "function claude-work { $env:CLAUDE_CONFIG_DIR = '/home/me/.ccam/accounts/work'; claude @args }",
+		Bash: `alias claude-work='env -u CLAUDE_CONFIG_DIR ` +
+			`CLAUDE_SECURESTORAGE_CONFIG_DIR="/home/me/.ccam/accounts/work" claude'`,
+		Zsh: `alias claude-work='env -u CLAUDE_CONFIG_DIR ` +
+			`CLAUDE_SECURESTORAGE_CONFIG_DIR="/home/me/.ccam/accounts/work" claude'`,
+		Fish: `alias claude-work 'env -u CLAUDE_CONFIG_DIR ` +
+			`CLAUDE_SECURESTORAGE_CONFIG_DIR="/home/me/.ccam/accounts/work" claude'`,
+		PowerShell: "function claude-work { Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue; " +
+			"$env:CLAUDE_SECURESTORAGE_CONFIG_DIR = '/home/me/.ccam/accounts/work'; claude @args }",
 	}
 	for shell, want := range cases {
 		body := RenderBody(shell, entries)
 		if !contains(body, want) {
 			t.Errorf("%s: body %q does not contain %q", shell, body, want)
+		}
+	}
+}
+
+// TestRenderBodyNeverEmitsTheConfigDirVariable is the regression guard for
+// the swap: an alias that sets CLAUDE_CONFIG_DIR isolates the whole config
+// directory, which is precisely what sharing ~/.claude is meant to stop.
+// Only the unset (`env -u` / Remove-Item) mention of that name is allowed.
+func TestRenderBodyNeverEmitsTheConfigDirVariable(t *testing.T) {
+	entries := []AliasEntry{{Alias: "claude-work", ConfigDir: "/home/me/.ccam/accounts/work"}}
+
+	for _, shell := range []Shell{Bash, BashLogin, Zsh, Fish, PowerShell, PowerShellDesktop} {
+		body := RenderBody(shell, entries)
+		for _, assignment := range []string{
+			`CLAUDE_CONFIG_DIR="`,
+			`CLAUDE_CONFIG_DIR='`,
+			`CLAUDE_CONFIG_DIR =`,
+		} {
+			if contains(body, assignment) {
+				t.Errorf("%s: body assigns the config-dir variable (%q), which would keep the "+
+					"session isolated from the shared ~/.claude: %q", shell, assignment, body)
+			}
+		}
+		if !contains(body, "CLAUDE_SECURESTORAGE_CONFIG_DIR") {
+			t.Errorf("%s: body does not scope the credential store at all: %q", shell, body)
 		}
 	}
 }

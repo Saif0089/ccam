@@ -9,6 +9,7 @@ import (
 	"ccam/internal/config"
 	"ccam/internal/service"
 	"ccam/internal/shellrc"
+	"ccam/internal/switching"
 )
 
 func cmdUninstall(args []string) int {
@@ -37,6 +38,12 @@ func cmdUninstall(args []string) int {
 			fmt.Fprintln(os.Stderr, "ccam: warning: removing shell aliases failed:", err)
 		} else {
 			fmt.Println("Removed generated shell aliases.")
+		}
+		// Remove the in-session switch hook from the shared settings.json,
+		// leaving every other hook the user has untouched.
+		settings := filepath.Join(home, ".claude", "settings.json")
+		if err := switching.RemoveUserPromptSubmitHook(settings); err != nil {
+			fmt.Fprintln(os.Stderr, "ccam: warning: removing the switch hook failed:", err)
 		}
 	}
 

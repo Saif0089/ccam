@@ -1,6 +1,8 @@
 // Package termlauncher opens a new, visible terminal window already
-// scoped (via CLAUDE_CONFIG_DIR) to one account, for people who'd rather
-// click a button than remember/copy a shell alias.
+// scoped (via CLAUDE_SECURESTORAGE_CONFIG_DIR) to one account, for
+// people who'd rather click a button than remember/copy a shell alias.
+// The scoping covers the login only; the window shares the user's
+// ~/.claude like any other session.
 package termlauncher
 
 import (
@@ -102,11 +104,15 @@ func (c *cappedBuffer) String() string { return c.buf.String() }
 
 // unixClaudeCommand is the shell command that runs claude for one
 // account: scoped with env for a managed account, bare for the default.
+//
+// Only the credential store is scoped. CLAUDE_CONFIG_DIR is actively
+// unset rather than merely left alone, so an inherited value cannot
+// silently keep the session isolated from the shared ~/.claude.
 func unixClaudeCommand(configDir string) string {
 	if configDir == "" {
 		return "claude"
 	}
-	return fmt.Sprintf("env CLAUDE_CONFIG_DIR=%s claude", shellQuote(configDir))
+	return fmt.Sprintf("env -u CLAUDE_CONFIG_DIR CLAUDE_SECURESTORAGE_CONFIG_DIR=%s claude", shellQuote(configDir))
 }
 
 func appleScriptQuote(s string) string {
@@ -178,7 +184,12 @@ func launchWindows(configDir, label string) error {
 	_ = label
 	psCmd := "claude"
 	if configDir != "" {
-		psCmd = fmt.Sprintf(`$env:CLAUDE_CONFIG_DIR='%s'; claude`, psQuote(configDir))
+		// Remove-Item rather than assigning $null or '': the CLI branches
+		// on whether the name is present, so a variable left
+		// defined-but-empty is not the same as an absent one.
+		psCmd = fmt.Sprintf(
+			`Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue; `+
+				`$env:CLAUDE_SECURESTORAGE_CONFIG_DIR='%s'; claude`, psQuote(configDir))
 	}
 
 	if wt, err := exec.LookPath("wt.exe"); err == nil {

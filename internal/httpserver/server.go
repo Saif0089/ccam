@@ -132,6 +132,52 @@ func Serve(ctx context.Context, srv *Server, port int) error {
 	defer stopWatch()
 	srv.StartDefaultAccountWatch(watchCtx)
 
+	// Rewrite the shell aliases once on boot. Until now they were only
+	// regenerated on an account mutation, so a ccam that updated itself
+	// (the updater replaces the binary and restarts) kept whatever alias
+	// text the previous version wrote — a user who never adds or removes
+	// an account after upgrading would run the old alias body forever.
+	// The managed block's format is exactly what changes when the way an
+	// account is scoped changes, so syncing here is what carries such a
+	// change to everyone on the next restart, with nothing to type.
+	// Best-effort: a home directory whose rc files cannot be written must
+	// not stop the server, so the failure is logged and swallowed.
+	if err := srv.syncAliases(); err != nil {
+		log.Printf("warning: could not refresh shell aliases on startup: %v", err)
+	}
+
+	// De-isolation migration, in the background: move any still-isolated
+	// managed account's transcripts into the shared ~/.claude and flip it to
+	// credentials-only. Deliberately AFTER the port file is written and off
+	// the startup path — a first-boot copy can be hundreds of MB, and running
+	// it before the listener would delay the port file past the updater's
+	// restart handshake. The copy itself holds no account lock; only the quick
+	// isolation flip does. Best-effort: a failure is logged and retried next
+	// start, and never re-logs-in an account (the login is found by the same
+	// keychain hash under either scheme).
+	go func() {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			log.Printf("de-isolation: cannot resolve home: %v", err)
+			return
+		}
+		report, err := srv.manager.MigrateManagedToShared(filepath.Join(home, ".claude"))
+		if err != nil {
+			log.Printf("warning: de-isolation migration could not run: %v", err)
+			return
+		}
+		for _, a := range report.Accounts {
+			switch {
+			case a.Err != nil:
+				log.Printf("de-isolation: account %q not migrated, will retry: %v", a.ID, a.Err)
+			case a.Failed > 0:
+				log.Printf("de-isolation: account %q kept on old scheme, %d files could not be copied, will retry", a.ID, a.Failed)
+			case a.Flipped:
+				log.Printf("de-isolation: migrated %q — %d transcripts copied, %d already shared", a.ID, a.Copied, a.Skipped)
+			}
+		}
+	}()
+
 	httpSrv := &http.Server{Handler: srv.Handler()}
 	errCh := make(chan error, 1)
 	go func() {

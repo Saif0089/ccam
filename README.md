@@ -2,19 +2,32 @@
 
 Manage and use multiple [Claude Code](https://claude.com/claude-code) (`claude`
 CLI) accounts on one machine, from a local web UI backed by a small
-background service. No admin/root/elevation required to install, on
-Windows, macOS, or Linux, any architecture.
+background service. No admin/root/elevation required for a normal install,
+on Windows, macOS, or Linux, any architecture — and when a privileged
+location genuinely is involved, it asks rather than failing.
 
-It automates the technique from
-["Setting Up Multiple Claude Code Accounts on Your Local Machine"](https://medium.com/@buwanekasumanasekara/setting-up-multiple-claude-code-accounts-on-your-local-machine-f8769a36d1b1):
-each account gets its own directory used as its `CLAUDE_CONFIG_DIR`, isolating
-its login completely from every other account. ccam:
+Each account gets its own directory, exported as `CLAUDE_SECURESTORAGE_CONFIG_DIR`,
+which scopes **the login and nothing else**: `CLAUDE_CONFIG_DIR` is left unset, so
+every account shares your own `~/.claude` and keeps your sessions, MCP servers,
+skills, plugins, hooks and `CLAUDE.md`. Switching account does not switch your
+setup, and `--continue` picks up the conversation you were already in.
+
+This started as an automation of the technique from
+["Setting Up Multiple Claude Code Accounts on Your Local Machine"](https://medium.com/@buwanekasumanasekara/setting-up-multiple-claude-code-accounts-on-your-local-machine-f8769a36d1b1),
+which gave each account its own `CLAUDE_CONFIG_DIR` and isolated everything with
+it. Claude Code derives its credential store from either variable by the same
+hash, so moving to the narrower one keeps every existing login working. ccam:
 
 - lets you add a new account by logging in right from the browser (no manual
   `CLAUDE_CONFIG_DIR=... claude` typing),
 - keeps one shell alias per account (`claude-work`, `claude-personal`, ...) in
   sync across bash, zsh, fish, and PowerShell — so opening *any* terminal and
   running that alias launches `claude` scoped to that account,
+- switches accounts **without leaving your conversation**: start a session with
+  `ccam <account>` (e.g. `ccam work`), then type `ccam <name>` at the Claude
+  prompt to hand off to another account in place — same terminal, same thread,
+  resumed on the other login. (`claude-<account>` stays the plain, direct
+  launch; `ccam <account>` is the switchable one.)
 - runs as a per-user background service that starts at login and serves the
   UI at `http://127.0.0.1:47932`.
 

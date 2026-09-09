@@ -28,7 +28,7 @@ those readers too and update docs/ARCHITECTURE.md.`
 // new key is reported below but does not fail; removing or renaming one is
 // what breaks readers.
 var documentedAccountFields = []string{
-	"id", "name", "slug", "kind", "configDir", "alias", "status", "createdAt", "lastUsedAt",
+	"id", "name", "slug", "kind", "configDir", "isolation", "alias", "status", "createdAt", "lastUsedAt",
 }
 
 // zeroTimeJSON is what an account that has never been used writes for
@@ -163,8 +163,25 @@ func TestAccountsJSONKeepsTheFieldNamesExternalUsageToolsRead(t *testing.T) {
 		t.Errorf("slug = %q, want %q — it is the stable short id readers key on%s", slug, added.Slug, whyThisTestExists)
 	}
 
-	// configDir is the promise that matters most: a reader opens it to
-	// find that account's .claude.json and projects/ transcripts.
+	// isolation tells a reader what configDir actually contains. For a
+	// credentials-only account the login is there but the transcripts
+	// are not — they are pooled in the user's ~/.claude/projects — so a
+	// reader that scans configDir for transcripts would report zero
+	// usage for a busy account. An absent value means the original
+	// config-dir scheme, which is how an older file still reads
+	// correctly; a managed account written by this version says so
+	// explicitly.
+	isolation := stringField(t, account, "isolation")
+	if isolation != string(IsolationCredentialsOnly) {
+		t.Errorf("isolation = %q, want %q: readers key transcript discovery on this%s",
+			isolation, IsolationCredentialsOnly, whyThisTestExists)
+	}
+
+	// configDir is the promise that matters most, and what it promises
+	// now depends on isolation: it is always the account's private
+	// directory and always the string hashed into its credential
+	// store's name, but it holds projects/ transcripts only under the
+	// config-dir scheme.
 	configDir := stringField(t, account, "configDir")
 	if configDir == "" {
 		t.Fatalf("configDir is empty for a managed account; empty means \"the default account, no "+

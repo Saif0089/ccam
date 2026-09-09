@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -64,6 +65,17 @@ func cmdServe(args []string) int {
 
 	manager := accounts.NewManager(accounts.NewStore(accountsFile), accountsDir)
 	syncer := shellrc.NewSyncer(home)
+
+	// Snapshot the default account's identity once, while ~/.claude.json still
+	// cleanly names it, so switching back to it later can restore /status. Safe
+	// on first boot after upgrade: managed accounts were isolated until now, so
+	// nothing had ever rewritten ~/.claude.json.
+	if err := accounts.SnapshotDefaultIdentity(
+		filepath.Join(home, ".claude.json"),
+		filepath.Join(accountsDir, "default"),
+	); err != nil {
+		log.Printf("warning: could not snapshot the default account identity: %v", err)
+	}
 
 	// Resolved once, here, rather than relying on PATH at spawn time:
 	// started by launchd/systemd at login this process has almost no

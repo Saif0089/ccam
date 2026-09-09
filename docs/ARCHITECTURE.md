@@ -100,15 +100,40 @@ enforces it: a rename in `accounts.Account` compiles, passes every other
 test, and silently sends another tool's numbers to the wrong account.
 
 What a reader can rely on: a top-level `accounts` array, each entry with
-`id`, `name`, `slug`, `kind`, `configDir`, `alias`, `status`, `createdAt`
-and `lastUsedAt`. `slug` is the stable short id — a rename changes `name`
-and `alias`, never `slug`, `id`, or `configDir`. `configDir` is the
-account's absolute `CLAUDE_CONFIG_DIR`, the directory holding its own
-`.claude.json` and its `projects/` transcripts, and it is empty for exactly
-one row: the `kind: "default"` account, which is reached by *removing* the
-variable rather than setting it, so its data is in the user's `~/.claude`
-instead. New fields may appear — a reader should ignore what it doesn't
-recognise — but the ones above don't move.
+`id`, `name`, `slug`, `kind`, `configDir`, `isolation`, `alias`, `status`,
+`createdAt` and `lastUsedAt`. `slug` is the stable short id — a rename
+changes `name` and `alias`, never `slug`, `id`, or `configDir`.
+`configDir` is the account's absolute private directory: the value ccam
+exports to scope that account, and the exact string hashed into its
+credential store's name. It is empty for exactly one row: the
+`kind: "default"` account, which is reached by *removing* the variable
+rather than setting it, so its data is in the user's `~/.claude` instead.
+New fields may appear — a reader should ignore what it doesn't recognise —
+but the ones above don't move.
+
+`isolation` says what `configDir` actually contains, and a reader that
+attributes usage per account **must** branch on it:
+
+- `"config-dir"` — the original scheme. ccam exports `CLAUDE_CONFIG_DIR`,
+  so the directory holds that account's own `.claude.json` *and* its
+  `projects/` transcripts. **An absent or unrecognised value means this**,
+  which is how a file written by an older ccam still reads correctly.
+- `"credentials-only"` — what ccam writes for a managed account today.
+  ccam exports `CLAUDE_SECURESTORAGE_CONFIG_DIR` and leaves
+  `CLAUDE_CONFIG_DIR` unset, so only the login lives in `configDir`; the
+  sessions, MCP servers, skills, plugins, hooks and `projects/`
+  transcripts all come from the user's shared `~/.claude`. Scanning
+  `configDir` for transcripts reports zero usage for a busy account —
+  they are pooled under `~/.claude/projects` with every other
+  credentials-only account's, and a transcript carries no account tag of
+  its own.
+
+`configDir` still holds that account's `.claude.json` under either scheme,
+because ccam runs `claude auth login` with both variables set: the
+credential lands in the per-account store while the CLI writes
+`oauthAccount` into the account's private directory, where it has always
+been. That is deliberate — it keeps identity discovery working unchanged
+for readers that have not been updated, including ones that cannot be.
 `internal/accounts/contract_test.go` asserts all of that against the bytes
 the store actually writes, and says in its failure message why it exists, so
 whoever renames a field finds out here rather than from a bug report.
@@ -133,6 +158,35 @@ account, `Claude Code-credentials-<first 8 hex of sha256(configDir)>` for
 every other — and falls back to `<configDir>/.credentials.json`, which is
 where Claude Code stores the record when no Keychain is available (over SSH,
 in containers, and on Linux and Windows generally).
+
+Both of those follow `CLAUDE_SECURESTORAGE_CONFIG_DIR` when it is set, and
+`CLAUDE_CONFIG_DIR` only as the fallback — verified in the shipped bundle
+for darwin, linux-x64 and win32-x64:
+
+```js
+function jy(){let n=process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR;
+  if(n!==void 0)return(n||l(o(),".claude")).normalize("NFC");
+  return be()}
+```
+
+Since ccam passes the same absolute path to whichever variable it exports,
+the hash input does not change and **switching an account between the two
+schemes keeps its existing login — no re-login, on any OS.**
+
+Two traps worth writing down. The CLI branches on whether the name is
+**present**, not on what it holds, so `CLAUDE_SECURESTORAGE_CONFIG_DIR=""`
+resolves to the bare `Claude Code-credentials` — the user's real default
+login — and the next token refresh would rotate that login's single-use
+refresh token. ccam therefore never emits either name with an empty value;
+the default account is reached by removing both. And the two branches
+normalise differently — the securestorage path is NFC-normalised, the
+config-dir path is hashed raw — so a non-ASCII account directory would
+hash to two different items if login and sessions took different branches.
+That is why `EnvForConfigDir` sets both variables rather than just the one.
+
+The bundle is plain-text JS inside the binary. Grep it with `/usr/bin/grep -a`
+or python — a shell whose `grep` is aliased to `ugrep` fails on a bounded
+`{0,240}` window and prints nothing, which reads as "not found".
 
 That derivation is Claude Code's, not ours, so it can change. Everything
 downstream is built to degrade rather than break: a miss here means the card
