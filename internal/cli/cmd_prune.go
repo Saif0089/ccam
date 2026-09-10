@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"ccam/internal/accounts"
 	"ccam/internal/config"
@@ -11,9 +12,10 @@ import (
 
 // cmdPrune reclaims the disk the de-isolation migration left behind: once an
 // account's transcripts were copied into the shared ~/.claude, its own
-// directory still holds the originals. This deletes those, keeping only the
-// credential and identity files. It previews by default and only deletes with
-// --yes, because it removes the last per-account copy of already-shared data.
+// directory still holds the originals. This deletes those — after checking,
+// file by file, that the shared tree really does have them — and leaves
+// everything else in the directory alone. It previews by default and only
+// deletes with --yes.
 func cmdPrune(args []string) int {
 	fs := flag.NewFlagSet("prune", flag.ContinueOnError)
 	yes := fs.Bool("yes", false, "actually delete (without this, prune only previews)")
@@ -34,7 +36,13 @@ func cmdPrune(args []string) int {
 	}
 	manager := accounts.NewManager(accounts.NewStore(accountsFile), accountsDir)
 
-	report, err := manager.Prune(ids, !*yes)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ccam:", err)
+		return 1
+	}
+
+	report, err := manager.Prune(filepath.Join(home, ".claude"), ids, !*yes)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ccam:", err)
 		return 1
@@ -51,13 +59,21 @@ func cmdPrune(args []string) int {
 			continue
 		}
 		fmt.Printf("  %s: %s across %d item(s)\n", a.ID, humanBytes(a.Bytes), len(a.Removed))
+		if a.Shared > 0 {
+			verb := "were only here and have been copied to ~/.claude first"
+			if report.DryRun {
+				verb = "are only here (or are longer here) and would be copied to ~/.claude first"
+			}
+			fmt.Printf("      %d transcript(s) %s\n", a.Shared, verb)
+		}
 	}
 	fmt.Printf("Total: %s\n", humanBytes(report.TotalBytes()))
 
 	if report.DryRun {
 		fmt.Println("\nThis was a preview. Re-run with --yes to delete (the transcripts already live in ~/.claude).")
 	} else {
-		fmt.Println("\nDone. Credentials and account identity were kept; everything else came from your shared ~/.claude.")
+		fmt.Println("\nDone. Only transcripts verified present in your shared ~/.claude were removed,")
+		fmt.Println("along with caches Claude Code rebuilds. Everything else in the account directory was kept.")
 	}
 	return 0
 }

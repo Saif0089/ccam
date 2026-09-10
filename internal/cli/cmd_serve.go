@@ -70,11 +70,25 @@ func cmdServe(args []string) int {
 	// cleanly names it, so switching back to it later can restore /status. Safe
 	// on first boot after upgrade: managed accounts were isolated until now, so
 	// nothing had ever rewritten ~/.claude.json.
-	if err := accounts.SnapshotDefaultIdentity(
-		filepath.Join(home, ".claude.json"),
-		filepath.Join(accountsDir, "default"),
-	); err != nil {
-		log.Printf("warning: could not snapshot the default account identity: %v", err)
+	// The managed accounts' own directories are passed so an identity a switch
+	// left in ~/.claude.json is recognised as theirs and refused. A store that
+	// cannot be read means we cannot tell, so nothing is captured this boot.
+	var managedDirs []string
+	if list, err := accounts.NewStore(accountsFile).Load(); err == nil {
+		for _, a := range list {
+			if !a.IsDefault() && a.ConfigDir != "" {
+				managedDirs = append(managedDirs, a.ConfigDir)
+			}
+		}
+		if err := accounts.SnapshotDefaultIdentity(
+			filepath.Join(home, ".claude.json"),
+			filepath.Join(accountsDir, "default"),
+			managedDirs,
+		); err != nil {
+			log.Printf("warning: could not snapshot the default account identity: %v", err)
+		}
+	} else {
+		log.Printf("warning: not snapshotting the default identity, accounts unreadable: %v", err)
 	}
 
 	// Resolved once, here, rather than relying on PATH at spawn time:

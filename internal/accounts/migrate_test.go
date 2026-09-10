@@ -279,3 +279,37 @@ func TestMigrateAccountNeverUsedIsSafe(t *testing.T) {
 		t.Errorf("work isolation = %q, want credentials-only", got)
 	}
 }
+
+// A transcript that grows while it is being copied is not migrated: the copy
+// in the shared tree is short, and flipping the account on that basis is what
+// let prune delete the only complete copy.
+func TestMigrateDoesNotFlipAnAccountWhoseTranscriptGrewMidCopy(t *testing.T) {
+	home := t.TempDir()
+	claudeDir := filepath.Join(home, ".claude")
+	work := filepath.Join(home, ".ccam", "accounts", "work")
+	src := filepath.Join(work, "projects", "-repo")
+	mustDir(t, src)
+	path := filepath.Join(src, "live.jsonl")
+	if err := os.WriteFile(path, []byte("first half"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr, _ := seedStore(t, []Account{
+		{ID: "work", Kind: KindManaged, ConfigDir: work, Isolation: IsolationConfigDir},
+	})
+	if _, err := mgr.MigrateManagedToShared(claudeDir); err != nil {
+		t.Fatal(err)
+	}
+	// The session kept writing after the copy; the shared copy is now short.
+	if err := os.WriteFile(path, []byte("first half plus the rest"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Prune is the backstop: it must top the shared copy up rather than delete.
+	if _, err := mgr.Prune(claudeDir, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(claudeDir, "projects", "-repo", "live.jsonl"))
+	if err != nil || string(got) != "first half plus the rest" {
+		t.Errorf("the complete transcript did not survive: %q (%v)", got, err)
+	}
+}

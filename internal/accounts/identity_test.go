@@ -112,3 +112,67 @@ func TestSetActiveIdentityNilIsNoOp(t *testing.T) {
 		t.Errorf("nil oauth should be a silent no-op, got %v", err)
 	}
 }
+
+func TestSnapshotDefaultIdentityCapturesARealDefaultLogin(t *testing.T) {
+	home := t.TempDir()
+	claudeJSON := filepath.Join(home, ".claude.json")
+	stubDir := filepath.Join(home, ".ccam", "accounts", "default")
+	mustFile(t, claudeJSON, `{"oauthAccount":{"accountUuid":"real-default","emailAddress":"me@example.com"}}`)
+
+	if err := SnapshotDefaultIdentity(claudeJSON, stubDir, nil); err != nil {
+		t.Fatal(err)
+	}
+	oa, err := ReadOAuthAccount(stubDir)
+	if err != nil || oa == nil {
+		t.Fatalf("nothing captured: %v", err)
+	}
+	if oa["accountUuid"] != "real-default" {
+		t.Errorf("captured %v, want the default login", oa)
+	}
+}
+
+// The retry path is the dangerous one: with no default login signed in, the
+// first boot captures nothing, `ccam ehti` then writes ehti's identity into
+// ~/.claude.json, and capturing that would freeze a managed account as "the
+// default account" — for the dashboard as well as for /status.
+func TestSnapshotDefaultIdentityRefusesAManagedAccountsIdentity(t *testing.T) {
+	home := t.TempDir()
+	claudeJSON := filepath.Join(home, ".claude.json")
+	stubDir := filepath.Join(home, ".ccam", "accounts", "default")
+	ehti := filepath.Join(home, ".ccam", "accounts", "ehti")
+	mustFile(t, filepath.Join(ehti, ".claude.json"), `{"oauthAccount":{"accountUuid":"ehti-uuid"}}`)
+	// What a switch to ehti leaves behind in the shared config.
+	mustFile(t, claudeJSON, `{"oauthAccount":{"accountUuid":"ehti-uuid"}}`)
+
+	if err := SnapshotDefaultIdentity(claudeJSON, stubDir, []string{ehti}); err != nil {
+		t.Fatal(err)
+	}
+	if oa, _ := ReadOAuthAccount(stubDir); oa != nil {
+		t.Errorf("captured a managed account as the default: %v", oa)
+	}
+
+	// Once the user does sign in to their own login, that IS captured.
+	mustFile(t, claudeJSON, `{"oauthAccount":{"accountUuid":"real-default"}}`)
+	if err := SnapshotDefaultIdentity(claudeJSON, stubDir, []string{ehti}); err != nil {
+		t.Fatal(err)
+	}
+	oa, err := ReadOAuthAccount(stubDir)
+	if err != nil || oa == nil || oa["accountUuid"] != "real-default" {
+		t.Errorf("a genuine default login should still be captured, got %v (%v)", oa, err)
+	}
+}
+
+func TestSnapshotDefaultIdentityNeverOverwritesAnExistingStub(t *testing.T) {
+	home := t.TempDir()
+	claudeJSON := filepath.Join(home, ".claude.json")
+	stubDir := filepath.Join(home, ".ccam", "accounts", "default")
+	mustFile(t, filepath.Join(stubDir, ".claude.json"), `{"oauthAccount":{"accountUuid":"captured-earlier"}}`)
+	mustFile(t, claudeJSON, `{"oauthAccount":{"accountUuid":"whatever-is-there-now"}}`)
+
+	if err := SnapshotDefaultIdentity(claudeJSON, stubDir, nil); err != nil {
+		t.Fatal(err)
+	}
+	if oa, _ := ReadOAuthAccount(stubDir); oa["accountUuid"] != "captured-earlier" {
+		t.Errorf("stub was overwritten: %v", oa)
+	}
+}

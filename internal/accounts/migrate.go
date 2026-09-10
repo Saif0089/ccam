@@ -165,7 +165,23 @@ func copyProjectsTree(src, dst string) (copied, skipped, failed int, err error) 
 			failed++
 			return nil
 		}
+		before, beforeErr := os.Stat(path)
+		if beforeErr != nil {
+			failed++
+			return nil
+		}
 		if cpErr := copyFilePreservingMode(path, target); cpErr != nil {
+			failed++
+			return nil
+		}
+		// A session that was writing while we copied left a shorter file in
+		// the shared tree than the one here, and flipping the account on that
+		// basis is how the rest of that conversation ends up existing only in
+		// a directory prune is later told is redundant. Count it as failed so
+		// the account stays on the old scheme and is retried next boot, when
+		// the session will usually have ended. Prune verifies again at
+		// deletion time, which is the check that actually closes this.
+		if after, statErr := os.Stat(path); statErr != nil || after.Size() != before.Size() {
 			failed++
 			return nil
 		}

@@ -1,20 +1,29 @@
 package accounts
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 )
 
-// pruneKeep is everything a credentials-only account's directory still needs
-// once its transcripts live in the shared ~/.claude: the credential store
-// (when it is file-based rather than in the OS keychain) and the identity stub
-// the usage monitor and the never-updating Windows agent read. Everything else
-// under the directory is now served from ~/.claude and is safe to remove.
-var pruneKeep = map[string]bool{
-	".claude.json":      true, // identity stub (oauthAccount)
-	".credentials.json": true, // file-based credential (Linux/Windows/SSH/no-keychain)
-	".credentials":      true, // older credential filename
+// pruneRemovable is what prune is allowed to delete, and it is an allowlist on
+// purpose. It used to be the inverse — delete everything except the credential
+// and identity files — which quietly took things the migration never copied
+// anywhere: history.jsonl (the account's typed prompt history), backups/,
+// plugins/, a CLAUDE.md someone had put there. Those are not served from the
+// shared ~/.claude; they were simply gone.
+//
+// So: projects/, which is verified present in the shared tree immediately
+// before it is removed, plus caches Claude Code rebuilds by itself. Anything
+// else stays, whatever it is. The disk is in projects/ anyway.
+var pruneRemovable = map[string]bool{
+	"projects":                  true, // verified into ~/.claude/projects first
+	"shell-snapshots":           true, // rebuilt per session
+	"telemetry":                 true,
+	"statsig":                   true,
+	"mcp-needs-auth-cache.json": true,
+	".last-cleanup":             true,
 }
 
 // PruneReport summarizes a prune run.
@@ -28,7 +37,11 @@ type AccountPrune struct {
 	ID      string
 	Removed []string
 	Bytes   int64
-	Err     error
+	// Shared counts transcripts that existed only in this account's own
+	// directory (or were longer here than in the shared tree) and had to be
+	// copied across before anything could be deleted. Zero is the normal case.
+	Shared int
+	Err    error
 }
 
 // TotalBytes is the reclaimable total across all pruned accounts.
@@ -47,12 +60,21 @@ func (r PruneReport) TotalBytes() int64 {
 // step that deletes those originals once the user is satisfied.
 //
 // Only credentials-only accounts are touched (their config now comes from the
-// shared ~/.claude, so nothing under their own directory is read any more), and
-// the migration only marks an account credentials-only after every transcript
-// copied cleanly — so the shared copy always exists before this can delete a
-// source. With dryRun set it reports what it would remove without deleting. If
-// ids is non-empty only those accounts are considered.
-func (m *Manager) Prune(ids []string, dryRun bool) (PruneReport, error) {
+// shared ~/.claude, so nothing under their own directory is read any more).
+//
+// The migration having flipped an account is NOT taken as proof that its
+// transcripts are all shared, because it is not: a shell opened before the
+// flip keeps the old alias and goes on writing into the account's own
+// projects/ for as long as it lives, and a session that was mid-write when the
+// migration copied its transcript left a shorter file in the shared tree than
+// the one here. Both were then deleted as "already copied". So every file is
+// verified against the shared tree at the moment of deletion, and anything
+// missing or short is copied across first; if even one cannot be, the account
+// is left completely alone and reported. Prune never removes what it could not
+// duplicate. With dryRun set it reports what it would remove and what it would
+// have to copy first, without writing anything. If ids is non-empty only those
+// accounts are considered.
+func (m *Manager) Prune(claudeDir string, ids []string, dryRun bool) (PruneReport, error) {
 	list, err := m.store.Load()
 	if err != nil {
 		return PruneReport{}, err
@@ -77,8 +99,22 @@ func (m *Manager) Prune(ids []string, dryRun bool) (PruneReport, error) {
 			report.Accounts = append(report.Accounts, ap)
 			continue
 		}
+
+		// Verify (and, on a real run, top up) before deleting anything.
+		shared, failed, verifyErr := shareProjects(
+			filepath.Join(a.ConfigDir, "projects"),
+			filepath.Join(claudeDir, "projects"),
+			!dryRun,
+		)
+		ap.Shared = shared
+		if verifyErr != nil || failed > 0 {
+			ap.Err = fmt.Errorf("%d transcript(s) exist only here and could not be copied to the shared ~/.claude (%v) — nothing was removed", failed, verifyErr)
+			report.Accounts = append(report.Accounts, ap)
+			continue
+		}
+
 		for _, e := range entries {
-			if pruneKeep[e.Name()] {
+			if !pruneRemovable[e.Name()] {
 				continue
 			}
 			full := filepath.Join(a.ConfigDir, e.Name())
@@ -109,4 +145,66 @@ func treeSize(path string) int64 {
 		return nil
 	})
 	return total
+}
+
+// shareProjects makes the shared tree a superset of one account's projects/
+// before prune deletes it. A file missing from the shared tree is copied; a
+// file that is SHORTER there than here is replaced, because that is what a
+// transcript copied mid-write looks like. The comparison is directional on
+// purpose: a shared file that is longer holds a conversation someone resumed
+// after the migration, and this stale copy must never overwrite it.
+//
+// With apply false nothing is written — it just counts what would have to be.
+// Returns how many files needed sharing and how many could not be.
+func shareProjects(src, dst string, apply bool) (needed, failed int, err error) {
+	info, statErr := os.Stat(src)
+	if statErr != nil {
+		if os.IsNotExist(statErr) {
+			return 0, 0, nil // never used, or already pruned
+		}
+		return 0, 0, statErr
+	}
+	if !info.IsDir() {
+		return 0, 0, nil
+	}
+
+	walkErr := filepath.WalkDir(src, func(path string, d os.DirEntry, e error) error {
+		if e != nil {
+			failed++
+			return nil
+		}
+		if d.IsDir() || !d.Type().IsRegular() {
+			return nil
+		}
+		rel, relErr := filepath.Rel(src, path)
+		if relErr != nil {
+			failed++
+			return nil
+		}
+		srcInfo, infoErr := d.Info()
+		if infoErr != nil {
+			failed++
+			return nil
+		}
+		target := filepath.Join(dst, rel)
+		if dstInfo, dstErr := os.Stat(target); dstErr == nil && dstInfo.Size() >= srcInfo.Size() {
+			return nil // already there, and at least as complete
+		}
+		needed++
+		if !apply {
+			return nil
+		}
+		if mkErr := os.MkdirAll(filepath.Dir(target), 0o700); mkErr != nil {
+			failed++
+			return nil
+		}
+		// copyFilePreservingMode writes a temp file and renames it over the
+		// destination, so a short copy is replaced atomically.
+		if cpErr := copyFilePreservingMode(path, target); cpErr != nil {
+			failed++
+			return nil
+		}
+		return nil
+	})
+	return needed, failed, walkErr
 }

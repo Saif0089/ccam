@@ -35,7 +35,17 @@ var orgScopedCacheKeys = []string{
 // It runs once — if the stub already exists it does nothing, so it never
 // captures an identity some later switch left behind. A shared file with no
 // oauthAccount (not signed in) is left uncaptured, to try again next boot.
-func SnapshotDefaultIdentity(claudeJSONPath, stubDir string) error {
+//
+// That retry is the hazard this guards against. A user who is not signed in to
+// the plain `claude` login leaves ~/.claude.json without an oauthAccount, so
+// the first boot captures nothing; the first `ccam ehti` then writes ehti's
+// identity there, and the next boot would have captured THAT as "the default
+// account" — permanently, since the stub is written once. The dashboard would
+// report the default profile's usage under ehti's UUID and /status would name
+// ehti as default. So an identity that matches an account ccam manages is
+// refused, and the snapshot waits for a genuine default login instead:
+// managedDirs are those accounts' config directories.
+func SnapshotDefaultIdentity(claudeJSONPath, stubDir string, managedDirs []string) error {
 	stub := filepath.Join(stubDir, ".claude.json")
 	if _, err := os.Stat(stub); err == nil {
 		return nil // already captured
@@ -54,6 +64,9 @@ func SnapshotDefaultIdentity(claudeJSONPath, stubDir string) error {
 	oa, ok := cfg["oauthAccount"].(map[string]any)
 	if !ok || len(oa) == 0 {
 		return nil // not signed in yet — capture on a later boot
+	}
+	if belongsToManagedAccount(oa, managedDirs) {
+		return nil // a switch put this here; keep waiting for the real default
 	}
 	if err := os.MkdirAll(stubDir, 0o700); err != nil {
 		return err
@@ -145,4 +158,28 @@ func SetActiveIdentity(claudeJSONPath string, oauth map[string]any) error {
 		return err
 	}
 	return os.Rename(tmp, claudeJSONPath)
+}
+
+// belongsToManagedAccount reports whether an oauthAccount read from the shared
+// ~/.claude.json is one ccam itself wrote there when a session started, rather
+// than the user's own default login. Matching is by accountUuid, the field
+// Claude Code keys the login on.
+func belongsToManagedAccount(oa map[string]any, managedDirs []string) bool {
+	uuid, _ := oa["accountUuid"].(string)
+	if uuid == "" {
+		return false
+	}
+	for _, dir := range managedDirs {
+		if dir == "" {
+			continue
+		}
+		managed, err := ReadOAuthAccount(dir)
+		if err != nil || managed == nil {
+			continue
+		}
+		if got, _ := managed["accountUuid"].(string); got == uuid {
+			return true
+		}
+	}
+	return false
 }
