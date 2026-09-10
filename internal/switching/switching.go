@@ -19,6 +19,12 @@ import (
 // the hook (a child of claude) finds it without guessing.
 const HandoffEnvVar = "CCAM_HANDOFF"
 
+// SessionIDEnvVar is the session Claude Code exports into every process it
+// spawns — hooks and the shell commands a user runs with `!`. It is how a
+// switch staged from a shell command knows which conversation to carry over,
+// since only the hook payload carries it otherwise.
+const SessionIDEnvVar = "CLAUDE_CODE_SESSION_ID"
+
 // Handoff is a pending switch: the account the user asked for and the session
 // to resume as it.
 type Handoff struct {
@@ -62,6 +68,18 @@ func ResolveAccount(list []accounts.Account, name string) (accounts.Account, boo
 		}
 	}
 	return accounts.Account{}, false
+}
+
+// ResumeArgs are the Claude Code flags that carry the conversation across a
+// switch. With a session id the relaunch forks that exact session; without one
+// — a switch staged somewhere the session id was not exported — --continue
+// picks up the most recent conversation in this directory, which is the one
+// the supervisor just terminated.
+func ResumeArgs(sessionID string) []string {
+	if strings.TrimSpace(sessionID) == "" {
+		return []string{"--continue"}
+	}
+	return []string{"--resume", sessionID, "--fork-session"}
 }
 
 // WriteHandoff atomically writes a pending switch to path.

@@ -24,13 +24,13 @@ hash, so moving to the narrower one keeps every existing login working. ccam:
   sync across bash, zsh, fish, and PowerShell — so opening *any* terminal and
   running that alias launches `claude` scoped to that account,
 - switches accounts **without leaving your conversation**: start a session with
-  `ccam <account>` (e.g. `ccam work`), then type `ccam <name>` at the Claude
-  prompt to hand off to another account in place — same terminal, same thread,
-  resumed on the other login. (`claude-<account>` stays the plain, direct
-  launch; `ccam <account>` is the switchable one.) The switch is the *prompt*,
-  not a shell command: `!ccam <name>` typed inside a session runs in a shell
-  with no terminal attached, which can only start a second, nested session, so
-  ccam stops there and says where to type it instead.
+  `ccam <account>` (e.g. `ccam work`, plus any flags you normally pass claude),
+  then either type `ccam <name>` at the Claude prompt or run `!ccam <name>` as
+  a shell command — both hand off to the other account in place: same terminal,
+  same thread, resumed on the other login. (`claude-<account>` stays the plain,
+  direct launch; `ccam <account>` is the switchable one.) A session started
+  with a bare `claude` has no supervisor to relaunch it, so ccam says so rather
+  than starting a second, nested session underneath it.
 - runs as a per-user background service that starts at login and serves the
   UI at `http://127.0.0.1:47932`.
 
@@ -97,10 +97,16 @@ ccam account separately: each login is its own account on the dashboard,
 under the one device, rather than every account's tokens piling up in a
 single number for the machine. There is nothing to configure per account
 and nothing to re-run after adding one. The agent re-reads
-`~/.ccam/accounts.json` on every sync, takes each account's `configDir`,
-and scans that directory's own transcripts — so an account you add now
-starts reporting within a sync tick, and an account you delete simply
-stops.
+`~/.ccam/accounts.json` on every sync — so an account you add now starts
+reporting within a sync tick, and an account you delete simply stops.
+
+Because accounts share one `~/.claude`, their transcripts pool into a single
+`projects/` tree and nothing inside a transcript records which login paid for
+it. The monitor's hook closes that gap from inside the session: it runs while
+the session is alive, reads the account directory it inherited, and writes
+`session id → owner` to its own ledger, which is what the scanner attributes
+by. Sessions that predate the ledger are credited to nobody rather than to
+whichever account happens to be signed in.
 
 That is the reason `accounts.json` is treated as a contract rather than an
 internal file (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)): renaming

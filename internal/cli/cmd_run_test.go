@@ -42,6 +42,10 @@ func seedRunEnv(t *testing.T) string {
 	// Give "work" an identity stub so the switch also exercises applyIdentity.
 	mustWrite(t, filepath.Join(workDir, ".claude.json"), `{"oauthAccount":{"accountUuid":"work-uuid"}}`)
 
+	// A ccam-supervised shell would export a handoff path; clear it so these
+	// tests exercise the supervisor rather than the switch-staging path.
+	t.Setenv(switching.HandoffEnvVar, "")
+
 	// `go test` runs with stdin on a pipe. Claim the terminal so cmdRun's
 	// interactive guard does not turn every supervisor test into a refusal.
 	origTTY := stdinIsTTY
@@ -160,6 +164,40 @@ func TestRunClaudeOnceReturnsChildExitCode(t *testing.T) {
 	}
 	if code != 7 {
 		t.Errorf("exit code = %d, want 7 (the child's)", code)
+	}
+}
+
+// TestRunStagesSwitchInsideSupervisedSession is `!ccam work` typed in a session
+// ccam is supervising: a shell command, so no tty and no hook payload, but the
+// handoff path and session id are inherited from the session. It must stage the
+// switch for the supervisor instead of starting a second session.
+func TestRunStagesSwitchInsideSupervisedSession(t *testing.T) {
+	home := seedRunEnv(t)
+	handoff := filepath.Join(home, "handoff.json")
+	t.Setenv(switching.HandoffEnvVar, handoff)
+	t.Setenv(switching.SessionIDEnvVar, "sess-abc")
+	stdinIsTTY = func() bool { return false }
+
+	launched := false
+	origRunner := claudeRunner
+	t.Cleanup(func() { claudeRunner = origRunner })
+	claudeRunner = func(bin string, args, env []string, handoff string) (int, bool) {
+		launched = true
+		return 0, false
+	}
+
+	if code := cmdRun([]string{"work"}); code != 0 {
+		t.Fatalf("cmdRun exit = %d, want 0", code)
+	}
+	if launched {
+		t.Error("staging a switch must not launch a nested Claude Code")
+	}
+	h, ok := switching.ReadHandoff(handoff)
+	if !ok {
+		t.Fatal("no handoff staged")
+	}
+	if h.Account != "work" || h.SessionID != "sess-abc" {
+		t.Errorf("handoff = %+v, want account work / session sess-abc", h)
 	}
 }
 

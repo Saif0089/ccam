@@ -3,6 +3,7 @@ package switching
 import (
 	"encoding/json"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"ccam/internal/accounts"
@@ -39,10 +40,10 @@ func TestResolveAccount(t *testing.T) {
 	}
 	for _, tc := range []struct{ name, wantID string }{
 		{"ehti", "ehti"},
-		{"EHTI", "ehti"},          // case-insensitive
-		{"claude-ehti", "ehti"},   // full alias
-		{"default", "default"},    // slug
-		{"claude", "default"},     // alias
+		{"EHTI", "ehti"},        // case-insensitive
+		{"claude-ehti", "ehti"}, // full alias
+		{"default", "default"},  // slug
+		{"claude", "default"},   // alias
 	} {
 		got, ok := ResolveAccount(list, tc.name)
 		if !ok || got.ID != tc.wantID {
@@ -92,5 +93,16 @@ func TestBlockDecisionJSON(t *testing.T) {
 	}
 	if hso["hookEventName"] != "UserPromptSubmit" || hso["suppressOriginalPrompt"] != true {
 		t.Errorf("hookSpecificOutput wrong: %v", hso)
+	}
+}
+
+func TestResumeArgsForksAKnownSessionAndContinuesOtherwise(t *testing.T) {
+	got := ResumeArgs("sess-1")
+	want := []string{"--resume", "sess-1", "--fork-session"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ResumeArgs(id) = %v, want %v", got, want)
+	}
+	if got := ResumeArgs("  "); !reflect.DeepEqual(got, []string{"--continue"}) {
+		t.Errorf("ResumeArgs(blank) = %v, want [--continue]", got)
 	}
 }
