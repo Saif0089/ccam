@@ -210,23 +210,6 @@ func cmdRun(args []string) int {
 			switching.HandoffEnvVar+"="+handoff,
 			fmt.Sprintf("%s=%d", switching.SupervisorEnvVar, os.Getpid()))
 
-		// Claude Code refreshes its access token into whatever store it is
-		// reading, so a long session's refreshed token has to be copied back to
-		// the account or the account's own store goes stale.
-		stopMirror := make(chan struct{})
-		go func() {
-			t := time.NewTicker(mirrorInterval)
-			defer t.Stop()
-			for {
-				select {
-				case <-stopMirror:
-					return
-				case <-t.C:
-					creds.mirror()
-				}
-			}
-		}()
-
 		// Nothing in this callback prints. Claude Code owns the terminal while
 		// it runs, so a write here lands in the middle of the screen the TUI is
 		// painting and corrupts it until something forces a full repaint. The
@@ -271,7 +254,6 @@ func cmdRun(args []string) int {
 			switching.WriteOutcome(handoff, switching.Outcome{OK: true, Message: msg})
 			return true
 		})
-		close(stopMirror)
 		if !switched {
 			return code
 		}

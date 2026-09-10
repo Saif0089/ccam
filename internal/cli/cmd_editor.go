@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"ccam/internal/accounts"
 	"ccam/internal/config"
@@ -144,13 +143,6 @@ func reportEditors(installed []editors.Editor, list []accounts.Account, accounts
 			fmt.Printf("  %-18s new conversations start as %s\n", ed.Name, def)
 		}
 	}
-}
-
-// editorStoreDir is where an editor's credential store lives. One per editor,
-// so two editors can be on two accounts at once.
-func editorStoreDir(accountsDir, editorName string) string {
-	slug := strings.ToLower(strings.ReplaceAll(editorName, " ", "-"))
-	return filepath.Join(filepath.Dir(accountsDir), "editors", slug)
 }
 
 // storeOwner records which account a store was last filled from, for the

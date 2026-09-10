@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"time"
 
 	"ccam/internal/accounts"
 	"ccam/internal/config"
@@ -74,12 +73,7 @@ func cmdExec(args []string) int {
 	if err := cmd.Start(); err != nil {
 		return runPlainClaude(bin, passthrough)
 	}
-	done := make(chan struct{})
-	go func() {
-		mirrorUntil(done, creds)
-	}()
 	waitErr := cmd.Wait()
-	close(done)
 	return exitCodeOf(waitErr)
 }
 
@@ -115,19 +109,4 @@ func editorAccount() (accounts.Account, bool) {
 		}
 	}
 	return accounts.Account{}, false
-}
-
-// mirrorUntil copies a token the conversation refreshes back to its account for
-// as long as the conversation runs.
-func mirrorUntil(done <-chan struct{}, creds *sessionCreds) {
-	t := time.NewTicker(mirrorInterval)
-	defer t.Stop()
-	for {
-		select {
-		case <-done:
-			return
-		case <-t.C:
-			creds.mirror()
-		}
-	}
 }

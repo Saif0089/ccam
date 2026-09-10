@@ -8,78 +8,81 @@ import (
 	"ccam/internal/credstore"
 )
 
-// A session refreshes its access token into whatever store it is reading, which
-// is now a private one. Without mirroring, the account's own store would keep
-// the token it had when the session started and go stale — and every new
-// session of that account would start from the older credentials.
-func TestSessionCredsMirrorsARefreshedTokenBackToTheAccount(t *testing.T) {
+const (
+	loginA = `{"claudeAiOauth":{"accessToken":"account-a-token","expiresAt":1}}`
+	loginB = `{"claudeAiOauth":{"accessToken":"account-b-token","expiresAt":2}}`
+)
+
+// The session runs on a copy, so switching it cannot disturb anyone else.
+func TestSessionCredsSeedsAPrivateCopy(t *testing.T) {
 	t.Setenv(credstore.ForceFileEnvVar, "1")
 	base := t.TempDir()
-	acctDir := filepath.Join(base, "account")
-	acct := accounts.Account{ID: "work", Slug: "work", ConfigDir: acctDir}
-	if err := credstore.Write(acctDir, []byte(`{"claudeAiOauth":{"accessToken":"original"}}`)); err != nil {
+	acct := accounts.Account{ID: "a", Slug: "a", ConfigDir: filepath.Join(base, "a")}
+	if err := credstore.Write(acct.ConfigDir, []byte(loginA)); err != nil {
 		t.Fatal(err)
 	}
-
 	creds := newSessionCreds(filepath.Join(base, "sessions"), acct, "")
 	if creds == nil {
 		t.Fatal("could not seed a session store")
 	}
 	t.Cleanup(creds.close)
-	if !credstore.Same(acctDir, creds.dir()) {
-		t.Fatal("session store was not seeded from the account")
+	if creds.dir() == acct.ConfigDir {
+		t.Fatal("the session is reading the account's own store, not a copy")
 	}
-
-	// Claude Code refreshes the token in the session's own store.
-	if err := credstore.Write(creds.dir(), []byte(`{"claudeAiOauth":{"accessToken":"refreshed"}}`)); err != nil {
-		t.Fatal(err)
-	}
-	creds.mirror()
-
-	got, err := credstore.Read(acctDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != `{"claudeAiOauth":{"accessToken":"refreshed"}}` {
-		t.Errorf("account store holds %s, want the refreshed token", got)
+	if !credstore.Same(acct.ConfigDir, creds.dir()) {
+		t.Error("the copy does not hold what the account holds")
 	}
 }
 
-// Switching mirrors first, so a token refreshed under the old account is not
-// lost when the store is overwritten with the new one's.
-func TestSessionCredsMirrorsBeforeSwitchingAway(t *testing.T) {
+// THE rule. An account's store is read-only to ccam: it is copied out of and
+// never written back into, so no bug anywhere in switching can put one
+// account's login where another account's belongs.
+//
+// This is the regression that matters. The old "mirror" copied the session's
+// store back to whichever account the session was bookkept against, and a
+// switch that wrote the store and then failed its read-back left the new
+// account's login sitting there under the old account's name. On this machine
+// three stores ended up byte-for-byte identical, so switching between them
+// changed nothing and looked like a broken UI.
+func TestSwitchingNeverWritesAnAccountsOwnStore(t *testing.T) {
 	t.Setenv(credstore.ForceFileEnvVar, "1")
 	base := t.TempDir()
-	from := accounts.Account{ID: "ehti", Slug: "ehti", ConfigDir: filepath.Join(base, "ehti")}
-	to := accounts.Account{ID: "work", Slug: "work", ConfigDir: filepath.Join(base, "work")}
-	if err := credstore.Write(from.ConfigDir, []byte(`{"claudeAiOauth":{"accessToken":"ehti-original"}}`)); err != nil {
+	a := accounts.Account{ID: "a", Slug: "a", Name: "a", ConfigDir: filepath.Join(base, "a")}
+	b := accounts.Account{ID: "b", Slug: "b", Name: "b", ConfigDir: filepath.Join(base, "b")}
+	if err := credstore.Write(a.ConfigDir, []byte(loginA)); err != nil {
 		t.Fatal(err)
 	}
-	if err := credstore.Write(to.ConfigDir, []byte(`{"claudeAiOauth":{"accessToken":"work"}}`)); err != nil {
+	if err := credstore.Write(b.ConfigDir, []byte(loginB)); err != nil {
 		t.Fatal(err)
 	}
 
-	creds := newSessionCreds(filepath.Join(base, "sessions"), from, "")
+	creds := newSessionCreds(filepath.Join(base, "sessions"), a, "")
 	if creds == nil {
 		t.Fatal("could not seed a session store")
 	}
-	t.Cleanup(creds.close)
+	if ok, reason := creds.switchTo(b, "sess-1"); !ok {
+		t.Fatalf("switch refused: %s", reason)
+	}
+	if creds.current().ID != "b" {
+		t.Errorf("session is on %q, want b", creds.current().ID)
+	}
 
-	if err := credstore.Write(creds.dir(), []byte(`{"claudeAiOauth":{"accessToken":"ehti-refreshed"}}`)); err != nil {
+	// Whatever Claude Code does inside the session — refresh a token, be
+	// switched again — must never reach either account.
+	if err := credstore.Write(creds.dir(), []byte(`{"claudeAiOauth":{"accessToken":"refreshed-inside-the-session"}}`)); err != nil {
 		t.Fatal(err)
 	}
-	if ok, reason := creds.switchTo(to, "sess-1"); !ok {
-		t.Fatalf("switch was refused: %s", reason)
-	}
+	creds.close()
 
-	if got, _ := credstore.Read(from.ConfigDir); string(got) != `{"claudeAiOauth":{"accessToken":"ehti-refreshed"}}` {
-		t.Errorf("the account switched away from holds %s; its refreshed token was lost", got)
-	}
-	if !credstore.Same(to.ConfigDir, creds.dir()) {
-		t.Error("the session is not on the account it switched to")
-	}
-	if creds.current().ID != "work" {
-		t.Errorf("current account = %q, want work", creds.current().ID)
+	for _, acct := range []accounts.Account{a, b} {
+		want := map[string]string{"a": loginA, "b": loginB}[acct.ID]
+		got, err := credstore.Read(acct.ConfigDir)
+		if err != nil {
+			t.Fatalf("account %s is unreadable after a session used it: %v", acct.ID, err)
+		}
+		if string(got) != want {
+			t.Errorf("account %s holds %s\n            want %s", acct.ID, got, want)
+		}
 	}
 }
 
@@ -89,7 +92,7 @@ func TestSessionCredsCloseRemovesTheStore(t *testing.T) {
 	t.Setenv(credstore.ForceFileEnvVar, "1")
 	base := t.TempDir()
 	acct := accounts.Account{ID: "a", ConfigDir: filepath.Join(base, "a")}
-	if err := credstore.Write(acct.ConfigDir, []byte(`{"claudeAiOauth":{"accessToken":"x"}}`)); err != nil {
+	if err := credstore.Write(acct.ConfigDir, []byte(loginA)); err != nil {
 		t.Fatal(err)
 	}
 	creds := newSessionCreds(filepath.Join(base, "sessions"), acct, "")
@@ -103,49 +106,12 @@ func TestSessionCredsCloseRemovesTheStore(t *testing.T) {
 	}
 }
 
-// The mirror is the one write that can destroy an account: it copies whatever
-// the session's store now holds over the account's own, which is the only copy
-// of that login. On this machine a truncated keychain write left a fragment of
-// the credentials in the session store, and the mirror faithfully copied it
-// over both managed accounts — losing both logins for good. So a session store
-// that no longer holds a login must not be copied back.
-func TestSessionCredsRefusesToMirrorSomethingThatIsNotALogin(t *testing.T) {
-	t.Setenv(credstore.ForceFileEnvVar, "1")
-	base := t.TempDir()
-	acct := accounts.Account{ID: "ehti", Slug: "ehti", Name: "ehti", ConfigDir: filepath.Join(base, "ehti")}
-	login := `{"claudeAiOauth":{"accessToken":"the-only-copy"}}`
-	if err := credstore.Write(acct.ConfigDir, []byte(login)); err != nil {
-		t.Fatal(err)
-	}
-	creds := newSessionCreds(filepath.Join(base, "sessions"), acct, "")
-	if creds == nil {
-		t.Fatal("could not seed a session store")
-	}
-	t.Cleanup(creds.close)
-
-	// What a truncated write leaves behind: a fragment, not a login.
-	if err := credstore.Write(creds.dir(), []byte(`07226d63704f41757468223a7b22`)); err != nil {
-		t.Fatal(err)
-	}
-	creds.mirror()
-
-	got, err := credstore.Read(acct.ConfigDir)
-	if err != nil {
-		t.Fatalf("the account store is unreadable after mirroring: %v", err)
-	}
-	if string(got) != login {
-		t.Fatalf("the account login was overwritten with %q", got)
-	}
-}
-
 // A session store that could not be seeded with the account's own credentials
-// must not be used at all: the session would run on it and the mirror would
-// eventually carry it back to the account.
+// must not be used at all.
 func TestSessionCredsRefusesAStoreThatDidNotTakeTheSeed(t *testing.T) {
 	t.Setenv(credstore.ForceFileEnvVar, "1")
 	base := t.TempDir()
 	acct := accounts.Account{ID: "a", ConfigDir: filepath.Join(base, "a")}
-	// No credentials to seed from at all.
 	if creds := newSessionCreds(filepath.Join(base, "sessions"), acct, ""); creds != nil {
 		creds.close()
 		t.Fatal("seeded a session store from an account that has no login")

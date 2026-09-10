@@ -1,40 +1,44 @@
 package cli
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	"ccam/internal/accounts"
 	"ccam/internal/credstore"
 	"ccam/internal/switching"
 )
 
-// mirrorInterval is how often the supervisor checks whether Claude Code has
-// rewritten the session's credential store — which it does when it refreshes an
-// access token. Rare (tokens last hours), so this is cheap and slow on purpose.
-var mirrorInterval = 30 * time.Second
-
-// sessionCreds owns one session's credential store: a store of its own, seeded
-// from whichever account the session runs as.
+// sessionCreds owns one session's credential store: a copy of an account's
+// login that belongs to this session and nothing else.
 //
-// It exists so that switching an account does not have to restart anything. A
-// running Claude Code session re-reads its credential store when it changes,
-// so writing another account's credentials into THIS session's store moves this
-// session — and only this session — to that account. Rewriting the account's
-// own store would have moved every terminal reading it, and destroyed that
-// account's stored login in the process.
+// It is what makes switching accounts free of restarts. A running Claude Code
+// session re-reads its credential store when it changes, so writing another
+// account's credentials into THIS store moves THIS session — and only this
+// session — to that account. Terminal or editor, it is the same store in the
+// same place; nothing about it is specific to how the session was started.
 //
-// The mirror is the other half of the bargain: because the session now refreshes
-// tokens into its private store, those refreshed tokens have to be copied back
-// to the account, or the account's own store would slowly go stale.
+// One rule keeps it safe, and it is worth stating plainly: an account's own
+// store is READ-ONLY here. ccam copies out of it and never back into it.
+//
+// That rule is not caution, it is history. Every credential loss in this project
+// came from writing an account's store with something that was not that
+// account's login — first a truncated blob, then, through a "mirror" that
+// copied a session's store back to whichever account the session was bookkept
+// against, the credentials of the account it was switching TO. A failed switch
+// left the store holding the new account's login while the old account was
+// still recorded, and the next mirror wrote one account's login over another's.
+// Three stores on this machine ended up byte-for-byte identical that way.
+//
+// The mirror is gone. The cost is that a token Claude Code refreshes inside a
+// session is not copied back, so an account's own store keeps the refresh token
+// it already had — which is exactly what a refresh token is for. The next
+// session of that account refreshes from it again.
 type sessionCreds struct {
 	mu       sync.Mutex
 	storeDir string           // this session's store; "" when unavailable
 	acct     accounts.Account // the account the session is currently running as
-	written  string           // fingerprint of what ccam last put there
 	ledger   string           // the usage monitor's ledger, or ""
 	dirsMade []string         // cleaned up on exit
 }
@@ -45,7 +49,7 @@ type sessionCreds struct {
 // Code reads. The caller then runs the account's own store and switches by
 // relaunching, exactly as before.
 func newSessionCreds(sessionsDir string, acct accounts.Account, ledger string) *sessionCreds {
-	storeDir := filepath.Join(sessionsDir, fmt.Sprintf("s-%d", os.Getpid()))
+	storeDir := filepath.Join(sessionsDir, "s-"+itoa(os.Getpid()))
 	if err := os.MkdirAll(storeDir, 0o700); err != nil {
 		return nil
 	}
@@ -54,21 +58,13 @@ func newSessionCreds(sessionsDir string, acct accounts.Account, ledger string) *
 		return nil
 	}
 	// Read the seed back before running on it. A store that does not hold what
-	// the account holds is one the session would spend its life reading, and
-	// the mirror would eventually copy back over the account. Falling back to
-	// the account's own store costs only the in-place switch.
+	// the account holds is one the session would spend its life reading.
 	if !credstore.Same(acct.ConfigDir, storeDir) {
 		credstore.Delete(storeDir)
 		os.RemoveAll(storeDir)
 		return nil
 	}
-	fp, err := credstore.Fingerprint(storeDir)
-	if err != nil {
-		credstore.Delete(storeDir)
-		os.RemoveAll(storeDir)
-		return nil
-	}
-	return &sessionCreds{storeDir: storeDir, acct: acct, written: fp, ledger: ledger, dirsMade: []string{storeDir}}
+	return &sessionCreds{storeDir: storeDir, acct: acct, ledger: ledger, dirsMade: []string{storeDir}}
 }
 
 // dir is the directory to point CLAUDE_SECURESTORAGE_CONFIG_DIR at.
@@ -94,10 +90,6 @@ func (s *sessionCreds) switchTo(next accounts.Account, sessionID string) (bool, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Anything the session refreshed under the OLD account belongs to the old
-	// account, so mirror before overwriting.
-	s.mirrorLocked()
-
 	if err := credstore.Copy(next.ConfigDir, s.storeDir); err != nil {
 		return false, "the credentials could not be written: " + err.Error()
 	}
@@ -105,18 +97,11 @@ func (s *sessionCreds) switchTo(next accounts.Account, sessionID string) (bool, 
 	// will not look: on Windows it prefers the Credential Manager when one is
 	// available, and on macOS it migrates a session's credentials from the
 	// plaintext file into the keychain the first time it refreshes a token, so
-	// a file written afterwards is ignored. Neither announces itself. If what
-	// the store now reads back is not the account we asked for, the switch did
-	// not happen and the caller must relaunch instead of reporting a switch
-	// that never took.
+	// a file written afterwards is ignored. Neither announces itself.
 	if !credstore.Same(next.ConfigDir, s.storeDir) {
 		return false, "the credential store did not take the new account"
 	}
-	fp, err := credstore.Fingerprint(s.storeDir)
-	if err != nil {
-		return false, "the credential store could not be read back: " + err.Error()
-	}
-	s.acct, s.written = next, fp
+	s.acct = next
 	if err := switching.AppendOwnership(s.ledger, sessionID, next.ConfigDir); err != nil {
 		// Attribution is worth a note, not a failed switch — and not a write to
 		// a terminal Claude Code is drawing on.
@@ -125,53 +110,12 @@ func (s *sessionCreds) switchTo(next accounts.Account, sessionID string) (bool, 
 	return true, ""
 }
 
-// mirror copies a token Claude Code refreshed in the session's private store
-// back to the account it belongs to, so the account's own store does not go
-// stale while a long session runs.
-func (s *sessionCreds) mirror() {
-	if s == nil || s.storeDir == "" {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.mirrorLocked()
-}
-
-func (s *sessionCreds) mirrorLocked() {
-	fp, err := credstore.Fingerprint(s.storeDir)
-	if err != nil || fp == s.written {
-		return // unreadable, or nothing has changed since ccam wrote it
-	}
-	data, err := credstore.Read(s.storeDir)
-	if err != nil {
-		return
-	}
-	// The account's own store is the only copy of that account's login, and
-	// this is the one write that can destroy it. The mirror exists to carry a
-	// REFRESHED TOKEN back; anything arriving here without a login in it is a
-	// session store that went wrong, and copying it over the account would lose
-	// the account. So the guard is on the content, not on how it got here.
-	if !credstore.HasLogin(data) {
-		// The mirror runs on a ticker while the session is live, so this cannot
-		// go to the terminal — it would corrupt the TUI at an arbitrary moment.
-		logLive("the session's credential store no longer holds a login, so it was not copied back to %s", displayName(s.acct))
-		// Do not retry every tick with the same bad content.
-		s.written = fp
-		return
-	}
-	if err := credstore.Write(s.acct.ConfigDir, data); err != nil {
-		return
-	}
-	s.written = fp
-}
-
-// close mirrors one last time and removes the session's store. A store left
-// behind would be a stale copy of a login sitting in the keychain.
+// close removes the session's store. A store left behind would be a stale copy
+// of a login sitting in the keychain for ever.
 func (s *sessionCreds) close() {
 	if s == nil || s.storeDir == "" {
 		return
 	}
-	s.mirror()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	credstore.Delete(s.storeDir)
@@ -189,4 +133,27 @@ func (s *sessionCreds) current() accounts.Account {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.acct
+}
+
+// itoa keeps the store directory name free of fmt just for one integer.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	var buf [20]byte
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	if neg {
+		i--
+		buf[i] = '-'
+	}
+	return string(buf[i:])
 }
