@@ -54,6 +54,15 @@ func seedRunEnv(t *testing.T) string {
 	return home
 }
 
+// seedTranscript writes the file Claude Code would have written for a session,
+// in the shared ~/.claude the accounts now pool into.
+func seedTranscript(t *testing.T, home, sessionID string) {
+	t.Helper()
+	dir := filepath.Join(home, ".claude", "projects", "-some-project")
+	mustMkdir(t, dir)
+	mustWrite(t, filepath.Join(dir, sessionID+".jsonl"), "{}\n")
+}
+
 func mustMkdir(t *testing.T, d string) {
 	t.Helper()
 	if err := os.MkdirAll(d, 0o700); err != nil {
@@ -73,6 +82,9 @@ func mustWrite(t *testing.T, p, s string) {
 // identity active.
 func TestRunSupervisorRelaunchesOnSwitch(t *testing.T) {
 	home := seedRunEnv(t)
+	// The session being switched has a conversation on disk, so the relaunch
+	// forks it. (Without one there is nothing to resume — see the test below.)
+	seedTranscript(t, home, "sess-123")
 
 	var calls [][]string
 	origRunner := claudeRunner
@@ -107,6 +119,38 @@ func TestRunSupervisorRelaunchesOnSwitch(t *testing.T) {
 	got := readJSONFile(t, filepath.Join(home, ".claude.json"))
 	if oa, _ := got["oauthAccount"].(map[string]any); oa["accountUuid"] != "work-uuid" {
 		t.Errorf("active identity = %v, want work-uuid", got["oauthAccount"])
+	}
+}
+
+// A session switched before it wrote anything has no conversation to carry.
+// Resuming it anyway is what made Claude Code exit with "No conversation found
+// with session ID" and drop the user back to the shell, so the relaunch must
+// start clean instead.
+func TestRunSwitchOfAnUnrecordedSessionStartsClean(t *testing.T) {
+	seedRunEnv(t)
+
+	var calls [][]string
+	origRunner := claudeRunner
+	t.Cleanup(func() { claudeRunner = origRunner })
+	claudeRunner = func(bin string, args, env []string, handoff string) (int, bool) {
+		calls = append(calls, append([]string{}, args...))
+		if len(calls) == 1 {
+			if err := switching.WriteHandoff(handoff, switching.Handoff{Account: "work", SessionID: "never-written"}); err != nil {
+				t.Fatal(err)
+			}
+			return 0, true
+		}
+		return 0, false
+	}
+
+	if code := cmdRun([]string{"ehti"}); code != 0 {
+		t.Fatalf("cmdRun exit = %d, want 0", code)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("want 2 launches, got %d: %v", len(calls), calls)
+	}
+	if len(calls[1]) != 0 {
+		t.Errorf("relaunch args = %v, want none (nothing to resume)", calls[1])
 	}
 }
 

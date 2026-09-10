@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -66,8 +67,9 @@ func cmdRun(args []string) int {
 
 	store := accounts.NewStore(accountsFile)
 	claudeBin := claudebin.Resolve()
+	claudeDir := sharedClaudeDir(home)
 	claudeJSON := filepath.Join(home, ".claude.json")
-	settings := filepath.Join(home, ".claude", "settings.json")
+	settings := filepath.Join(claudeDir, "settings.json")
 
 	// Install the switch hook into the shared settings.json (idempotent). A
 	// failure only means in-session switching won't work; the session still
@@ -156,8 +158,21 @@ func cmdRun(args []string) int {
 			return 1
 		}
 		acct = next
-		sessionArgs = switching.ResumeArgs(h.SessionID)
+		// A session that has not written a transcript yet — switched before
+		// its first message — cannot be resumed, and asking anyway kills the
+		// relaunch instead of switching it.
+		sessionArgs = switching.ResumeArgs(h.SessionID, switching.HasTranscript(claudeDir, h.SessionID))
 	}
+}
+
+// sharedClaudeDir is the ~/.claude every account now shares — or wherever the
+// user has pointed CLAUDE_CONFIG_DIR, since that is the directory Claude Code
+// will read its settings and write its transcripts to.
+func sharedClaudeDir(home string) string {
+	if d := strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")); d != "" {
+		return d
+	}
+	return filepath.Join(home, ".claude")
 }
 
 // applyIdentity makes the shared ~/.claude.json name the account about to run,

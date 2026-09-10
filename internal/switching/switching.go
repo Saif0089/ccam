@@ -9,6 +9,7 @@ package switching
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"ccam/internal/accounts"
@@ -71,15 +72,39 @@ func ResolveAccount(list []accounts.Account, name string) (accounts.Account, boo
 }
 
 // ResumeArgs are the Claude Code flags that carry the conversation across a
-// switch. With a session id the relaunch forks that exact session; without one
-// — a switch staged somewhere the session id was not exported — --continue
-// picks up the most recent conversation in this directory, which is the one
-// the supervisor just terminated.
-func ResumeArgs(sessionID string) []string {
-	if strings.TrimSpace(sessionID) == "" {
+// switch, given the staged session id and whether that session has anything
+// recorded (see HasTranscript). The three cases are genuinely different:
+//
+//   - a recorded session forks exactly it, so the thread continues;
+//   - a session id with nothing recorded is one switched before its first
+//     message. There is no conversation to carry, and --resume on it makes
+//     Claude Code exit with "No conversation found with session ID", taking
+//     the terminal down with it — so start clean instead;
+//   - no session id at all (a Claude Code that does not export it) falls back
+//     to --continue, the most recent conversation in this directory, which is
+//     the one just terminated.
+func ResumeArgs(sessionID string, recorded bool) []string {
+	switch {
+	case strings.TrimSpace(sessionID) == "":
 		return []string{"--continue"}
+	case recorded:
+		return []string{"--resume", sessionID, "--fork-session"}
+	default:
+		return nil
 	}
-	return []string{"--resume", sessionID, "--fork-session"}
+}
+
+// HasTranscript reports whether sessionID has a conversation recorded under
+// claudeDir. Claude Code stores each one as <session id>.jsonl in a per-working-
+// directory folder under projects/, so a glob answers this without reproducing
+// how it slugifies a path — and a session that has not been written yet simply
+// matches nothing.
+func HasTranscript(claudeDir, sessionID string) bool {
+	if strings.TrimSpace(sessionID) == "" {
+		return false
+	}
+	matches, err := filepath.Glob(filepath.Join(claudeDir, "projects", "*", sessionID+".jsonl"))
+	return err == nil && len(matches) > 0
 }
 
 // WriteHandoff atomically writes a pending switch to path.

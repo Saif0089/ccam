@@ -2,6 +2,7 @@ package switching
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -96,13 +97,38 @@ func TestBlockDecisionJSON(t *testing.T) {
 	}
 }
 
-func TestResumeArgsForksAKnownSessionAndContinuesOtherwise(t *testing.T) {
-	got := ResumeArgs("sess-1")
+func TestResumeArgs(t *testing.T) {
+	got := ResumeArgs("sess-1", true)
 	want := []string{"--resume", "sess-1", "--fork-session"}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("ResumeArgs(id) = %v, want %v", got, want)
+		t.Errorf("ResumeArgs(recorded) = %v, want %v", got, want)
 	}
-	if got := ResumeArgs("  "); !reflect.DeepEqual(got, []string{"--continue"}) {
-		t.Errorf("ResumeArgs(blank) = %v, want [--continue]", got)
+	// Switched before its first message: nothing to resume, and asking would
+	// take the relaunched session down with "No conversation found".
+	if got := ResumeArgs("sess-1", false); got != nil {
+		t.Errorf("ResumeArgs(unrecorded) = %v, want no resume flags", got)
+	}
+	if got := ResumeArgs("  ", false); !reflect.DeepEqual(got, []string{"--continue"}) {
+		t.Errorf("ResumeArgs(no id) = %v, want [--continue]", got)
+	}
+}
+
+func TestHasTranscript(t *testing.T) {
+	claudeDir := t.TempDir()
+	projects := filepath.Join(claudeDir, "projects", "-Users-someone-code")
+	if err := os.MkdirAll(projects, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projects, "sess-1.jsonl"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !HasTranscript(claudeDir, "sess-1") {
+		t.Error("a recorded session should be found whatever directory it was in")
+	}
+	if HasTranscript(claudeDir, "sess-2") {
+		t.Error("a session with no transcript must not be reported as recorded")
+	}
+	if HasTranscript(claudeDir, "") {
+		t.Error("an empty session id is not a recorded session")
 	}
 }
