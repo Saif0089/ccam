@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"ccam/internal/accounts"
 	"ccam/internal/config"
@@ -48,23 +49,37 @@ func hookUserPromptSubmit() int {
 		return 0 // the overwhelmingly common case: an ordinary prompt
 	}
 
-	// Only intercept a switch to a real account. A typo passes through to the
-	// model rather than being silently swallowed.
 	list, err := loadAccounts()
 	if err != nil {
 		return 0
 	}
 	acct, ok := switching.ResolveAccount(list, name)
 	if !ok {
-		return 0
+		// A name that is not an account used to pass through to the model,
+		// which answered `ccam saif` as though it were a question and left the
+		// user with no sign that ccam had seen it at all. Someone who types
+		// `ccam <word>` meant ccam, so say what went wrong and what the
+		// accounts actually are.
+		return block(fmt.Sprintf("There is no ccam account called %q. Accounts on this machine: %s.\nIf you meant to ask me something, put it in a sentence — `ccam <name>` on its own is the switch command.",
+			name, accountNames(list)))
 	}
 
 	// With a supervisor, hand it the switch: it owns the session's store and,
 	// if the switch cannot be applied in place, it is the only thing that can
 	// relaunch the session instead.
 	if handoff := os.Getenv(switching.HandoffEnvVar); handoff != "" {
+		// Any answer left over from a previous switch would otherwise be read
+		// as the answer to this one.
+		switching.ClearOutcome(handoff)
 		if err := switching.WriteHandoff(handoff, switching.Handoff{Account: acct.Slug, SessionID: in.SessionID}); err != nil {
 			return 0
+		}
+		// Wait for the supervisor to say what it actually did, and report that
+		// — it cannot say so itself without writing over the screen Claude Code
+		// is drawing. Timing out is not a failure: the supervisor may be
+		// relaunching the session, which rebuilds the screen anyway.
+		if outcome, ok := switching.AwaitOutcome(handoff, switchReportTimeout, 0); ok {
+			return block(outcome.Message)
 		}
 		return block("Switching to " + displayName(acct) + "…")
 	}
@@ -95,6 +110,25 @@ func hookUserPromptSubmit() int {
 		}
 	}
 	return block("Switched to " + displayName(acct) + ". This conversation continues on that account.")
+}
+
+// switchReportTimeout is how long the hook waits for the supervisor to report
+// what it did. The supervisor notices a staged switch within
+// switchPollInterval (150ms) and the work itself is a credential-store write,
+// so this is generous; it only has to be short enough that a supervisor which
+// is not going to answer does not hold up the prompt.
+const switchReportTimeout = 3 * time.Second
+
+// accountNames lists what the user could have meant, for an error message.
+func accountNames(list []accounts.Account) string {
+	if len(list) == 0 {
+		return "none yet"
+	}
+	names := make([]string, 0, len(list))
+	for _, a := range list {
+		names = append(names, a.Slug)
+	}
+	return strings.Join(names, ", ")
 }
 
 // block stops the trigger reaching the model and shows the user why.

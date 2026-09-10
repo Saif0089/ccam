@@ -72,6 +72,16 @@ func Run(args []string) int {
 		if isExecutablePath(args[0]) {
 			return cmdExec(args)
 		}
+		// Almost everything that reaches here is a mistyped or removed ACCOUNT,
+		// not a mistyped subcommand — `ccam <account>` is the command people
+		// type all day. Answering it with "unknown command" and the full usage
+		// text buried the one fact that helps, so say which accounts exist and
+		// leave the usage to `ccam help`.
+		if list, err := loadAccounts(); err == nil {
+			fmt.Fprintf(os.Stderr, "ccam: no account called %q. Accounts on this machine: %s.\n", args[0], accountNames(list))
+			fmt.Fprintln(os.Stderr, "      Add one at the ccam web UI, or run `ccam help` for the list of commands.")
+			return 1
+		}
 		fmt.Fprintf(os.Stderr, "ccam: unknown command %q\n\n", args[0])
 		printUsage(os.Stderr)
 		return 1

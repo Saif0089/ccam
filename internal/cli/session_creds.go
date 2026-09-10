@@ -82,10 +82,14 @@ func (s *sessionCreds) dir() string {
 // switchTo moves the running session onto another account by rewriting its
 // store, and records the change in the usage monitor's ledger so the tokens
 // spent from here on are attributed to the account that is now paying for them.
-// Returns false if it could not be done, in which case the caller relaunches.
-func (s *sessionCreds) switchTo(next accounts.Account, sessionID string) bool {
+//
+// It returns false, and why, if it could not be done — the caller relaunches
+// instead. Nothing here prints: Claude Code owns the terminal while this runs,
+// so the reason is handed back to be reported through the hook rather than
+// written over the screen the TUI is painting.
+func (s *sessionCreds) switchTo(next accounts.Account, sessionID string) (bool, string) {
 	if s == nil || s.storeDir == "" {
-		return false
+		return false, "this session has no credential store of its own"
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -95,8 +99,7 @@ func (s *sessionCreds) switchTo(next accounts.Account, sessionID string) bool {
 	s.mirrorLocked()
 
 	if err := credstore.Copy(next.ConfigDir, s.storeDir); err != nil {
-		fmt.Fprintln(os.Stderr, "ccam: could not switch credentials in place:", err)
-		return false
+		return false, "the credentials could not be written: " + err.Error()
 	}
 	// Read back before believing it. A write can land somewhere Claude Code
 	// will not look: on Windows it prefers the Credential Manager when one is
@@ -107,19 +110,19 @@ func (s *sessionCreds) switchTo(next accounts.Account, sessionID string) bool {
 	// not happen and the caller must relaunch instead of reporting a switch
 	// that never took.
 	if !credstore.Same(next.ConfigDir, s.storeDir) {
-		fmt.Fprintln(os.Stderr, "ccam: the credential store did not take the new account; relaunching instead")
-		return false
+		return false, "the credential store did not take the new account"
 	}
 	fp, err := credstore.Fingerprint(s.storeDir)
 	if err != nil {
-		return false
+		return false, "the credential store could not be read back: " + err.Error()
 	}
 	s.acct, s.written = next, fp
 	if err := switching.AppendOwnership(s.ledger, sessionID, next.ConfigDir); err != nil {
-		// Attribution is worth a warning, not a failed switch.
-		fmt.Fprintln(os.Stderr, "ccam: could not record the switch for the usage monitor:", err)
+		// Attribution is worth a note, not a failed switch — and not a write to
+		// a terminal Claude Code is drawing on.
+		logLive("could not record the switch for the usage monitor: %v", err)
 	}
-	return true
+	return true, ""
 }
 
 // mirror copies a token Claude Code refreshed in the session's private store
@@ -149,7 +152,9 @@ func (s *sessionCreds) mirrorLocked() {
 	// session store that went wrong, and copying it over the account would lose
 	// the account. So the guard is on the content, not on how it got here.
 	if !credstore.HasLogin(data) {
-		fmt.Fprintf(os.Stderr, "ccam: the session's credential store no longer holds a login, so it was not copied back to %s\n", s.acct.Name)
+		// The mirror runs on a ticker while the session is live, so this cannot
+		// go to the terminal — it would corrupt the TUI at an arbitrary moment.
+		logLive("the session's credential store no longer holds a login, so it was not copied back to %s", displayName(s.acct))
 		// Do not retry every tick with the same bad content.
 		s.written = fp
 		return

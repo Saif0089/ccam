@@ -68,8 +68,8 @@ func TestSessionCredsMirrorsBeforeSwitchingAway(t *testing.T) {
 	if err := credstore.Write(creds.dir(), []byte(`{"claudeAiOauth":{"accessToken":"ehti-refreshed"}}`)); err != nil {
 		t.Fatal(err)
 	}
-	if !creds.switchTo(to, "sess-1") {
-		t.Fatal("switch was refused")
+	if ok, reason := creds.switchTo(to, "sess-1"); !ok {
+		t.Fatalf("switch was refused: %s", reason)
 	}
 
 	if got, _ := credstore.Read(from.ConfigDir); string(got) != `{"claudeAiOauth":{"accessToken":"ehti-refreshed"}}` {

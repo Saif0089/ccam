@@ -227,29 +227,48 @@ func cmdRun(args []string) int {
 			}
 		}()
 
+		// Nothing in this callback prints. Claude Code owns the terminal while
+		// it runs, so a write here lands in the middle of the screen the TUI is
+		// painting and corrupts it until something forces a full repaint. The
+		// result goes back to the hook that staged the switch, which is still
+		// waiting and whose reply Claude Code renders properly.
 		code, switched := claudeRunner(claudeBin, sessionArgs, env, handoff, func(h switching.Handoff) bool {
 			fresh, err := store.Load()
 			if err != nil {
-				return false
+				switching.WriteOutcome(handoff, switching.Outcome{
+					Message: "ccam could not read its account list, so the switch did not happen: " + err.Error(),
+				})
+				return true
 			}
 			next, ok := switching.ResolveAccount(fresh, h.Account)
 			if !ok {
-				fmt.Fprintf(os.Stderr, "ccam: cannot switch to %q\n", h.Account)
-				return true // a typo is not a reason to restart the session
+				// The hook checks the name before staging anything, so getting
+				// here means the account went away in between.
+				switching.WriteOutcome(handoff, switching.Outcome{
+					Message: "There is no account called " + h.Account + " any more, so nothing was switched.",
+				})
+				return true // not a reason to restart the session
 			}
 			id := h.SessionID
 			if id == "" {
 				id = sessionID
 			}
-			if !creds.switchTo(next, id) {
+			ok, reason := creds.switchTo(next, id)
+			if !ok {
+				// Relaunching is the fallback, and it rebuilds the screen, so
+				// this message is safe to be seen on the way past.
+				switching.WriteOutcome(handoff, switching.Outcome{
+					Message: "Switching to " + displayName(next) + " needs a restart of this session (" + reason + "). Restarting now — the conversation comes with it.",
+				})
 				return false
 			}
 			applyIdentity(next, accountsDir, claudeJSON)
 			acct = next
-			fmt.Fprintf(os.Stderr, "\nccam: switched to %s — same session, nothing restarted.\n", displayName(next))
+			msg := "Switched to " + displayName(next) + ". Same session — subagents, background tasks and this conversation all carry on."
 			if credstore.KeychainBacked(creds.dir()) {
-				fmt.Fprintln(os.Stderr, "      (macOS caches credential reads for up to 30s, so the next request or two may still be the old account)")
+				msg += " macOS caches credential reads for up to 30s, so the next request or two may still bill the old account."
 			}
+			switching.WriteOutcome(handoff, switching.Outcome{OK: true, Message: msg})
 			return true
 		})
 		close(stopMirror)
