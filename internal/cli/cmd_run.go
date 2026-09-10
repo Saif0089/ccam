@@ -7,8 +7,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"syscall"
 	"time"
 
@@ -97,14 +95,26 @@ func cmdRun(args []string) int {
 	// <name>` takes — Claude Code runs it as a plain shell command, so it
 	// never reaches the UserPromptSubmit hook, but it does inherit both the
 	// handoff path and the session id from the session it was typed in.
-	if handoffPath := os.Getenv(switching.HandoffEnvVar); handoffPath != "" {
-		h := switching.Handoff{Account: acct.Slug, SessionID: os.Getenv(switching.SessionIDEnvVar)}
-		if err := switching.WriteHandoff(handoffPath, h); err != nil {
-			fmt.Fprintln(os.Stderr, "ccam: could not stage the switch:", err)
-			return 1
+	//
+	// Two things have to hold. Only the bare form is a switch: `ccam ehti -p
+	// "..."` inside a session is a deliberate one-shot on another account, and
+	// staging a switch would kill the live session and throw those arguments
+	// away. And the supervisor has to still be there: CCAM_HANDOFF is
+	// inherited by anything a session spawned, including processes that
+	// outlive it, and staging a handoff nobody will read reported a switch
+	// that never happened.
+	if handoffPath := os.Getenv(switching.HandoffEnvVar); handoffPath != "" && len(passthrough) == 0 {
+		if supervisorAlive() {
+			h := switching.Handoff{Account: acct.Slug, SessionID: os.Getenv(switching.SessionIDEnvVar)}
+			if err := switching.WriteHandoff(handoffPath, h); err != nil {
+				fmt.Fprintln(os.Stderr, "ccam: could not stage the switch:", err)
+				return 1
+			}
+			fmt.Printf("Switching to %s…\n", displayName(acct))
+			return 0
 		}
-		fmt.Printf("Switching to %s…\n", displayName(acct))
-		return 0
+		fmt.Fprintln(os.Stderr, "ccam: the ccam session this was launched from is gone, so there is nothing to switch.")
+		return 1
 	}
 
 	// No supervisor. Starting a session here needs a terminal on stdin, and
@@ -136,7 +146,8 @@ func cmdRun(args []string) int {
 		switching.ClearHandoff(handoff)
 
 		env := append(accounts.EnvForSharedConfig(acct.ConfigDir),
-			switching.HandoffEnvVar+"="+handoff)
+			switching.HandoffEnvVar+"="+handoff,
+			fmt.Sprintf("%s=%d", switching.SupervisorEnvVar, os.Getpid()))
 
 		code, switched := claudeRunner(claudeBin, sessionArgs, env, handoff)
 		if !switched {
@@ -161,17 +172,23 @@ func cmdRun(args []string) int {
 		// A session that has not written a transcript yet — switched before
 		// its first message — cannot be resumed, and asking anyway kills the
 		// relaunch instead of switching it.
-		sessionArgs = switching.ResumeArgs(h.SessionID, switching.HasTranscript(claudeDir, h.SessionID))
+		//
+		// The flags the session was started with are kept: a switch out of
+		// `ccam default --dangerously-skip-permissions` that quietly dropped
+		// that flag would land the user in a session that behaves differently
+		// from the one they were in.
+		resume := switching.ResumeArgs(h.SessionID, switching.HasTranscript(claudeDir, h.SessionID))
+		sessionArgs = append(append([]string{}, passthrough...), resume...)
 	}
 }
 
-// sharedClaudeDir is the ~/.claude every account now shares — or wherever the
-// user has pointed CLAUDE_CONFIG_DIR, since that is the directory Claude Code
-// will read its settings and write its transcripts to.
+// sharedClaudeDir is the ~/.claude every account shares. It deliberately
+// ignores an inherited CLAUDE_CONFIG_DIR: EnvForSharedConfig strips that
+// variable from the child, so ~/.claude is where Claude Code will actually
+// read settings and write transcripts no matter what the launching shell had
+// set. Honouring it here instead installed the switch hook in a settings.json
+// Claude Code never reads, and looked for transcripts in the wrong tree.
 func sharedClaudeDir(home string) string {
-	if d := strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")); d != "" {
-		return d
-	}
 	return filepath.Join(home, ".claude")
 }
 
@@ -247,20 +264,14 @@ func runClaudeOnce(bin string, args, env []string, handoff string) (int, bool) {
 	}
 }
 
-// terminate ends the child Claude Code so the supervisor can relaunch it.
-// On Unix it asks politely (SIGTERM, letting SessionEnd hooks run) and forces
-// the issue after a grace period; on Windows, where there is no SIGTERM, it
-// kills directly. cmd.Wait() in the caller reaps it either way.
+// terminate ends the child Claude Code so the supervisor can relaunch it. The
+// two platforms need genuinely different endings — see terminate_unix.go and
+// terminate_windows.go. cmd.Wait() in the caller reaps it either way.
 func terminate(cmd *exec.Cmd) {
 	if cmd.Process == nil {
 		return
 	}
-	if runtime.GOOS == "windows" {
-		_ = cmd.Process.Kill()
-		return
-	}
-	_ = cmd.Process.Signal(syscall.SIGTERM)
-	time.AfterFunc(3*time.Second, func() { _ = cmd.Process.Kill() })
+	endChild(cmd)
 }
 
 func exitCodeOf(err error) int {

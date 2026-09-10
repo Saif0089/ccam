@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"testing"
 	"time"
 
@@ -122,6 +123,36 @@ func TestRunSupervisorRelaunchesOnSwitch(t *testing.T) {
 	}
 }
 
+// The flags a session was started with have to survive the switch: dropping
+// --dangerously-skip-permissions mid-conversation lands the user in a session
+// that behaves differently from the one they were in.
+func TestRunKeepsLaunchFlagsAcrossASwitch(t *testing.T) {
+	home := seedRunEnv(t)
+	seedTranscript(t, home, "sess-9")
+
+	var calls [][]string
+	origRunner := claudeRunner
+	t.Cleanup(func() { claudeRunner = origRunner })
+	claudeRunner = func(bin string, args, env []string, handoff string) (int, bool) {
+		calls = append(calls, append([]string{}, args...))
+		if len(calls) == 1 {
+			if err := switching.WriteHandoff(handoff, switching.Handoff{Account: "work", SessionID: "sess-9"}); err != nil {
+				t.Fatal(err)
+			}
+			return 0, true
+		}
+		return 0, false
+	}
+
+	if code := cmdRun([]string{"ehti", "--dangerously-skip-permissions"}); code != 0 {
+		t.Fatalf("cmdRun exit = %d, want 0", code)
+	}
+	want := []string{"--dangerously-skip-permissions", "--resume", "sess-9", "--fork-session"}
+	if len(calls) != 2 || !reflect.DeepEqual(calls[1], want) {
+		t.Errorf("relaunch args = %v, want %v", calls[len(calls)-1], want)
+	}
+}
+
 // A session switched before it wrote anything has no conversation to carry.
 // Resuming it anyway is what made Claude Code exit with "No conversation found
 // with session ID" and drop the user back to the shell, so the relaunch must
@@ -220,6 +251,9 @@ func TestRunStagesSwitchInsideSupervisedSession(t *testing.T) {
 	handoff := filepath.Join(home, "handoff.json")
 	t.Setenv(switching.HandoffEnvVar, handoff)
 	t.Setenv(switching.SessionIDEnvVar, "sess-abc")
+	// The supervisor has to still be running for a staged switch to mean
+	// anything; this test process stands in for it.
+	t.Setenv(switching.SupervisorEnvVar, strconv.Itoa(os.Getpid()))
 	stdinIsTTY = func() bool { return false }
 
 	launched := false
@@ -242,6 +276,54 @@ func TestRunStagesSwitchInsideSupervisedSession(t *testing.T) {
 	}
 	if h.Account != "work" || h.SessionID != "sess-abc" {
 		t.Errorf("handoff = %+v, want account work / session sess-abc", h)
+	}
+}
+
+// CCAM_HANDOFF is inherited by anything a session spawned, including processes
+// that outlive it. Staging a handoff against a supervisor that has exited
+// printed "Switching…" and did nothing at all.
+func TestRunRefusesToStageForADeadSupervisor(t *testing.T) {
+	home := seedRunEnv(t)
+	handoff := filepath.Join(home, "handoff.json")
+	t.Setenv(switching.HandoffEnvVar, handoff)
+	t.Setenv(switching.SessionIDEnvVar, "sess-abc")
+	t.Setenv(switching.SupervisorEnvVar, "999999") // no such process
+	stdinIsTTY = func() bool { return false }
+
+	if code := cmdRun([]string{"work"}); code == 0 {
+		t.Error("staging against a dead supervisor should fail, got exit 0")
+	}
+	if _, ok := switching.ReadHandoff(handoff); ok {
+		t.Error("nothing should have been staged")
+	}
+}
+
+// `ccam ehti -p "..."` inside a supervised session is a deliberate one-shot on
+// another account, not a request to switch the session and throw the arguments
+// away.
+func TestRunWithArgsInsideASessionDoesNotStageASwitch(t *testing.T) {
+	home := seedRunEnv(t)
+	handoff := filepath.Join(home, "handoff.json")
+	t.Setenv(switching.HandoffEnvVar, handoff)
+	t.Setenv(switching.SupervisorEnvVar, strconv.Itoa(os.Getpid()))
+	stdinIsTTY = func() bool { return false }
+
+	var got []string
+	origRunner := claudeRunner
+	t.Cleanup(func() { claudeRunner = origRunner })
+	claudeRunner = func(bin string, args, env []string, handoff string) (int, bool) {
+		got = append([]string{}, args...)
+		return 0, false
+	}
+
+	if code := cmdRun([]string{"work", "-p", "hello"}); code != 0 {
+		t.Fatalf("cmdRun exit = %d, want 0", code)
+	}
+	if _, ok := switching.ReadHandoff(handoff); ok {
+		t.Error("a command with arguments must not stage a switch")
+	}
+	if want := []string{"-p", "hello"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("launch args = %v, want %v", got, want)
 	}
 }
 

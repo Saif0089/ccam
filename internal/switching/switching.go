@@ -20,6 +20,11 @@ import (
 // the hook (a child of claude) finds it without guessing.
 const HandoffEnvVar = "CCAM_HANDOFF"
 
+// SupervisorEnvVar carries the `ccam run` supervisor's pid into the session it
+// runs, so a switch staged from a shell command can tell a live supervisor
+// from an inherited environment variable left over by one that has exited.
+const SupervisorEnvVar = "CCAM_SUPERVISOR"
+
 // SessionIDEnvVar is the session Claude Code exports into every process it
 // spawns — hooks and the shell commands a user runs with `!`. It is how a
 // switch staged from a shell command knows which conversation to carry over,

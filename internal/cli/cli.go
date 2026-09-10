@@ -72,7 +72,7 @@ Usage:
   ccam status                Report whether the service is running, and its URL
   ccam serve [--port N]      Run the server in the foreground (this is what the service actually runs)
   ccam <account> [args...]   Start a switchable Claude session for an account; inside it, type
-                             ` + "`ccam <name>`" + ` to switch accounts in place, keeping the conversation
+                             `+"`ccam <name>`"+` to switch accounts in place, keeping the conversation
   ccam prune [--yes] [id...] Reclaim disk from migrated accounts (previews unless --yes)
   ccam version                Print the version
 
