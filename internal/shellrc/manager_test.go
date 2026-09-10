@@ -106,22 +106,38 @@ func indexOf(s, sub string) int {
 }
 
 func TestRenderBodyEscapesForEachShell(t *testing.T) {
-	entries := []AliasEntry{{Alias: "claude-work", ConfigDir: "/home/me/.ccam/accounts/work"}}
+	entries := []AliasEntry{{Alias: "claude-work", ConfigDir: "/home/me/.ccam/accounts/work", Account: "work"}}
 
-	cases := map[Shell]string{
-		Bash: `alias claude-work='env -u CLAUDE_CONFIG_DIR ` +
-			`CLAUDE_SECURESTORAGE_CONFIG_DIR="/home/me/.ccam/accounts/work" claude'`,
-		Zsh: `alias claude-work='env -u CLAUDE_CONFIG_DIR ` +
-			`CLAUDE_SECURESTORAGE_CONFIG_DIR="/home/me/.ccam/accounts/work" claude'`,
-		Fish: `alias claude-work 'env -u CLAUDE_CONFIG_DIR ` +
-			`CLAUDE_SECURESTORAGE_CONFIG_DIR="/home/me/.ccam/accounts/work" claude'`,
-		PowerShell: "function claude-work { Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue; " +
-			"$env:CLAUDE_SECURESTORAGE_CONFIG_DIR = '/home/me/.ccam/accounts/work'; claude @args }",
+	// Each entry point routes through ccam so the session it starts can be
+	// switched from inside, and keeps a direct-launch fallback with the
+	// credential store scoped and the config dir unset.
+	cases := map[Shell][]string{
+		Bash:       {`command ccam work "$@"`, `CLAUDE_SECURESTORAGE_CONFIG_DIR="/home/me/.ccam/accounts/work" command claude "$@"`},
+		Zsh:        {`command ccam work "$@"`, `CLAUDE_SECURESTORAGE_CONFIG_DIR="/home/me/.ccam/accounts/work" command claude "$@"`},
+		Fish:       {`command ccam work $argv`, `CLAUDE_SECURESTORAGE_CONFIG_DIR="/home/me/.ccam/accounts/work" claude $argv`},
+		PowerShell: {`ccam 'work' @args`, `$env:CLAUDE_SECURESTORAGE_CONFIG_DIR = '/home/me/.ccam/accounts/work'`},
 	}
-	for shell, want := range cases {
+	for shell, wants := range cases {
 		body := RenderBody(shell, entries)
-		if !contains(body, want) {
-			t.Errorf("%s: body %q does not contain %q", shell, body, want)
+		for _, want := range wants {
+			if !contains(body, want) {
+				t.Errorf("%s: body %q does not contain %q", shell, body, want)
+			}
+		}
+	}
+}
+
+// An account with no name cannot be handed to ccam, so the entry point falls
+// back to the plain launch rather than rendering `ccam` with no argument.
+func TestRenderBodyWithoutAnAccountFallsBackToADirectLaunch(t *testing.T) {
+	entries := []AliasEntry{{Alias: "claude-work", ConfigDir: "/home/me/.ccam/accounts/work"}}
+	for _, shell := range []Shell{Bash, Zsh, Fish, PowerShell} {
+		body := RenderBody(shell, entries)
+		if contains(body, "ccam  ") || contains(body, "ccam ''") || contains(body, `ccam ""`) {
+			t.Errorf("%s: rendered ccam with an empty account: %q", shell, body)
+		}
+		if !contains(body, "/home/me/.ccam/accounts/work") {
+			t.Errorf("%s: the direct fallback lost the config dir: %q", shell, body)
 		}
 	}
 }

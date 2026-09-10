@@ -23,8 +23,9 @@ hash, so moving to the narrower one keeps every existing login working. ccam:
 - keeps one shell alias per account (`claude-work`, `claude-personal`, ...) in
   sync across bash, zsh, fish, and PowerShell — so opening *any* terminal and
   running that alias launches `claude` scoped to that account,
-- switches accounts **without restarting anything**: in any session, type
-  `ccam <name>` at the Claude prompt or run `!ccam <name>` as a shell command,
+- switches accounts **without restarting anything**: in any session — a
+  terminal, or a chat in VS Code — type `ccam <name>` at the prompt or run
+  `!ccam <name>` as a shell command,
   and that session is on the other account a moment later — same process, same
   conversation, and every subagent, workflow and background task still running.
   Nothing is killed, because nothing is relaunched: ccam gives each session a
@@ -97,25 +98,28 @@ that shipped from a fix that is actually running.
 
 ## VS Code, Cursor, and the rest
 
-The Claude Code extension never sees your shell — it starts Claude itself — so
-aliases and the `claude` function do nothing for it. It does read its own
-`claudeCode.environmentVariables` setting, applied over the environment of every
-Claude process it starts, and that is where ccam puts one entry pointing at a
-credential store of its own:
+Nothing to run. If an editor has the Claude Code extension installed, ccam
+configures it the same way it manages your shell aliases — by setting the
+extension's `claudeCode.claudeProcessWrapper` to ccam, so ccam launches Claude
+on the extension's behalf. You open the editor as usual and start a chat as
+usual.
 
-```sh
-ccam editor ehti      # point every installed editor at an account
-ccam editor           # say which account each one is on
-```
+What that buys is the same thing the terminal gets: **each conversation has a
+credential store of its own**, so typing `ccam <name>` in one chat moves that
+chat to another account and leaves every other chat — and every terminal —
+where it was. Conversations already open keep the account they started with; new
+ones start on the account `ccam editor <account>` last set, or your default
+login if it was never set.
 
-Switching afterwards is the same write to the same kind of store as in a
-terminal, so a conversation that is already open moves across when the extension
-next looks, and a new one starts on that account outright. Each editor gets its
-own store, so VS Code and Cursor can sit on different accounts at once.
+Editors without the extension are left alone, `settings.json` keeps its comments
+and formatting (one value is edited in place), and `CCAM_MANAGE_EDITORS=0` in the
+service's environment turns the whole thing off.
 
-Only the one setting is touched. Your `settings.json` keeps its comments, its
-formatting, and any environment variables you set there yourself — ccam edits
-that single value in place rather than reformatting the file.
+Two things the wrapper changes, both from the extension's own code: it stops
+doing its update check while a wrapper is configured, and a conversation started
+with no explicit permission mode gets `default` rather than the mode the CLI
+would have resolved. If you set `claudeCode.initialPermissionMode`, that is
+passed through and unaffected.
 
 ## Where the credentials live
 

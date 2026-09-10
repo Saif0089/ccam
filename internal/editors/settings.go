@@ -233,3 +233,41 @@ func upsert(text, key, value string) (string, error) {
 	}
 	return text[:open+1] + "\n  \"" + key + "\": " + value + sep + text[open+1:], nil
 }
+
+// PointAtWrapper makes the editor launch Claude through ccam, so each
+// conversation gets its own credential store.
+func PointAtWrapper(settingsPath, ccamBinary string) error {
+	raw, err := os.ReadFile(settingsPath)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	encoded, err := json.Marshal(ccamBinary)
+	if err != nil {
+		return err
+	}
+	updated, err := upsert(string(raw), WrapperSetting, string(encoded))
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(settingsPath, []byte(updated), 0o644)
+}
+
+// WrapperPath is the executable this editor launches Claude through, or "".
+func WrapperPath(settingsPath string) string {
+	raw, err := os.ReadFile(settingsPath)
+	if err != nil {
+		return ""
+	}
+	value, ok := findValue(string(raw), WrapperSetting)
+	if !ok {
+		return ""
+	}
+	var path string
+	if err := json.Unmarshal([]byte(value), &path); err != nil {
+		return ""
+	}
+	return path
+}

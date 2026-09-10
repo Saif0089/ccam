@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"ccam/internal/accounts"
 	"ccam/internal/config"
+	"ccam/internal/credstore"
 	"ccam/internal/switching"
 )
 
@@ -31,11 +34,7 @@ func cmdHook(args []string) int {
 // unless CCAM_HANDOFF is set — i.e. unless a supervisor is actually there to
 // hand off to — before doing any other work.
 func hookUserPromptSubmit() int {
-	handoff := os.Getenv(switching.HandoffEnvVar)
 	input, _ := io.ReadAll(os.Stdin)
-	if handoff == "" {
-		return 0 // no supervisor → nothing to switch; let the prompt through
-	}
 
 	var in struct {
 		Prompt    string `json:"prompt"`
@@ -46,7 +45,7 @@ func hookUserPromptSubmit() int {
 	}
 	name, ok := switching.ParseTrigger(in.Prompt)
 	if !ok {
-		return 0
+		return 0 // the overwhelmingly common case: an ordinary prompt
 	}
 
 	// Only intercept a switch to a real account. A typo passes through to the
@@ -60,17 +59,74 @@ func hookUserPromptSubmit() int {
 		return 0
 	}
 
-	// Stage the switch for the supervisor and stop the trigger reaching the
-	// model. On any failure, fall through and let the prompt run normally.
-	if err := switching.WriteHandoff(handoff, switching.Handoff{Account: acct.Slug, SessionID: in.SessionID}); err != nil {
+	// With a supervisor, hand it the switch: it owns the session's store and,
+	// if the switch cannot be applied in place, it is the only thing that can
+	// relaunch the session instead.
+	if handoff := os.Getenv(switching.HandoffEnvVar); handoff != "" {
+		if err := switching.WriteHandoff(handoff, switching.Handoff{Account: acct.Slug, SessionID: in.SessionID}); err != nil {
+			return 0
+		}
+		return block("Switching to " + displayName(acct) + "…")
+	}
+
+	// No supervisor — an editor's conversation, or any session ccam launched
+	// without one. The switch can still be done from here, because it is only a
+	// write to the credential store this session is reading, and the hook runs
+	// inside that session with the store's path in its environment.
+	//
+	// Strictly the stores ccam made for one session. Anything else — an
+	// account's own directory, the user's default login — is read by every
+	// other session using it, and switching this conversation must not move
+	// theirs.
+	store := ownSessionStore()
+	if store == "" {
 		return 0
 	}
-	out, err := switching.BlockDecisionJSON("Switching to " + displayName(acct) + "…")
+	if err := credstore.Copy(acct.ConfigDir, store); err != nil {
+		return 0
+	}
+	if !credstore.Same(acct.ConfigDir, store) {
+		return 0 // the write did not land where Claude Code will look
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		_ = switching.AppendOwnership(switching.LedgerPath(home), in.SessionID, acct.ConfigDir)
+		if accountsDir, err := config.AccountsDir(); err == nil {
+			applyIdentity(acct, accountsDir, filepath.Join(home, ".claude.json"))
+		}
+	}
+	return block("Switched to " + displayName(acct) + ". This conversation continues on that account.")
+}
+
+// block stops the trigger reaching the model and shows the user why.
+func block(reason string) int {
+	out, err := switching.BlockDecisionJSON(reason)
 	if err != nil {
 		return 0
 	}
 	os.Stdout.Write(out)
 	return 0
+}
+
+// ownSessionStore is the credential store this session is reading, but only
+// when ccam made it for this session alone. A store under sessions/ or
+// editors/ is ccam's own; an account directory is shared by every session of
+// that account, and the default login is shared by everything.
+func ownSessionStore() string {
+	dir := strings.TrimSpace(os.Getenv(accounts.SecureStorageEnvVar))
+	if dir == "" {
+		return ""
+	}
+	accountsDir, err := config.AccountsDir()
+	if err != nil {
+		return ""
+	}
+	root := filepath.Dir(accountsDir)
+	for _, own := range []string{filepath.Join(root, "sessions"), filepath.Join(root, "editors")} {
+		if rel, err := filepath.Rel(own, dir); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return dir
+		}
+	}
+	return ""
 }
 
 func loadAccounts() ([]accounts.Account, error) {

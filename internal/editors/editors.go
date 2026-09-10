@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // EnvSetting is the setting the Claude Code extension applies over the
@@ -26,19 +27,30 @@ const EnvSetting = "claudeCode.environmentVariables"
 
 // Editor is one installed VS Code-family editor.
 type Editor struct {
-	Name     string // what to call it when talking to the user
-	Settings string // its user settings.json
+	Name         string // what to call it when talking to the user
+	Settings     string // its user settings.json
+	HasExtension bool   // whether the Claude Code extension is installed in it
 }
+
+// WrapperSetting names an executable the extension runs instead of the Claude
+// binary, handing it the real binary as the first argument. ccam puts itself
+// there so each conversation gets a credential store of its own — which is what
+// makes switching one chat leave the others alone.
+const WrapperSetting = "claudeCode.claudeProcessWrapper"
 
 // products maps an editor's display name to the directory it keeps user data
 // in. They are all VS Code forks and all use the same layout.
-var products = []struct{ name, dir string }{
-	{"VS Code", "Code"},
-	{"VS Code Insiders", "Code - Insiders"},
-	{"Cursor", "Cursor"},
-	{"VSCodium", "VSCodium"},
-	{"Windsurf", "Windsurf"},
+var products = []struct{ name, dir, extensions string }{
+	{"VS Code", "Code", ".vscode"},
+	{"VS Code Insiders", "Code - Insiders", ".vscode-insiders"},
+	{"Cursor", "Cursor", ".cursor"},
+	{"VSCodium", "VSCodium", ".vscode-oss"},
+	{"Windsurf", "Windsurf", ".windsurf"},
 }
+
+// extensionID is the Claude Code extension's marketplace id; its directory is
+// that id with a version suffix.
+const extensionID = "anthropic.claude-code"
 
 // Installed lists the editors that actually exist on this machine, judged by
 // whether their user-data directory is there. An editor that has never been
@@ -54,7 +66,11 @@ func Installed(home string) []Editor {
 		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 			continue
 		}
-		found = append(found, Editor{Name: p.name, Settings: filepath.Join(dir, "settings.json")})
+		found = append(found, Editor{
+			Name:         p.name,
+			Settings:     filepath.Join(dir, "settings.json"),
+			HasExtension: hasClaudeExtension(filepath.Join(home, p.extensions, "extensions")),
+		})
 	}
 	return found
 }
@@ -75,4 +91,20 @@ func userDataRoot(home string) string {
 		}
 		return filepath.Join(home, ".config")
 	}
+}
+
+// hasClaudeExtension reports whether the Claude Code extension is installed in
+// an editor. Without it there is nothing for ccam to configure there, and
+// writing to that editor's settings would be noise in a file ccam does not own.
+func hasClaudeExtension(extensionsDir string) bool {
+	entries, err := os.ReadDir(extensionsDir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), extensionID+"-") {
+			return true
+		}
+	}
+	return false
 }

@@ -39,6 +39,8 @@ func Run(args []string) int {
 		return cmdHook(args[1:])
 	case "prune":
 		return cmdPrune(args[1:])
+	case "exec":
+		return cmdExec(args[1:])
 	case "editor", "vscode", "code":
 		return cmdEditor(args[1:])
 	case "version", "--version", "-v":

@@ -101,7 +101,7 @@ func (s *Server) syncAliases() error {
 		if a.IsDefault() {
 			continue
 		}
-		entries = append(entries, shellrc.AliasEntry{Alias: a.Alias, ConfigDir: a.ConfigDir})
+		entries = append(entries, shellrc.AliasEntry{Alias: a.Alias, ConfigDir: a.ConfigDir, Account: a.Slug})
 	}
 	return s.syncer.Sync(entries)
 }

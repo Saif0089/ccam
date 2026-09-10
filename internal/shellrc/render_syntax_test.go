@@ -15,9 +15,11 @@ func TestRenderedBlockParsesInTheShellItTargets(t *testing.T) {
 	// user's home directory, which is not: apostrophes, spaces and quotes all
 	// occur in real macOS and Windows home paths.
 	entries := []AliasEntry{
-		{Alias: "claude-work", ConfigDir: "/home/me/.ccam/accounts/work"},
-		{Alias: "claude-obrien", ConfigDir: `/Users/o'brien/.ccam/accounts/work`},
-		{Alias: "claude-spaced", ConfigDir: `/Users/a b/dir with spaces/and"quote`},
+		{Alias: "claude-work", ConfigDir: "/home/me/.ccam/accounts/work", Account: "work"},
+		{Alias: "claude-obrien", ConfigDir: `/Users/o'brien/.ccam/accounts/work`, Account: "obrien"},
+		{Alias: "claude-spaced", ConfigDir: `/Users/a b/dir with spaces/and"quote`, Account: "spaced"},
+		// No account: the direct-launch fallback has to parse too.
+		{Alias: "claude-legacy", ConfigDir: "/home/me/.ccam/accounts/legacy"},
 	}
 
 	cases := []struct {

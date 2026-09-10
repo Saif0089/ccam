@@ -19,6 +19,11 @@ import (
 type AliasEntry struct {
 	Alias     string
 	ConfigDir string
+	// Account is what to pass to ccam to start this account — its slug. The
+	// entry point prefers `ccam <account>` so the session it starts can be
+	// switched from inside; ConfigDir is only used by the fallback that runs
+	// Claude Code directly.
+	Account string
 }
 
 // Shell identifies which rc-file syntax to render.
@@ -45,26 +50,73 @@ func RenderBody(shell Shell, entries []AliasEntry) string {
 	var b strings.Builder
 	b.WriteString("# Managed by ccam — do not edit by hand, use the ccam web UI instead.\n")
 	for _, e := range sorted {
+		// Without an account name there is nothing to hand ccam, so the entry
+		// point is the plain, direct launch it always was. Better a session
+		// that cannot be switched than a function that runs `ccam` with no
+		// argument.
+		if strings.TrimSpace(e.Account) == "" {
+			writeDirectEntry(&b, shell, e)
+			continue
+		}
+		// Each account's entry point goes through ccam, so the session it
+		// starts is switchable: `ccam <name>` typed in it moves that session
+		// and nothing else. The fallback still launches Claude Code directly
+		// with only the credential store scoped, so removing ccam — or being
+		// somewhere it cannot supervise — leaves a working command behind.
 		switch shell {
 		case Fish:
-			// The alias value itself is single-quoted, so the directory
-			// is double-quoted inside it rather than nesting single
-			// quotes (which would terminate the outer quote early).
-			fmt.Fprintf(&b, "alias %s 'env -u CLAUDE_CONFIG_DIR CLAUDE_SECURESTORAGE_CONFIG_DIR=%s claude'\n",
-				e.Alias, escapeForSingleQuotes(Fish, dquote(e.ConfigDir)))
+			fmt.Fprintf(&b, `function %s
+    if set -q CLAUDECODE; or test "$CCAM_WRAP" = 0; or not isatty stdin; or not command -q ccam
+        env -u CLAUDE_CONFIG_DIR CLAUDE_SECURESTORAGE_CONFIG_DIR=%s claude $argv
+    else
+        command ccam %s $argv
+    end
+end
+`, e.Alias, escapeForSingleQuotes(Fish, dquote(e.ConfigDir)), e.Account)
 		case PowerShell, PowerShellDesktop:
 			// Remove-Item rather than assigning $null or '': the CLI
 			// branches on whether the name is present, so a variable
 			// left defined-but-empty is not the same as an absent one.
-			fmt.Fprintf(&b, "function %s { Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue; "+
-				"$env:CLAUDE_SECURESTORAGE_CONFIG_DIR = %s; claude @args }\n", e.Alias, psQuote(e.ConfigDir))
+			fmt.Fprintf(&b, `function %s {
+    if ($env:CLAUDECODE -or $env:CCAM_WRAP -eq '0' -or [Console]::IsInputRedirected -or
+        -not (Get-Command ccam -CommandType Application -ErrorAction SilentlyContinue)) {
+        Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue
+        $env:CLAUDE_SECURESTORAGE_CONFIG_DIR = %s
+        claude @args
+    } else {
+        ccam %s @args
+    }
+}
+`, e.Alias, psQuote(e.ConfigDir), psQuote(e.Account))
 		default: // bash, zsh
-			fmt.Fprintf(&b, "alias %s='env -u CLAUDE_CONFIG_DIR CLAUDE_SECURESTORAGE_CONFIG_DIR=%s claude'\n",
-				e.Alias, escapeForSingleQuotes(shell, dquote(e.ConfigDir)))
+			fmt.Fprintf(&b, `%s() {
+    if [ -n "$CLAUDECODE" ] || [ "$CCAM_WRAP" = 0 ] || [ ! -t 0 ] || ! command -v ccam >/dev/null 2>&1; then
+        env -u CLAUDE_CONFIG_DIR CLAUDE_SECURESTORAGE_CONFIG_DIR=%s command claude "$@"
+    else
+        command ccam %s "$@"
+    fi
+}
+`, e.Alias, escapeForSingleQuotes(shell, dquote(e.ConfigDir)), e.Account)
 		}
 	}
 	b.WriteString(claudeWrapper(shell))
 	return b.String()
+}
+
+// writeDirectEntry renders the pre-ccam form: scope the credential store and
+// exec Claude Code, with no supervision and no switching.
+func writeDirectEntry(b *strings.Builder, shell Shell, e AliasEntry) {
+	switch shell {
+	case Fish:
+		fmt.Fprintf(b, "alias %s 'env -u CLAUDE_CONFIG_DIR CLAUDE_SECURESTORAGE_CONFIG_DIR=%s claude'\n",
+			e.Alias, escapeForSingleQuotes(Fish, dquote(e.ConfigDir)))
+	case PowerShell, PowerShellDesktop:
+		fmt.Fprintf(b, "function %s { Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue; "+
+			"$env:CLAUDE_SECURESTORAGE_CONFIG_DIR = %s; claude @args }\n", e.Alias, psQuote(e.ConfigDir))
+	default:
+		fmt.Fprintf(b, "alias %s='env -u CLAUDE_CONFIG_DIR CLAUDE_SECURESTORAGE_CONFIG_DIR=%s claude'\n",
+			e.Alias, escapeForSingleQuotes(shell, dquote(e.ConfigDir)))
+	}
 }
 
 // claudeWrapper makes a plain `claude` a switchable ccam session, so

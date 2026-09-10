@@ -4,6 +4,7 @@
 package httpserver
 
 import (
+	"ccam/internal/editors"
 	"context"
 	"errors"
 	"fmt"
@@ -174,6 +175,17 @@ func Serve(ctx context.Context, srv *Server, port int) error {
 		if err := srv.syncAliases(); err != nil {
 			log.Printf("shell aliases: could not refresh: %v", err)
 		}
+
+		// Same idea for editors. The Claude Code extension starts Claude
+		// itself and never sees a shell, so the only way ccam reaches it is
+		// this setting — and the only way a user gets in-conversation
+		// switching without being told to run a command is for ccam to set it
+		// on their behalf, the way it already writes shell aliases. Editors
+		// without the extension are left alone, and the write is skipped when
+		// the setting already names this binary.
+		if err := configureEditors(home); err != nil {
+			log.Printf("editors: could not configure: %v", err)
+		}
 	}()
 
 	httpSrv := &http.Server{Handler: srv.Handler()}
@@ -289,4 +301,29 @@ func removePortFile(port int) {
 		return
 	}
 	_ = os.Remove(path)
+}
+
+// configureEditors points every editor that has the Claude Code extension at
+// ccam, so its conversations each get their own credential store.
+func configureEditors(home string) error {
+	// The one setting ccam writes outside its own directory and the user's
+	// shell rc, so it takes an opt-out: CCAM_MANAGE_EDITORS=0 in the service's
+	// environment leaves every editor alone.
+	if os.Getenv("CCAM_MANAGE_EDITORS") == "0" {
+		return nil
+	}
+	self, err := service.SelfPath()
+	if err != nil {
+		return err
+	}
+	for _, ed := range editors.Installed(home) {
+		if !ed.HasExtension || editors.WrapperPath(ed.Settings) == self {
+			continue
+		}
+		if err := editors.PointAtWrapper(ed.Settings, self); err != nil {
+			return err
+		}
+		log.Printf("editors: %s now launches Claude through ccam", ed.Name)
+	}
+	return nil
 }

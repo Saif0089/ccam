@@ -9,8 +9,8 @@ import (
 
 	"ccam/internal/accounts"
 	"ccam/internal/config"
-	"ccam/internal/credstore"
 	"ccam/internal/editors"
+	"ccam/internal/service"
 	"ccam/internal/switching"
 )
 
@@ -46,13 +46,23 @@ func cmdEditor(args []string) int {
 	}
 
 	installed := editors.Installed(home)
+	var withExt []editors.Editor
+	for _, ed := range installed {
+		if ed.HasExtension {
+			withExt = append(withExt, ed)
+		}
+	}
 	if len(installed) == 0 {
 		fmt.Println("No VS Code-family editor found on this machine.")
 		return 0
 	}
+	if len(withExt) == 0 {
+		fmt.Println("No editor here has the Claude Code extension installed, so there is nothing to point at an account.")
+		return 0
+	}
 
 	if len(args) == 0 {
-		reportEditors(installed, list)
+		reportEditors(installed, list, accountsDir)
 		return 0
 	}
 
@@ -61,63 +71,79 @@ func cmdEditor(args []string) int {
 		fmt.Fprintf(os.Stderr, "ccam: no account %q\n", args[0])
 		return 1
 	}
+	self, err := service.SelfPath()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ccam: cannot find my own binary:", err)
+		return 1
+	}
+
+	// The account every new conversation starts as. The wrapper reads this when
+	// the editor launches Claude; from there, `ccam <name>` typed in one chat
+	// moves that chat alone.
+	if err := writeEditorDefault(accountsDir, acct); err != nil {
+		fmt.Fprintln(os.Stderr, "ccam:", err)
+		return 1
+	}
 
 	failed := false
-	for _, ed := range installed {
-		storeDir := editorStoreDir(accountsDir, ed.Name)
-		if err := os.MkdirAll(storeDir, 0o700); err != nil {
-			fmt.Fprintf(os.Stderr, "  %s: %v\n", ed.Name, err)
-			failed = true
-			continue
-		}
-		if err := credstore.Copy(acct.ConfigDir, storeDir); err != nil {
-			fmt.Fprintf(os.Stderr, "  %s: could not copy this account's login: %v\n", ed.Name, err)
-			failed = true
-			continue
-		}
-		// The usage monitor sees this directory as a session's owner and has no
-		// way to know whose it is; leave it a note.
-		writeStoreOwner(storeDir, acct)
-		if err := editors.PointAt(ed.Settings, accounts.SecureStorageEnvVar, storeDir); err != nil {
+	for _, ed := range withExt {
+		if err := editors.PointAtWrapper(ed.Settings, self); err != nil {
 			fmt.Fprintf(os.Stderr, "  %s: could not update settings.json: %v\n", ed.Name, err)
 			failed = true
 			continue
 		}
 		fmt.Printf("  %s → %s\n", ed.Name, displayName(acct))
 	}
+	for _, ed := range installed {
+		if !ed.HasExtension {
+			fmt.Printf("  %s: skipped, no Claude Code extension installed\n", ed.Name)
+		}
+	}
 	if failed {
 		return 1
 	}
-	fmt.Println("\nConversations already open switch as soon as the extension next checks;")
-	fmt.Println("a new conversation starts on this account outright.")
+	fmt.Println("\nNew conversations start on this account. In any of them, type `ccam <name>`")
+	fmt.Println("to move that conversation — and only that one — to another account.")
+	fmt.Println("Conversations already open keep the account they started with.")
 	return 0
 }
 
-// reportEditors says which account each editor is on, by matching what its
-// store holds against every account ccam knows.
-func reportEditors(installed []editors.Editor, list []accounts.Account) {
-	for _, ed := range installed {
-		storeDir := editors.ReadStoreDir(ed.Settings, accounts.SecureStorageEnvVar)
-		switch {
-		case storeDir == "":
-			fmt.Printf("  %-18s not managed by ccam (uses your default login)\n", ed.Name)
-		default:
-			fmt.Printf("  %-18s %s\n", ed.Name, accountHolding(storeDir, list))
-		}
+// writeEditorDefault records the account an editor's conversations start as.
+func writeEditorDefault(accountsDir string, acct accounts.Account) error {
+	dir := filepath.Join(filepath.Dir(accountsDir), "editors")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
 	}
+	data, err := json.MarshalIndent(storeOwner{
+		AccountID: acct.ID,
+		Name:      displayName(acct),
+		ConfigDir: acct.ConfigDir,
+	}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "default.json"), data, 0o600)
 }
 
-// accountHolding names the account whose login a store currently holds.
-func accountHolding(storeDir string, list []accounts.Account) string {
-	for _, a := range list {
-		if credstore.Same(a.ConfigDir, storeDir) {
-			return displayName(a)
+// reportEditors says what each editor is set to.
+func reportEditors(installed []editors.Editor, list []accounts.Account, accountsDir string) {
+	def := "not set"
+	if data, err := os.ReadFile(filepath.Join(filepath.Dir(accountsDir), "editors", "default.json")); err == nil {
+		var rec storeOwner
+		if json.Unmarshal(data, &rec) == nil && rec.Name != "" {
+			def = rec.Name
 		}
 	}
-	if owner := readStoreOwner(storeDir); owner != "" {
-		return owner + " (last set by ccam)"
+	for _, ed := range installed {
+		switch {
+		case !ed.HasExtension:
+			fmt.Printf("  %-18s no Claude Code extension installed\n", ed.Name)
+		case editors.WrapperPath(ed.Settings) == "":
+			fmt.Printf("  %-18s not managed by ccam (uses your default login)\n", ed.Name)
+		default:
+			fmt.Printf("  %-18s new conversations start as %s\n", ed.Name, def)
+		}
 	}
-	return "an account ccam cannot identify"
 }
 
 // editorStoreDir is where an editor's credential store lives. One per editor,
