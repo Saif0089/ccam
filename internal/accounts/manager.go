@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"ccam/internal/credstore"
 )
 
 // Manager is the CRUD API the HTTP layer drives. It owns slug/alias
@@ -25,7 +27,38 @@ func NewManager(store *Store, accountsDir string) *Manager {
 
 // List returns every known account.
 func (m *Manager) List() ([]Account, error) {
-	return m.store.Load()
+	list, err := m.store.Load()
+	if err != nil {
+		return nil, err
+	}
+	for i := range list {
+		list[i] = withLoginState(list[i])
+	}
+	return list, nil
+}
+
+// withLoginState corrects a stored status against the account's actual
+// credential store.
+//
+// "linked" is recorded when a login is observed to succeed, and then never
+// looked at again — so an account whose credentials have since gone stays
+// "linked" for ever, and every reader believes it. That is not academic: both
+// managed accounts on the author's machine had their stored logins destroyed by
+// a bug elsewhere in ccam and went on being reported as linked, right up to the
+// point a session failed to authenticate.
+//
+// Only the downgrade is done here. Saying "linked" because a store happens to
+// hold something would be the same mistake in the other direction: a login can
+// be present and expired, and only Claude Code can settle that.
+func withLoginState(a Account) Account {
+	if a.Status != StatusLinked {
+		return a
+	}
+	data, err := credstore.Read(a.ConfigDir)
+	if err != nil || !credstore.HasLogin(data) {
+		a.Status = StatusPending
+	}
+	return a
 }
 
 // Get returns a single account by ID, or an error if it doesn't exist.
@@ -36,7 +69,7 @@ func (m *Manager) Get(id string) (Account, error) {
 	}
 	for _, a := range list {
 		if a.ID == id {
-			return a, nil
+			return withLoginState(a), nil
 		}
 	}
 	return Account{}, fmt.Errorf("no account with id %q", id)

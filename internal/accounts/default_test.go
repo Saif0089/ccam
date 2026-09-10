@@ -16,7 +16,10 @@ func signInDefault(t *testing.T, home string) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte(`{"fake":true}`), 0o600); err != nil {
+	// Shaped like a real store: an account counts as linked only when its
+	// credentials actually carry a login, so a placeholder no longer stands in.
+	creds := []byte(`{"claudeAiOauth":{"accessToken":"not-a-real-token","expiresAt":1}}`)
+	if err := os.WriteFile(filepath.Join(dir, ".credentials.json"), creds, 0o600); err != nil {
 		t.Fatalf("writing credentials: %v", err)
 	}
 }

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"ccam/internal/credstore"
 )
 
 func newTestManager(t *testing.T) *Manager {
@@ -145,5 +147,54 @@ func TestGetUnknownAccountErrors(t *testing.T) {
 	m := newTestManager(t)
 	if _, err := m.Get("does-not-exist"); err == nil {
 		t.Fatal("expected error getting unknown account, got nil")
+	}
+}
+
+// A stored "linked" is a record of one moment: the login that succeeded when it
+// was written. Nothing re-checked it afterwards, so an account whose credentials
+// were later lost kept reporting linked, and the web UI offered no way to fix
+// what it did not know was broken. Both managed accounts on the author's machine
+// were in exactly that state.
+func TestListReportsAnAccountWhoseLoginIsGoneAsPending(t *testing.T) {
+	t.Setenv(credstore.ForceFileEnvVar, "1")
+	m := newTestManager(t)
+
+	acct, err := m.Add("work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := credstore.Write(acct.ConfigDir, []byte(`{"claudeAiOauth":{"accessToken":"not-a-real-token"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SetStatus(acct.ID, StatusLinked); err != nil {
+		t.Fatal(err)
+	}
+	got, err := m.Get(acct.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusLinked {
+		t.Fatalf("an account with a login in its store reports %q, want linked", got.Status)
+	}
+
+	// The login goes, as it does when a store is emptied or destroyed.
+	if err := credstore.Delete(acct.ConfigDir); err != nil {
+		t.Fatal(err)
+	}
+	got, err = m.Get(acct.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusPending {
+		t.Errorf("Get: an account with no login reports %q, want pending", got.Status)
+	}
+	list, err := m.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range list {
+		if a.ID == acct.ID && a.Status != StatusPending {
+			t.Errorf("List: an account with no login reports %q, want pending", a.Status)
+		}
 	}
 }
