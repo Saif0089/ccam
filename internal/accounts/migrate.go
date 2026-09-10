@@ -1,6 +1,7 @@
 package accounts
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -127,7 +128,17 @@ func (m *Manager) MigrateManagedToShared(claudeDir string) (MigrationReport, err
 // leaves the account on the old scheme and retries rather than flipping it
 // with nothing copied.
 func copyProjectsTree(src, dst string) (copied, skipped, failed int, err error) {
-	info, statErr := os.Stat(src)
+	// Lstat, not Stat: a projects/ that is a SYMLINK to a tree somewhere else
+	// follows as a directory here, but filepath.WalkDir below refuses to
+	// descend into a symlinked root — so the walk visits the link itself, sees
+	// something that is not a regular file, and reports a clean pass over zero
+	// files. That looked like "migrated, nothing to do", which flipped the
+	// account and later let prune delete the link out from under a tree
+	// nothing had copied. Refuse to touch it instead.
+	info, statErr := os.Lstat(src)
+	if statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+		return 0, 0, 0, fmt.Errorf("%s is a symlink; ccam will not migrate or delete a linked transcript tree", src)
+	}
 	if statErr != nil {
 		if os.IsNotExist(statErr) {
 			return 0, 0, 0, nil // never used — nothing to move

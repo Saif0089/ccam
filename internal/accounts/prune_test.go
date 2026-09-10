@@ -221,3 +221,63 @@ func mustDir(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 }
+
+// A projects/ that is a symlink to a tree somewhere else (transcripts moved to
+// another disk, say) walks as zero files: WalkDir will not descend into a
+// symlinked root. That read as "nothing to migrate, all clean", flipped the
+// account, and then let prune delete the link — leaving the real tree orphaned
+// and in no shared copy. Both steps must refuse it instead.
+func TestSymlinkedProjectsIsNeitherMigratedNorPruned(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs privilege on Windows")
+	}
+	home := t.TempDir()
+	claudeDir := filepath.Join(home, ".claude")
+	work := filepath.Join(home, ".ccam", "accounts", "work")
+	elsewhere := filepath.Join(home, "elsewhere", "projects")
+	mustFile(t, filepath.Join(elsewhere, "-repo", "s.jsonl"), "the real transcripts")
+	mustDir(t, work)
+	if err := os.Symlink(elsewhere, filepath.Join(work, "projects")); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr, store := seedStore(t, []Account{
+		{ID: "work", Kind: KindManaged, ConfigDir: work, Isolation: IsolationConfigDir},
+	})
+
+	rep, err := mgr.MigrateManagedToShared(claudeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Migrated() {
+		t.Error("an account whose projects/ is a symlink must not be flipped as migrated")
+	}
+	list, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list[0].IsolationOrDefault() != IsolationConfigDir {
+		t.Errorf("isolation = %q, want it left on the old scheme", list[0].IsolationOrDefault())
+	}
+
+	// And if it somehow is credentials-only already, prune still refuses.
+	if _, err := store.Mutate(func(cur []Account) ([]Account, error) {
+		cur[0].Isolation = IsolationCredentialsOnly
+		return cur, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pr, err := mgr.Prune(claudeDir, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pr.Accounts[0].Err == nil {
+		t.Error("prune should have refused a symlinked projects tree")
+	}
+	if _, err := os.Lstat(filepath.Join(work, "projects")); err != nil {
+		t.Error("prune deleted the symlink")
+	}
+	if _, err := os.Stat(filepath.Join(elsewhere, "-repo", "s.jsonl")); err != nil {
+		t.Error("the linked transcripts are gone")
+	}
+}
