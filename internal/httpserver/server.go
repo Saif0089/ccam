@@ -317,7 +317,15 @@ func configureEditors(home string) error {
 		return err
 	}
 	for _, ed := range editors.Installed(home) {
-		if !ed.HasExtension || editors.WrapperPath(ed.Settings) == self {
+		if !ed.HasExtension {
+			continue
+		}
+		// Configured means everything PointAtWrapper does, not just the value
+		// it is named after. An editor set up by an older ccam has the wrapper
+		// AND the per-editor entry that overrides it, and checking only the
+		// wrapper meant that editor was skipped for ever and never repaired.
+		if editors.WrapperPath(ed.Settings) == self &&
+			editors.ReadStoreDir(ed.Settings, accounts.SecureStorageEnvVar) == "" {
 			continue
 		}
 		if err := editors.PointAtWrapper(ed.Settings, self); err != nil {

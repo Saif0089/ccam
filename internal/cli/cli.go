@@ -7,6 +7,9 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 
 	"ccam/internal/buildinfo"
 	"ccam/internal/switching"
@@ -59,6 +62,16 @@ func Run(args []string) int {
 				return cmdRun(args)
 			}
 		}
+		// An editor calls its wrapper as `<wrapper> <real-claude-binary>
+		// [args...]`, with no subcommand to put `exec` in front of — the
+		// setting is one executable path and nothing else. So a first argument
+		// that is an executable file, rather than a word, IS that invocation.
+		// Without this the Claude Code extension got ccam's usage text on
+		// stderr and exit 1, which it reports as "Claude Code process exited
+		// with code 1" and no chat at all.
+		if isExecutablePath(args[0]) {
+			return cmdExec(args)
+		}
 		fmt.Fprintf(os.Stderr, "ccam: unknown command %q\n\n", args[0])
 		printUsage(os.Stderr)
 		return 1
@@ -84,4 +97,24 @@ Usage:
 
 Once running, open the printed URL in a browser to manage accounts.
 `)
+}
+
+// isExecutablePath reports whether arg names a program on disk rather than a
+// ccam subcommand or an account. Subcommands are single words and account names
+// are slugs, so neither ever contains a path separator; the file also has to
+// exist and be executable, which keeps a stray argument from being run.
+func isExecutablePath(arg string) bool {
+	if arg == "" || !strings.ContainsRune(arg, filepath.Separator) {
+		return false
+	}
+	info, err := os.Stat(arg)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	// Windows has no executable bit; there the extension is the only thing
+	// passing a path, and the extension only passes its own binary.
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	return info.Mode().Perm()&0o111 != 0
 }

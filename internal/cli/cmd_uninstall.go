@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"ccam/internal/config"
+	"ccam/internal/editors"
 	"ccam/internal/service"
 	"ccam/internal/shellrc"
 	"ccam/internal/switching"
@@ -44,6 +45,25 @@ func cmdUninstall(args []string) int {
 		settings := filepath.Join(home, ".claude", "settings.json")
 		if err := switching.RemoveUserPromptSubmitHook(settings); err != nil {
 			fmt.Fprintln(os.Stderr, "ccam: warning: removing the switch hook failed:", err)
+		}
+		// Take ccam back out of every editor's launch path. That setting names
+		// this binary by absolute path, so leaving it behind would have the
+		// Claude Code extension launching a file that is about to be deleted —
+		// every conversation failing with "Claude Code process exited with
+		// code 1", and no ccam left to say why.
+		removed := 0
+		for _, ed := range editors.Installed(home) {
+			if editors.WrapperPath(ed.Settings) == "" {
+				continue
+			}
+			if err := editors.UnsetWrapper(ed.Settings); err != nil {
+				fmt.Fprintf(os.Stderr, "ccam: warning: leaving %s pointed at ccam failed: %v\n", ed.Name, err)
+				continue
+			}
+			removed++
+		}
+		if removed > 0 {
+			fmt.Printf("Removed ccam from %d editor(s); they launch Claude Code directly again.\n", removed)
 		}
 	}
 

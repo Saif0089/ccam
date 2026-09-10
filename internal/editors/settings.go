@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"ccam/internal/accounts"
 )
 
 // envEntry is one {name, value} pair in the extension's setting.
@@ -236,6 +238,12 @@ func upsert(text, key, value string) (string, error) {
 
 // PointAtWrapper makes the editor launch Claude through ccam, so each
 // conversation gets its own credential store.
+//
+// It also takes away the entry the older, per-editor scheme left in
+// claudeCode.environmentVariables. The two cannot coexist: the extension
+// applies that setting LAST, over the environment ccam's wrapper just built, so
+// a leftover entry silently puts every conversation back on one shared store
+// and per-conversation switching stops working with nothing to show for it.
 func PointAtWrapper(settingsPath, ccamBinary string) error {
 	raw, err := os.ReadFile(settingsPath)
 	if err != nil && !os.IsNotExist(err) {
@@ -249,10 +257,43 @@ func PointAtWrapper(settingsPath, ccamBinary string) error {
 	if err != nil {
 		return err
 	}
+	updated, err = withoutEnvVar(updated, accounts.SecureStorageEnvVar)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
 		return err
 	}
 	return os.WriteFile(settingsPath, []byte(updated), 0o644)
+}
+
+// withoutEnvVar removes one variable from claudeCode.environmentVariables,
+// keeping every other variable the user put there. A setting that ends up empty
+// is written as an empty list rather than deleted: the key is the user's, and
+// rewriting the file to remove a line is more than is being asked for.
+func withoutEnvVar(text, varName string) (string, error) {
+	value, ok := findValue(text, EnvSetting)
+	if !ok {
+		return text, nil
+	}
+	var existing []envEntry
+	if err := json.Unmarshal([]byte(value), &existing); err != nil {
+		return text, nil // not ours to interpret; leave it exactly as it is
+	}
+	kept := []envEntry{}
+	for _, e := range existing {
+		if e.Name != varName {
+			kept = append(kept, e)
+		}
+	}
+	if len(kept) == len(existing) {
+		return text, nil
+	}
+	encoded, err := json.MarshalIndent(kept, "  ", "  ")
+	if err != nil {
+		return text, err
+	}
+	return upsert(text, EnvSetting, string(encoded))
 }
 
 // WrapperPath is the executable this editor launches Claude through, or "".
@@ -270,4 +311,64 @@ func WrapperPath(settingsPath string) string {
 		return ""
 	}
 	return path
+}
+
+// UnsetWrapper takes ccam back out of an editor's launch path, leaving the
+// Claude Code extension to run its own binary exactly as it did before ccam.
+//
+// Uninstalling has to do this. The setting names an executable by absolute
+// path, so a ccam that has been removed leaves the extension launching a file
+// that is not there: every conversation fails with "Claude Code process exited
+// with code 1", and the thing that could explain why is gone. Removing the key
+// rather than blanking it also gives the extension its own update check back,
+// which it skips while a wrapper is configured.
+//
+// The key is deleted with its whitespace and one trailing comma, so the file
+// reads as though it had never been there. Everything else — comments,
+// formatting, the user's other settings — is untouched.
+func UnsetWrapper(settingsPath string) error {
+	raw, err := os.ReadFile(settingsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	updated, changed := withoutKey(string(raw), WrapperSetting)
+	if !changed {
+		return nil
+	}
+	return os.WriteFile(settingsPath, []byte(updated), 0o644)
+}
+
+// withoutKey removes one top-level key and its value from JSONC text.
+func withoutKey(text, key string) (string, bool) {
+	start, end, ok := valueSpan(text, key)
+	if !ok {
+		return text, false
+	}
+	// valueSpan points at the value; walk back over `"key" :` to the quote.
+	keyStart := strings.LastIndex(text[:start], `"`+key+`"`)
+	if keyStart < 0 {
+		return text, false
+	}
+	// Take the blank line the key sat on with it, but never text before a
+	// newline: a comment or another setting on the line above stays put.
+	for keyStart > 0 && (text[keyStart-1] == ' ' || text[keyStart-1] == '\t') {
+		keyStart--
+	}
+	// One trailing comma belongs to this entry, not the next one.
+	for end < len(text) && (text[end] == ' ' || text[end] == '\t') {
+		end++
+	}
+	if end < len(text) && text[end] == ',' {
+		end++
+	}
+	for end < len(text) && (text[end] == ' ' || text[end] == '\t') {
+		end++
+	}
+	if end < len(text) && text[end] == '\n' {
+		end++
+	}
+	return text[:keyStart] + text[end:], true
 }
