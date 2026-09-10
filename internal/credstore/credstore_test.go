@@ -113,3 +113,26 @@ func TestServiceNamesAreDistinctAndStable(t *testing.T) {
 		t.Error("the same directory must always resolve to the same item")
 	}
 }
+
+// ForceFileEnvVar says where ccam WRITES. It must not stop ccam reading an
+// account's login from wherever Claude Code actually keeps it, or seeding a
+// session store fails and every switch silently falls back to a relaunch.
+func TestForceFileStillReadsWhatIsAlreadyThere(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "account")
+
+	// Written without the preference (so, the platform's own store)...
+	if err := Write(dir, []byte(`{"token":"platform-store"}`)); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { Delete(dir) })
+
+	// ...must still be readable with it set.
+	t.Setenv(ForceFileEnvVar, "1")
+	got, err := Read(dir)
+	if err != nil {
+		t.Fatalf("could not read the account's login with the file preference set: %v", err)
+	}
+	if string(got) != `{"token":"platform-store"}` {
+		t.Errorf("read %q", got)
+	}
+}

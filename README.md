@@ -128,8 +128,14 @@ the same pair. After writing, ccam reads the store back; if the write did not
 land where Claude Code will look for it, the switch is reported as failed and
 the session is relaunched instead.
 
+How quickly a switch shows up depends on which of those the session is reading,
+and the difference is worth knowing: Claude Code re-reads the credentials *file*
+on every request, so a switch lands on the next one, but it caches Keychain
+reads for thirty seconds, so on macOS the session may answer once or twice more
+as the old account before it flips. ccam says so when it switches.
+
 Set `CCAM_CREDENTIALS_FILE=1` to keep ccam out of the Keychain entirely and use
-the file store everywhere. Claude Code reads it when its keychain item is
+the file store everywhere — which also makes switches immediate. Claude Code reads it when its keychain item is
 absent, so nothing breaks — the trade is that a copy of the token sits in a
 `0600` file for as long as that session or editor exists.
 

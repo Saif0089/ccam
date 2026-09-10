@@ -30,11 +30,15 @@ func account() string {
 // Read returns the credentials in the store for configDir. The keychain is
 // consulted first and the plaintext file second, which is the order Claude Code
 // itself reads them in.
+//
+// Reading deliberately ignores ForceFileEnvVar. That setting is about where
+// ccam PUTS credentials; an account's own login is wherever Claude Code left
+// it, which on macOS is the keychain. Honouring it here meant ccam could not
+// read the account it was asked to copy from, so seeding a session store failed
+// and every switch quietly fell back to relaunching.
 func Read(configDir string) ([]byte, error) {
-	if !fileOnly() {
-		if data, err := readKeychain(configDir); err == nil {
-			return data, nil
-		}
+	if data, err := readKeychain(configDir); err == nil {
+		return data, nil
 	}
 	return readFile(configDir)
 }
@@ -173,4 +177,17 @@ func Delete(configDir string) error {
 		return fmt.Errorf("the credential store is still readable after removing it")
 	}
 	return nil
+}
+
+// KeychainBacked reports whether this store is the keychain rather than the
+// file. It matters to callers because the two behave differently under a
+// switch: Claude Code re-reads the file on every request, but caches keychain
+// reads for thirty seconds, so a keychain-backed switch can take that long to
+// be visible.
+func KeychainBacked(configDir string) bool {
+	if configDir == "" {
+		return true
+	}
+	_, err := readKeychain(configDir)
+	return err == nil
 }

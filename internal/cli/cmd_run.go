@@ -16,6 +16,7 @@ import (
 	"ccam/internal/accounts"
 	"ccam/internal/claudebin"
 	"ccam/internal/config"
+	"ccam/internal/credstore"
 	"ccam/internal/service"
 	"ccam/internal/switching"
 )
@@ -246,6 +247,9 @@ func cmdRun(args []string) int {
 			applyIdentity(next, accountsDir, claudeJSON)
 			acct = next
 			fmt.Fprintf(os.Stderr, "\nccam: switched to %s — same session, nothing restarted.\n", displayName(next))
+			if credstore.KeychainBacked(creds.dir()) {
+				fmt.Fprintln(os.Stderr, "      (macOS caches credential reads for up to 30s, so the next request or two may still be the old account)")
+			}
 			return true
 		})
 		close(stopMirror)
