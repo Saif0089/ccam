@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -40,12 +41,23 @@ var stdinIsTTY = func() bool { return isatty(os.Stdin.Fd()) }
 // switch, it relaunches Claude Code as the new account with the conversation
 // resumed, in the same terminal. When Claude Code exits on its own, so does it.
 func cmdRun(args []string) int {
-	if len(args) == 0 {
+	// --auto is how the `claude` shell wrapper calls in: the user did not name
+	// an account, so ccam supervises whichever one a plain `claude` would have
+	// used. Everything after it belongs to Claude Code.
+	auto := len(args) > 0 && args[0] == "--auto"
+	if auto {
+		args = args[1:]
+	}
+	if !auto && len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: ccam run <account> [claude args...]")
 		return 2
 	}
-	startName := args[0]
-	passthrough := args[1:]
+	var startName string
+	passthrough := args
+	if !auto {
+		startName = args[0]
+		passthrough = args[1:]
+	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -84,9 +96,20 @@ func cmdRun(args []string) int {
 		return 1
 	}
 	acct, ok := switching.ResolveAccount(list, startName)
+	if auto {
+		acct, ok = autoAccount(list)
+		if !ok {
+			// Nothing to supervise (no default account registered yet): let
+			// the caller fall back to plain Claude Code rather than fail.
+			return runPlainClaude(claudeBin, passthrough)
+		}
+	}
 	if !ok {
 		fmt.Fprintf(os.Stderr, "ccam: no account %q\n", startName)
 		return 1
+	}
+	if startName == "" {
+		startName = acct.Slug
 	}
 
 	// Inside a session this supervisor is already running, `ccam <account>` is
@@ -103,7 +126,7 @@ func cmdRun(args []string) int {
 	// inherited by anything a session spawned, including processes that
 	// outlive it, and staging a handoff nobody will read reported a switch
 	// that never happened.
-	if handoffPath := os.Getenv(switching.HandoffEnvVar); handoffPath != "" && len(passthrough) == 0 {
+	if handoffPath := os.Getenv(switching.HandoffEnvVar); handoffPath != "" && len(passthrough) == 0 && !auto {
 		if supervisorAlive() {
 			h := switching.Handoff{Account: acct.Slug, SessionID: os.Getenv(switching.SessionIDEnvVar)}
 			if err := switching.WriteHandoff(handoffPath, h); err != nil {
@@ -190,6 +213,41 @@ func cmdRun(args []string) int {
 // Claude Code never reads, and looked for transcripts in the wrong tree.
 func sharedClaudeDir(home string) string {
 	return filepath.Join(home, ".claude")
+}
+
+// autoAccount is the account a plain `claude` would have run as: the one whose
+// directory the shell already points at (someone who exported
+// CLAUDE_SECURESTORAGE_CONFIG_DIR by hand, or one of ccam's own aliases), and
+// otherwise the default login — which is exactly what `claude` does with no
+// variables set at all.
+func autoAccount(list []accounts.Account) (accounts.Account, bool) {
+	if dir := strings.TrimSpace(os.Getenv(accounts.SecureStorageEnvVar)); dir != "" {
+		want := filepath.Clean(dir)
+		for _, a := range list {
+			if a.ConfigDir != "" && strings.EqualFold(filepath.Clean(a.ConfigDir), want) {
+				return a, true
+			}
+		}
+	}
+	for _, a := range list {
+		if a.IsDefault() {
+			return a, true
+		}
+	}
+	return accounts.Account{}, false
+}
+
+// runPlainClaude is the last resort for --auto: hand the terminal to Claude
+// Code exactly as the shell would have, unsupervised, rather than refuse to
+// start because ccam has nothing registered.
+func runPlainClaude(bin string, args []string) int {
+	name, argv := claudebin.Invocation(bin, args)
+	cmd := exec.Command(name, argv...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return exitCodeOf(err)
+	}
+	return 0
 }
 
 // applyIdentity makes the shared ~/.claude.json name the account about to run,

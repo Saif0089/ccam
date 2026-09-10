@@ -6,10 +6,13 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"ccam/internal/accounts"
 	"ccam/internal/switching"
 )
 
@@ -34,6 +37,7 @@ func seedRunEnv(t *testing.T) string {
 	accountsData, err := json.Marshal(map[string]any{"accounts": []map[string]any{
 		{"id": "ehti", "slug": "ehti", "kind": "managed", "configDir": ehtiDir, "alias": "claude-ehti", "isolation": "credentials-only"},
 		{"id": "work", "slug": "work", "kind": "managed", "configDir": workDir, "alias": "claude-work", "isolation": "credentials-only"},
+		{"id": "default", "slug": "default", "kind": "default", "configDir": "", "alias": "claude"},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -324,6 +328,75 @@ func TestRunWithArgsInsideASessionDoesNotStageASwitch(t *testing.T) {
 	}
 	if want := []string{"-p", "hello"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("launch args = %v, want %v", got, want)
+	}
+}
+
+// `ccam run --auto` is how the shell wrapper starts a plain `claude`: no
+// account was named, so it supervises the one that shell was already pointed
+// at — here, an account directory exported by ccam's own alias.
+func TestRunAutoFollowsTheAccountTheShellPointsAt(t *testing.T) {
+	home := seedRunEnv(t)
+	workDir := filepath.Join(home, ".ccam", "accounts", "work")
+	t.Setenv(accounts.SecureStorageEnvVar, workDir)
+
+	var env []string
+	origRunner := claudeRunner
+	t.Cleanup(func() { claudeRunner = origRunner })
+	claudeRunner = func(bin string, args, e []string, handoff string) (int, bool) {
+		env = e
+		return 0, false
+	}
+
+	if code := cmdRun([]string{"--auto"}); code != 0 {
+		t.Fatalf("cmdRun --auto exit = %d, want 0", code)
+	}
+	want := accounts.SecureStorageEnvVar + "=" + workDir
+	if !slices.Contains(env, want) {
+		t.Errorf("child env does not scope the credential store to work (%q)", want)
+	}
+}
+
+// With nothing exported, a plain `claude` means the default login — so that is
+// what the wrapper must supervise, not some managed account.
+func TestRunAutoFallsBackToTheDefaultAccount(t *testing.T) {
+	seedRunEnv(t)
+	t.Setenv(accounts.SecureStorageEnvVar, "")
+
+	var env []string
+	origRunner := claudeRunner
+	t.Cleanup(func() { claudeRunner = origRunner })
+	claudeRunner = func(bin string, args, e []string, handoff string) (int, bool) {
+		env = e
+		return 0, false
+	}
+
+	if code := cmdRun([]string{"--auto"}); code != 0 {
+		t.Fatalf("cmdRun --auto exit = %d, want 0", code)
+	}
+	for _, kv := range env {
+		if strings.HasPrefix(kv, accounts.SecureStorageEnvVar+"=") {
+			t.Errorf("default account must not scope the credential store, got %q", kv)
+		}
+	}
+}
+
+// Typing `claude` inside a supervised session starts a nested session; it is
+// not a request to re-account the session you are in.
+func TestRunAutoNeverStagesASwitch(t *testing.T) {
+	home := seedRunEnv(t)
+	handoff := filepath.Join(home, "handoff.json")
+	t.Setenv(switching.HandoffEnvVar, handoff)
+	t.Setenv(switching.SupervisorEnvVar, strconv.Itoa(os.Getpid()))
+
+	origRunner := claudeRunner
+	t.Cleanup(func() { claudeRunner = origRunner })
+	claudeRunner = func(bin string, args, e []string, h string) (int, bool) { return 0, false }
+
+	if code := cmdRun([]string{"--auto"}); code != 0 {
+		t.Fatalf("cmdRun --auto exit = %d, want 0", code)
+	}
+	if _, ok := switching.ReadHandoff(handoff); ok {
+		t.Error("--auto must never stage a switch")
 	}
 }
 

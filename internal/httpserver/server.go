@@ -163,15 +163,16 @@ func Serve(ctx context.Context, srv *Server, port int) error {
 			}
 		}
 
-		// An account that just changed how it is scoped needs its alias
-		// rewritten in the new form. Doing it here — once, and only when the
-		// migration actually flipped something — is what carries the new alias
-		// body to an installation that only ever auto-updates, without writing
-		// to the user's rc files on every single boot.
-		if report.Migrated() {
-			if err := srv.syncAliases(); err != nil {
-				log.Printf("de-isolation: could not refresh shell aliases: %v", err)
-			}
+		// Re-render the managed rc block on every start. This is how a new
+		// block body — an account that changed how it is scoped, or a new
+		// feature like the `claude` wrapper that makes a plain session
+		// switchable — reaches an installation that only ever auto-updates.
+		// It is not the churn it looks like: UpsertBlock compares the rendered
+		// body with what is in the file and returns without writing when they
+		// match, so the steady state is one read per rc file per boot and no
+		// write at all.
+		if err := srv.syncAliases(); err != nil {
+			log.Printf("shell aliases: could not refresh: %v", err)
 		}
 	}()
 

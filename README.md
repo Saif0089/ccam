@@ -23,14 +23,16 @@ hash, so moving to the narrower one keeps every existing login working. ccam:
 - keeps one shell alias per account (`claude-work`, `claude-personal`, ...) in
   sync across bash, zsh, fish, and PowerShell — so opening *any* terminal and
   running that alias launches `claude` scoped to that account,
-- switches accounts **without leaving your conversation**: start a session with
-  `ccam <account>` (e.g. `ccam work`, plus any flags you normally pass claude),
-  then either type `ccam <name>` at the Claude prompt or run `!ccam <name>` as
-  a shell command — both hand off to the other account in place: same terminal,
-  same thread, resumed on the other login. (`claude-<account>` stays the plain,
-  direct launch; `ccam <account>` is the switchable one.) A session started
-  with a bare `claude` has no supervisor to relaunch it, so ccam says so rather
-  than starting a second, nested session underneath it.
+- switches accounts **without leaving your conversation**: in any session,
+  type `ccam <name>` at the Claude prompt or run `!ccam <name>` as a shell
+  command, and it hands off to that account in place — same terminal, same
+  thread, resumed on the other login, keeping the flags the session started
+  with. This works in a session you started with `ccam <account>` *and* in one
+  you started by just typing `claude`: ccam puts a small `claude` function in
+  your shell rc that runs the same supervisor, so you do not have to remember a
+  different command. It steps aside — running Claude Code directly — inside an
+  existing session, with no terminal (scripts, pipes, CI), when ccam is not on
+  PATH, or with `CCAM_WRAP=0` set.
 - runs as a per-user background service that starts at login and serves the
   UI at `http://127.0.0.1:47932`.
 
