@@ -53,6 +53,15 @@ func newSessionCreds(sessionsDir string, acct accounts.Account, ledger string) *
 		os.RemoveAll(storeDir)
 		return nil
 	}
+	// Read the seed back before running on it. A store that does not hold what
+	// the account holds is one the session would spend its life reading, and
+	// the mirror would eventually copy back over the account. Falling back to
+	// the account's own store costs only the in-place switch.
+	if !credstore.Same(acct.ConfigDir, storeDir) {
+		credstore.Delete(storeDir)
+		os.RemoveAll(storeDir)
+		return nil
+	}
 	fp, err := credstore.Fingerprint(storeDir)
 	if err != nil {
 		credstore.Delete(storeDir)
@@ -132,6 +141,17 @@ func (s *sessionCreds) mirrorLocked() {
 	}
 	data, err := credstore.Read(s.storeDir)
 	if err != nil {
+		return
+	}
+	// The account's own store is the only copy of that account's login, and
+	// this is the one write that can destroy it. The mirror exists to carry a
+	// REFRESHED TOKEN back; anything arriving here without a login in it is a
+	// session store that went wrong, and copying it over the account would lose
+	// the account. So the guard is on the content, not on how it got here.
+	if !credstore.HasLogin(data) {
+		fmt.Fprintf(os.Stderr, "ccam: the session's credential store no longer holds a login, so it was not copied back to %s\n", s.acct.Name)
+		// Do not retry every tick with the same bad content.
+		s.written = fp
 		return
 	}
 	if err := credstore.Write(s.acct.ConfigDir, data); err != nil {

@@ -1,6 +1,7 @@
 package credstore
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -37,7 +38,12 @@ func account() string {
 // read the account it was asked to copy from, so seeding a session store failed
 // and every switch quietly fell back to relaunching.
 func Read(configDir string) ([]byte, error) {
-	if data, err := readKeychain(configDir); err == nil {
+	// A keychain item that does not parse is not credentials — it is the
+	// wreckage of a write that went wrong. Returning it would hand a caller
+	// something it will store somewhere else as if it were a login, so treat it
+	// as absent and let the file answer. That is also what heals a store that
+	// was corrupted before this check existed.
+	if data, err := readKeychain(configDir); err == nil && Valid(data) {
 		return data, nil
 	}
 	return readFile(configDir)
@@ -45,7 +51,13 @@ func Read(configDir string) ([]byte, error) {
 
 func readFile(configDir string) ([]byte, error) {
 	data, err := os.ReadFile(FilePath(configDir))
-	if err != nil || len(data) == 0 {
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	// Trimmed to match what the keychain returns, so the same credentials
+	// fingerprint the same whichever of the two stores they came out of.
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 {
 		return nil, ErrNotFound
 	}
 	return data, nil
@@ -128,32 +140,68 @@ var loginKeychain = sync.OnceValue(func() string {
 // cannot be written falls back to the plaintext file rather than failing —
 // exactly what Claude Code does with the same pair of stores, and what keeps a
 // switch working in a context where the keychain is unavailable.
+//
+// Whichever store takes the write, the keychain item must not be left holding
+// anything else afterwards. It is read first, by ccam and by Claude Code alike,
+// so a stale or half-written item silently wins over a correct file.
 func Write(configDir string, data []byte) error {
+	data = bytes.TrimSpace(data)
 	if !fileOnly() {
 		if err := writeKeychain(configDir, data); err == nil {
-			return nil
+			if got, err := readKeychain(configDir); err == nil && bytes.Equal(got, data) {
+				return nil
+			}
+			// The item exists and does not hold what we just wrote. Nothing
+			// good comes of leaving it: take it out and let the file answer.
+			deleteKeychain(configDir)
 		}
 	}
-	return writeFile(configDir, data)
+	if err := writeFile(configDir, data); err != nil {
+		return err
+	}
+	if !fileOnly() {
+		if got, err := readKeychain(configDir); err == nil && !bytes.Equal(got, data) {
+			deleteKeychain(configDir)
+		}
+	}
+	return nil
 }
+
+// maxSecurityCommandLine is how much of one line `security -i` reads before it
+// treats the rest as a separate command: measured at 4095 bytes plus the
+// newline, with 4096 failing.
+//
+// It matters because exceeding it is silent in the worst possible way. The
+// truncated line still parses as a valid add-generic-password, so the item is
+// REPLACED with a fragment of the credentials, and only the leftover tail —
+// parsed as a second, nonsense command — reports an error. A real Claude Code
+// store runs to about 5 KB once MCP logins are in it, so every one of them was
+// over the limit: ccam replaced the account's credentials with 2 KB of the
+// middle of them, then read that back as if it were a login.
+const maxSecurityCommandLine = 4095
 
 // writeKeychain replaces the credentials in the keychain item, creating it
 // if it is not there.
 //
 // The payload goes in hex via -X, and the whole command is fed to `security -i`
 // on stdin, so the credential never appears in this process's argv where every
-// other process on the machine could read it out of ps. This is how Claude Code
-// writes the same item.
+// other process on the machine could read it out of ps — macOS shows other
+// users' full argv, so that is a real exposure and not a theoretical one. This
+// is how Claude Code writes the same item.
 //
 // -T grants the item to /usr/bin/security itself, which is the tool BOTH ccam
 // and Claude Code read it with. Without it, an item ccam created prompts for
 // authorization the first time the other one touches it, which for a switch
 // means a dialog in the middle of a conversation.
+//
+// Credentials too large to fit one command line are refused rather than
+// truncated, and the caller writes the plaintext file instead. Moving the hex
+// to argv would lift the limit and hand every local user the login; the file is
+// mode 0600 and is Claude Code's own fallback for the same store.
 func writeKeychain(configDir string, data []byte) error {
-	cmd := fmt.Sprintf("add-generic-password -U -a %q -s %q -X %q -T /usr/bin/security",
-		account(), Service(configDir), hex.EncodeToString(data))
-	if kc := loginKeychain(); kc != "" {
-		cmd += fmt.Sprintf(" %q", kc)
+	cmd, ok := keychainAddCommand(configDir, data)
+	if !ok {
+		return fmt.Errorf("these credentials are %d bytes, too large for one `security -i` command line", len(data))
 	}
 	c := exec.Command("/usr/bin/security", "-i")
 	c.Stdin = strings.NewReader(cmd + "\n")
@@ -164,11 +212,30 @@ func writeKeychain(configDir string, data []byte) error {
 	return nil
 }
 
+// keychainAddCommand builds the `security -i` line, and reports whether it fits
+// in one. Split out from the exec so the length rule can be tested without a
+// keychain to write to.
+func keychainAddCommand(configDir string, data []byte) (string, bool) {
+	cmd := fmt.Sprintf("add-generic-password -U -a %q -s %q -X %q -T /usr/bin/security",
+		account(), Service(configDir), hex.EncodeToString(data))
+	if kc := loginKeychain(); kc != "" {
+		cmd += fmt.Sprintf(" %q", kc)
+	}
+	return cmd, len(cmd) <= maxSecurityCommandLine
+}
+
+// deleteKeychain removes only the keychain item, leaving the file alone. It is
+// how a write that could not go in the keychain stops the old item shadowing
+// the file that did take it.
+func deleteKeychain(configDir string) {
+	exec.Command("/usr/bin/security", "delete-generic-password",
+		"-a", account(), "-s", Service(configDir)).Run()
+}
+
 // Delete removes the store, in both places it could be.
 func Delete(configDir string) error {
 	if !fileOnly() {
-		exec.Command("/usr/bin/security", "delete-generic-password",
-			"-a", account(), "-s", Service(configDir)).Run()
+		deleteKeychain(configDir)
 	}
 	if err := os.Remove(FilePath(configDir)); err != nil && !os.IsNotExist(err) {
 		return err

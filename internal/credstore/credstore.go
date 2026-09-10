@@ -21,6 +21,7 @@ package credstore
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -89,6 +90,30 @@ func Fingerprint(configDir string) (string, error) {
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])[:12], nil
+}
+
+// Valid reports whether data is the shape Claude Code writes: one JSON object.
+// A store that fails this is not credentials, whatever else it may be, and
+// reading it as credentials is how a truncated write becomes a lost login.
+func Valid(data []byte) bool {
+	var doc map[string]json.RawMessage
+	return json.Unmarshal(data, &doc) == nil
+}
+
+// HasLogin reports whether data carries an account login, as opposed to merely
+// being well-formed. It guards the writes that cannot be undone: an account's
+// own store is the only copy of that account's credentials, so ccam refuses to
+// overwrite it with anything that is not itself a login.
+func HasLogin(data []byte) bool {
+	var doc struct {
+		OAuth struct {
+			AccessToken string `json:"accessToken"`
+		} `json:"claudeAiOauth"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return false
+	}
+	return doc.OAuth.AccessToken != ""
 }
 
 // Same reports whether two stores hold identical credentials. A store that
