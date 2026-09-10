@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"ccam/internal/accounts"
+	"ccam/internal/credstore"
 	"ccam/internal/switching"
 )
 
@@ -50,6 +51,9 @@ func seedRunEnv(t *testing.T) string {
 	// A ccam-supervised shell would export a handoff path; clear it so these
 	// tests exercise the supervisor rather than the switch-staging path.
 	t.Setenv(switching.HandoffEnvVar, "")
+
+	// Credential stores go to files here, never the developer's keychain.
+	t.Setenv(credstore.ForceFileEnvVar, "1")
 
 	// `go test` runs with stdin on a pipe. Claim the terminal so cmdRun's
 	// interactive guard does not turn every supervisor test into a refusal.
@@ -94,7 +98,7 @@ func TestRunSupervisorRelaunchesOnSwitch(t *testing.T) {
 	var calls [][]string
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, env []string, handoff string) (int, bool) {
+	claudeRunner = func(bin string, args, env []string, handoff string, _ onSwitch) (int, bool) {
 		captured := append([]string{}, args...)
 		calls = append(calls, captured)
 		if len(calls) == 1 {
@@ -137,7 +141,7 @@ func TestRunKeepsLaunchFlagsAcrossASwitch(t *testing.T) {
 	var calls [][]string
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, env []string, handoff string) (int, bool) {
+	claudeRunner = func(bin string, args, env []string, handoff string, _ onSwitch) (int, bool) {
 		calls = append(calls, append([]string{}, args...))
 		if len(calls) == 1 {
 			if err := switching.WriteHandoff(handoff, switching.Handoff{Account: "work", SessionID: "sess-9"}); err != nil {
@@ -167,7 +171,7 @@ func TestRunSwitchOfAnUnrecordedSessionStartsClean(t *testing.T) {
 	var calls [][]string
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, env []string, handoff string) (int, bool) {
+	claudeRunner = func(bin string, args, env []string, handoff string, _ onSwitch) (int, bool) {
 		calls = append(calls, append([]string{}, args...))
 		if len(calls) == 1 {
 			if err := switching.WriteHandoff(handoff, switching.Handoff{Account: "work", SessionID: "never-written"}); err != nil {
@@ -215,7 +219,7 @@ func TestRunClaudeOnceTerminatesOnHandoff(t *testing.T) {
 
 	done := make(chan bool, 1)
 	go func() {
-		_, switched := runClaudeOnce(fake, nil, os.Environ(), handoff)
+		_, switched := runClaudeOnce(fake, nil, os.Environ(), handoff, nil)
 		done <- switched
 	}()
 	select {
@@ -237,7 +241,7 @@ func TestRunClaudeOnceReturnsChildExitCode(t *testing.T) {
 	mustWrite(t, fake, "#!/bin/sh\nexit 7\n")
 	os.Chmod(fake, 0o755)
 
-	code, switched := runClaudeOnce(fake, nil, os.Environ(), filepath.Join(dir, "no-handoff.json"))
+	code, switched := runClaudeOnce(fake, nil, os.Environ(), filepath.Join(dir, "no-handoff.json"), nil)
 	if switched {
 		t.Error("a clean exit is not a switch")
 	}
@@ -263,7 +267,7 @@ func TestRunStagesSwitchInsideSupervisedSession(t *testing.T) {
 	launched := false
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, env []string, handoff string) (int, bool) {
+	claudeRunner = func(bin string, args, env []string, handoff string, _ onSwitch) (int, bool) {
 		launched = true
 		return 0, false
 	}
@@ -315,7 +319,7 @@ func TestRunWithArgsInsideASessionDoesNotStageASwitch(t *testing.T) {
 	var got []string
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, env []string, handoff string) (int, bool) {
+	claudeRunner = func(bin string, args, env []string, handoff string, _ onSwitch) (int, bool) {
 		got = append([]string{}, args...)
 		return 0, false
 	}
@@ -342,7 +346,7 @@ func TestRunAutoFollowsTheAccountTheShellPointsAt(t *testing.T) {
 	var env []string
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, e []string, handoff string) (int, bool) {
+	claudeRunner = func(bin string, args, e []string, handoff string, _ onSwitch) (int, bool) {
 		env = e
 		return 0, false
 	}
@@ -365,7 +369,7 @@ func TestRunAutoFallsBackToTheDefaultAccount(t *testing.T) {
 	var env []string
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, e []string, handoff string) (int, bool) {
+	claudeRunner = func(bin string, args, e []string, handoff string, _ onSwitch) (int, bool) {
 		env = e
 		return 0, false
 	}
@@ -390,7 +394,7 @@ func TestRunAutoNeverStagesASwitch(t *testing.T) {
 
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, e []string, h string) (int, bool) { return 0, false }
+	claudeRunner = func(bin string, args, e []string, h string, _ onSwitch) (int, bool) { return 0, false }
 
 	if code := cmdRun([]string{"--auto"}); code != 0 {
 		t.Fatalf("cmdRun --auto exit = %d, want 0", code)
@@ -410,7 +414,7 @@ func TestRunRefusesWithoutATerminal(t *testing.T) {
 	launched := false
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, env []string, handoff string) (int, bool) {
+	claudeRunner = func(bin string, args, env []string, handoff string, _ onSwitch) (int, bool) {
 		launched = true
 		return 0, false
 	}
@@ -432,7 +436,7 @@ func TestRunWithArgsSkipsTheTerminalGuard(t *testing.T) {
 	var got []string
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, env []string, handoff string) (int, bool) {
+	claudeRunner = func(bin string, args, env []string, handoff string, _ onSwitch) (int, bool) {
 		got = append([]string{}, args...)
 		return 0, false
 	}
@@ -457,4 +461,119 @@ func readJSONFile(t *testing.T, path string) map[string]any {
 		t.Fatal(err)
 	}
 	return m
+}
+
+// mustCreds puts fabricated credentials in an account's store. Nothing real is
+// touched: the store name is derived from a directory that exists only for
+// this test.
+func mustCreds(t *testing.T, configDir, body string) {
+	t.Helper()
+	if err := credstore.Write(configDir, []byte(body)); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { credstore.Delete(configDir) })
+}
+
+// The point of the release: switching moves the session onto another account by
+// rewriting the credentials it is reading, so the process is never restarted
+// and everything running inside it — subagents, background tasks, the
+// conversation — survives.
+func TestSwitchIsAppliedInPlaceWithoutRelaunching(t *testing.T) {
+	home := seedRunEnv(t)
+	ehti := filepath.Join(home, ".ccam", "accounts", "ehti")
+	work := filepath.Join(home, ".ccam", "accounts", "work")
+	mustCreds(t, ehti, `{"claudeAiOauth":{"accessToken":"fake-ehti"}}`)
+	mustCreds(t, work, `{"claudeAiOauth":{"accessToken":"fake-work"}}`)
+	ledger := filepath.Join(home, switching.LedgerFile)
+	mustWrite(t, ledger, "#cutover\t1.000000\n")
+
+	storeDir := filepath.Join(home, ".ccam", "sessions", "s-"+strconv.Itoa(os.Getpid()))
+	var launches [][]string
+	var applied, storeSwitched bool
+
+	origRunner := claudeRunner
+	t.Cleanup(func() { claudeRunner = origRunner })
+	claudeRunner = func(bin string, args, env []string, handoff string, applyInPlace onSwitch) (int, bool) {
+		launches = append(launches, append([]string{}, args...))
+		if !slices.Contains(env, accounts.SecureStorageEnvVar+"="+storeDir) {
+			t.Errorf("session was not given its own credential store; env had %v", env)
+		}
+		if !credstore.Same(ehti, storeDir) {
+			t.Error("the session store was not seeded from the account it started as")
+		}
+		applied = applyInPlace(switching.Handoff{Account: "work", SessionID: "sess-1"})
+		storeSwitched = credstore.Same(work, storeDir)
+		return 0, false
+	}
+
+	if code := cmdRun([]string{"ehti"}); code != 0 {
+		t.Fatalf("cmdRun exit = %d, want 0", code)
+	}
+	if !applied {
+		t.Error("the switch was not applied in place")
+	}
+	if !storeSwitched {
+		t.Error("the session's credential store does not hold the account it switched to")
+	}
+	if len(launches) != 1 {
+		t.Errorf("the session was relaunched %d time(s); a switch must not restart it", len(launches)-1)
+	}
+	if !slices.Contains(launches[0], "--session-id") {
+		t.Error("ccam should mint the session id so usage is attributed from the first token")
+	}
+
+	// The usage monitor learns about the switch from the ledger, since there is
+	// no restart and therefore no SessionStart hook to write one.
+	raw, err := os.ReadFile(ledger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "sess-1\t"+realpath(t, work)) {
+		t.Errorf("no ownership line for the account switched to:\n%s", raw)
+	}
+}
+
+// When the credentials cannot be rewritten — no private store, an account with
+// no login, a platform where ccam cannot write the store Claude Code reads —
+// the old behaviour has to still be there.
+func TestSwitchFallsBackToRelaunchWhenItCannotBeAppliedInPlace(t *testing.T) {
+	home := seedRunEnv(t)
+	seedTranscript(t, home, "sess-2")
+	// No credentials anywhere, so no private store can be seeded.
+
+	var launches [][]string
+	origRunner := claudeRunner
+	t.Cleanup(func() { claudeRunner = origRunner })
+	claudeRunner = func(bin string, args, env []string, handoff string, applyInPlace onSwitch) (int, bool) {
+		launches = append(launches, append([]string{}, args...))
+		if len(launches) == 1 {
+			if applyInPlace != nil && applyInPlace(switching.Handoff{Account: "work", SessionID: "sess-2"}) {
+				t.Fatal("claimed an in-place switch with no credential store to write")
+			}
+			if err := switching.WriteHandoff(handoff, switching.Handoff{Account: "work", SessionID: "sess-2"}); err != nil {
+				t.Fatal(err)
+			}
+			return 0, true
+		}
+		return 0, false
+	}
+
+	if code := cmdRun([]string{"ehti"}); code != 0 {
+		t.Fatalf("cmdRun exit = %d, want 0", code)
+	}
+	if len(launches) != 2 {
+		t.Fatalf("want a relaunch as the fallback, got %d launch(es)", len(launches))
+	}
+	want := []string{"--resume", "sess-2", "--fork-session"}
+	if !reflect.DeepEqual(launches[1], want) {
+		t.Errorf("relaunch args = %v, want %v", launches[1], want)
+	}
+}
+
+func realpath(t *testing.T, p string) string {
+	t.Helper()
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
 }

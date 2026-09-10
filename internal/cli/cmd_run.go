@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -26,6 +28,12 @@ var switchPollInterval = 150 * time.Millisecond
 // claudeRunner launches Claude Code and reports (exit code, whether the
 // supervisor terminated it for a switch). Swapped out in tests.
 var claudeRunner = runClaudeOnce
+
+// onSwitch is called when a switch is staged while Claude Code runs. It
+// returns true if it applied the switch in place — the session keeps running,
+// and everything inside it survives — and false if the session has to be
+// relaunched instead.
+type onSwitch func(switching.Handoff) bool
 
 // claudeCodeEnvVar is set in every process Claude Code spawns, so it tells a
 // `!ccam ...` invocation that it is running inside a session even when that
@@ -163,19 +171,93 @@ func cmdRun(args []string) int {
 	handoff := filepath.Join(accountsDir, fmt.Sprintf(".handoff-%d.json", os.Getpid()))
 	defer os.Remove(handoff)
 
+	// Give the session a credential store of its own, seeded from the account.
+	// That is what makes switching in place possible: Claude Code re-reads its
+	// store when it changes, so a switch becomes a write to THIS session's
+	// store rather than a restart that kills everything running inside it.
+	// Falls back to the account's own store, and to relaunching, when a private
+	// store cannot be made.
+	ledger := switching.LedgerPath(home)
+	creds := newSessionCreds(filepath.Join(filepath.Dir(accountsDir), "sessions"), acct, ledger)
+	defer creds.close()
+
+	// Minting the session id means ccam knows it before Claude Code starts, so
+	// the session's usage is attributed to the right account from its first
+	// token rather than from its first switch. Only on a fresh launch: an id
+	// cannot be chosen for a conversation that already has one.
+	sessionID := ""
+	if creds != nil && !hasSessionArgs(passthrough) {
+		if id, err := newSessionID(); err == nil {
+			sessionID = id
+			passthrough = append([]string{"--session-id", id}, passthrough...)
+			if err := switching.AppendOwnership(ledger, id, acct.ConfigDir); err != nil {
+				fmt.Fprintln(os.Stderr, "ccam: could not record this session for the usage monitor:", err)
+			}
+		}
+	}
+
 	sessionArgs := passthrough
 	for {
 		applyIdentity(acct, accountsDir, claudeJSON)
 		switching.ClearHandoff(handoff)
 
-		env := append(accounts.EnvForSharedConfig(acct.ConfigDir),
+		storeDir := acct.ConfigDir
+		if d := creds.dir(); d != "" {
+			storeDir = d
+		}
+		env := append(accounts.EnvForSharedConfig(storeDir),
 			switching.HandoffEnvVar+"="+handoff,
 			fmt.Sprintf("%s=%d", switching.SupervisorEnvVar, os.Getpid()))
 
-		code, switched := claudeRunner(claudeBin, sessionArgs, env, handoff)
+		// Claude Code refreshes its access token into whatever store it is
+		// reading, so a long session's refreshed token has to be copied back to
+		// the account or the account's own store goes stale.
+		stopMirror := make(chan struct{})
+		go func() {
+			t := time.NewTicker(mirrorInterval)
+			defer t.Stop()
+			for {
+				select {
+				case <-stopMirror:
+					return
+				case <-t.C:
+					creds.mirror()
+				}
+			}
+		}()
+
+		code, switched := claudeRunner(claudeBin, sessionArgs, env, handoff, func(h switching.Handoff) bool {
+			fresh, err := store.Load()
+			if err != nil {
+				return false
+			}
+			next, ok := switching.ResolveAccount(fresh, h.Account)
+			if !ok {
+				fmt.Fprintf(os.Stderr, "ccam: cannot switch to %q\n", h.Account)
+				return true // a typo is not a reason to restart the session
+			}
+			id := h.SessionID
+			if id == "" {
+				id = sessionID
+			}
+			if !creds.switchTo(next, id) {
+				return false
+			}
+			applyIdentity(next, accountsDir, claudeJSON)
+			acct = next
+			fmt.Fprintf(os.Stderr, "\nccam: switched to %s — same session, nothing restarted.\n", displayName(next))
+			return true
+		})
+		close(stopMirror)
 		if !switched {
 			return code
 		}
+
+		// The switch could not be applied in place, so this is the old path:
+		// relaunch as the other account. The private store goes with it —
+		// whatever stopped the write would stop it again.
+		creds.close()
+		creds = nil
 
 		h, ok := switching.ReadHandoff(handoff)
 		if !ok {
@@ -270,7 +352,7 @@ func applyIdentity(acct accounts.Account, accountsDir, claudeJSON string) {
 // terminal) and watches for a pending switch. It returns when Claude Code
 // exits — either on its own, or because a switch was staged and the supervisor
 // terminated it.
-func runClaudeOnce(bin string, args, env []string, handoff string) (int, bool) {
+func runClaudeOnce(bin string, args, env []string, handoff string, applyInPlace onSwitch) (int, bool) {
 	name, argv := claudebin.Invocation(bin, args)
 	cmd := exec.Command(name, argv...)
 	cmd.Env = env
@@ -299,14 +381,27 @@ func runClaudeOnce(bin string, args, env []string, handoff string) (int, bool) {
 			case <-sigCh:
 				// absorb — Claude Code already received it from the tty
 			case <-t.C:
-				if _, ok := switching.ReadHandoff(handoff); ok {
+				h, ok := switching.ReadHandoff(handoff)
+				if !ok {
+					continue
+				}
+				switching.ClearHandoff(handoff)
+				// Preferred path: rewrite the credentials this session is
+				// reading. Claude Code notices and continues on the other
+				// account, so subagents, background tasks and the
+				// conversation itself are untouched.
+				if applyInPlace != nil && applyInPlace(h) {
+					continue
+				}
+				// It could not be done in place — relaunch instead.
+				if err := switching.WriteHandoff(handoff, h); err == nil {
 					select {
 					case switched <- struct{}{}:
 					default:
 					}
-					terminate(cmd)
-					return
 				}
+				terminate(cmd)
+				return
 			}
 		}
 	}()
@@ -341,4 +436,32 @@ func exitCodeOf(err error) int {
 		return ee.ExitCode()
 	}
 	return 1
+}
+
+// newSessionID mints the uuid Claude Code will use for the session, so ccam
+// knows it before the session exists.
+func newSessionID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant 1
+	h := hex.EncodeToString(b[:])
+	return fmt.Sprintf("%s-%s-%s-%s-%s", h[0:8], h[8:12], h[12:16], h[16:20], h[20:32]), nil
+}
+
+// hasSessionArgs reports whether the caller already decided which conversation
+// this is — resuming one, continuing one, or naming an id. ccam must not mint
+// an id over the top of any of those.
+func hasSessionArgs(args []string) bool {
+	for _, a := range args {
+		switch {
+		case a == "--session-id", a == "--resume", a == "-r", a == "--continue", a == "-c":
+			return true
+		case strings.HasPrefix(a, "--session-id="), strings.HasPrefix(a, "--resume="):
+			return true
+		}
+	}
+	return false
 }

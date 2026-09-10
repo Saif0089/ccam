@@ -23,16 +23,19 @@ hash, so moving to the narrower one keeps every existing login working. ccam:
 - keeps one shell alias per account (`claude-work`, `claude-personal`, ...) in
   sync across bash, zsh, fish, and PowerShell — so opening *any* terminal and
   running that alias launches `claude` scoped to that account,
-- switches accounts **without leaving your conversation**: in any session,
-  type `ccam <name>` at the Claude prompt or run `!ccam <name>` as a shell
-  command, and it hands off to that account in place — same terminal, same
-  thread, resumed on the other login, keeping the flags the session started
-  with. This works in a session you started with `ccam <account>` *and* in one
-  you started by just typing `claude`: ccam puts a small `claude` function in
-  your shell rc that runs the same supervisor, so you do not have to remember a
-  different command. It steps aside — running Claude Code directly — inside an
-  existing session, with no terminal (scripts, pipes, CI), when ccam is not on
-  PATH, or with `CCAM_WRAP=0` set.
+- switches accounts **without restarting anything**: in any session, type
+  `ccam <name>` at the Claude prompt or run `!ccam <name>` as a shell command,
+  and that session is on the other account a moment later — same process, same
+  conversation, and every subagent, workflow and background task still running.
+  Nothing is killed, because nothing is relaunched: ccam gives each session a
+  credential store of its own and a switch rewrites it, which Claude Code
+  notices by itself. (If the store cannot be written, it falls back to the old
+  behaviour — relaunch with the conversation resumed — rather than pretend.)
+  This works in a session you started with `ccam <account>` *and* in one you
+  started by just typing `claude`: ccam puts a small `claude` function in your
+  shell rc that runs the same supervisor. It steps aside — running Claude Code
+  directly — inside an existing session, with no terminal (scripts, pipes, CI),
+  when ccam is not on PATH, or with `CCAM_WRAP=0` set.
 - runs as a per-user background service that starts at login and serves the
   UI at `http://127.0.0.1:47932`.
 
@@ -91,6 +94,44 @@ than six hours is discarded, because by then the shortest window on the
 page has rolled over. The build answering on
 that port is named in the top-right corner, which is how you tell a fix
 that shipped from a fix that is actually running.
+
+## VS Code, Cursor, and the rest
+
+The Claude Code extension never sees your shell — it starts Claude itself — so
+aliases and the `claude` function do nothing for it. It does read its own
+`claudeCode.environmentVariables` setting, applied over the environment of every
+Claude process it starts, and that is where ccam puts one entry pointing at a
+credential store of its own:
+
+```sh
+ccam editor ehti      # point every installed editor at an account
+ccam editor           # say which account each one is on
+```
+
+Switching afterwards is the same write to the same kind of store as in a
+terminal, so a conversation that is already open moves across when the extension
+next looks, and a new one starts on that account outright. Each editor gets its
+own store, so VS Code and Cursor can sit on different accounts at once.
+
+Only the one setting is touched. Your `settings.json` keeps its comments, its
+formatting, and any environment variables you set there yourself — ccam edits
+that single value in place rather than reformatting the file.
+
+## Where the credentials live
+
+Claude Code keeps an account's login in the macOS Keychain, in the Windows
+Credential Manager where one is available, and in a `.credentials.json` file
+otherwise — and ccam reads whichever it finds. The stores ccam writes for
+sessions and editors follow the same rule, with one addition: a keychain it
+cannot write falls back to the file, which is what Claude Code itself does with
+the same pair. After writing, ccam reads the store back; if the write did not
+land where Claude Code will look for it, the switch is reported as failed and
+the session is relaunched instead.
+
+Set `CCAM_CREDENTIALS_FILE=1` to keep ccam out of the Keychain entirely and use
+the file store everywhere. Claude Code reads it when its keychain item is
+absent, so nothing breaks — the trade is that a copy of the token sits in a
+`0600` file for as long as that session or editor exists.
 
 ## Token usage, per account
 

@@ -39,6 +39,8 @@ func Run(args []string) int {
 		return cmdHook(args[1:])
 	case "prune":
 		return cmdPrune(args[1:])
+	case "editor", "vscode", "code":
+		return cmdEditor(args[1:])
 	case "version", "--version", "-v":
 		fmt.Println(buildinfo.Version)
 		return 0
@@ -73,6 +75,8 @@ Usage:
   ccam serve [--port N]      Run the server in the foreground (this is what the service actually runs)
   ccam <account> [args...]   Start a switchable Claude session for an account; inside it, type
                              `+"`ccam <name>`"+` to switch accounts in place, keeping the conversation
+  ccam editor [account]      Point VS Code (and Cursor, VSCodium, ...) at an account;
+                             with no account, says which one each editor is on
   ccam prune [--yes] [id...] Reclaim disk from migrated accounts (previews unless --yes)
   ccam version                Print the version
 
