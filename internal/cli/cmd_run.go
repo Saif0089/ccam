@@ -29,6 +29,10 @@ var switchPollInterval = 150 * time.Millisecond
 // supervisor terminated it for a switch). Swapped out in tests.
 var claudeRunner = runClaudeOnce
 
+// runClaudeOnce takes the running account's id so its poll loop can notice a
+// revocation of that account and stop the session, the same way it notices a
+// staged switch.
+
 // onSwitch is called when a switch is staged while Claude Code runs. It
 // returns true if it dealt with the handoff on its own — there is nothing to
 // relaunch — and false if the session has to be relaunched on the other
@@ -206,7 +210,7 @@ func cmdRun(args []string) int {
 		// painting and corrupts it until something forces a full repaint. The
 		// result goes back to the hook that staged the switch, which is still
 		// waiting and whose reply Claude Code renders properly.
-		code, switched := claudeRunner(claudeBin, sessionArgs, env, handoff, func(h switching.Handoff) bool {
+		code, switched := claudeRunner(claudeBin, sessionArgs, env, handoff, acct.ID, func(h switching.Handoff) bool {
 			fresh, err := store.Load()
 			if err != nil {
 				switching.WriteOutcome(handoff, switching.Outcome{
@@ -234,6 +238,9 @@ func cmdRun(args []string) int {
 			return false
 		})
 		if !switched {
+			if config.IsRevoked(acct.ID) {
+				fmt.Printf("\nYour access to %s was withdrawn by your team. This session has stopped; your conversation is saved.\n", displayName(acct))
+			}
 			return code
 		}
 
@@ -337,7 +344,7 @@ func applyIdentity(acct accounts.Account, accountsDir, claudeJSON string) {
 // terminal) and watches for a pending switch. It returns when Claude Code
 // exits — either on its own, or because a switch was staged and the supervisor
 // terminated it.
-func runClaudeOnce(bin string, args, env []string, handoff string, applyInPlace onSwitch) (int, bool) {
+func runClaudeOnce(bin string, args, env []string, handoff, accountID string, applyInPlace onSwitch) (int, bool) {
 	name, argv := claudebin.Invocation(bin, args)
 	cmd := exec.Command(name, argv...)
 	cmd.Env = env
@@ -366,6 +373,14 @@ func runClaudeOnce(bin string, args, env []string, handoff string, applyInPlace 
 			case <-sigCh:
 				// absorb — Claude Code already received it from the tty
 			case <-t.C:
+				// The account was taken back by the panel: stop this session.
+				// switched stays unsent, so runClaudeOnce returns "not switched"
+				// and cmdRun exits with the revocation message rather than
+				// relaunching.
+				if config.IsRevoked(accountID) {
+					terminate(cmd)
+					return
+				}
 				h, ok := switching.ReadHandoff(handoff)
 				if !ok {
 					continue

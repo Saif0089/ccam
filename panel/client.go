@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"ccam/internal/accounts"
+	"ccam/internal/config"
 )
 
 // ErrNotEnrolled means the panel no longer recognises this machine — it was
@@ -159,6 +160,9 @@ func (c *Client) CheckIn(ctx context.Context) (Change, error) {
 			if acct, err = c.Accounts.SetPanelID(made.ID, want.AccountID); err != nil {
 				return change, err
 			}
+			// A previous revocation of this same account may have left a marker;
+			// clear it so the fresh grant's session is not stopped on sight.
+			_ = config.ClearRevoked(made.ID)
 			change.Gained = append(change.Gained, want.Name)
 		}
 		delete(held, want.AccountID)
@@ -229,6 +233,10 @@ func (c *Client) release(a accounts.Account) error {
 	if a.ConfigDir != "" {
 		accounts.RemoveLogin(a.ConfigDir)
 	}
+	// Tell any live session on this account to stop. The supervisor polls for
+	// this marker, so a running session ends within a poll tick rather than
+	// limping on its in-memory token. Best-effort.
+	_ = config.MarkRevoked(a.ID)
 	_, err := c.Accounts.Remove(a.ID)
 	return err
 }

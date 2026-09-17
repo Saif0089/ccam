@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"ccam/internal/accounts"
+	"ccam/internal/config"
 )
 
 // setupLending gets a harness to the point where "Work" is escrowed and Alice
@@ -47,6 +48,10 @@ func newTestManager(t *testing.T) *accounts.Manager {
 // Taking an account back has to reach the machine, and reaching it has to mean
 // the login is actually gone from the disk — not just a status somewhere.
 func TestCheckInTakesDeliveryAndThenGivesItBack(t *testing.T) {
+	// release() drops a revocation marker under ~/.ccam; keep it out of the
+	// real home and let us assert it.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	h := newHarness(t)
 	cfg, accountID, personID := setupLending(t, h)
 
@@ -117,6 +122,10 @@ func TestCheckInTakesDeliveryAndThenGivesItBack(t *testing.T) {
 	}
 	if _, err := os.Stat(credPath); !os.IsNotExist(err) {
 		t.Error("the login is still on disk after the account was taken back")
+	}
+	// A live session on this account would be stopped by this marker.
+	if !config.IsRevoked(lent.ID) {
+		t.Error("take-back did not leave a revocation marker for a live session to see")
 	}
 	list, _ = mgr.List()
 	for _, a := range list {

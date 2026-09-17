@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"ccam/internal/accounts"
+	"ccam/internal/config"
 	"ccam/internal/switching"
 )
 
@@ -94,7 +95,7 @@ func TestRunSupervisorRelaunchesOnSwitch(t *testing.T) {
 	var calls [][]string
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, env []string, handoff string, _ onSwitch) (int, bool) {
+	claudeRunner = func(bin string, args, env []string, handoff, accountID string, _ onSwitch) (int, bool) {
 		captured := append([]string{}, args...)
 		calls = append(calls, captured)
 		if len(calls) == 1 {
@@ -137,7 +138,7 @@ func TestRunKeepsLaunchFlagsAcrossASwitch(t *testing.T) {
 	var calls [][]string
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, env []string, handoff string, _ onSwitch) (int, bool) {
+	claudeRunner = func(bin string, args, env []string, handoff, accountID string, _ onSwitch) (int, bool) {
 		calls = append(calls, append([]string{}, args...))
 		if len(calls) == 1 {
 			if err := switching.WriteHandoff(handoff, switching.Handoff{Account: "work", SessionID: "sess-9"}); err != nil {
@@ -167,7 +168,7 @@ func TestRunSwitchOfAnUnrecordedSessionStartsClean(t *testing.T) {
 	var calls [][]string
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, env []string, handoff string, _ onSwitch) (int, bool) {
+	claudeRunner = func(bin string, args, env []string, handoff, accountID string, _ onSwitch) (int, bool) {
 		calls = append(calls, append([]string{}, args...))
 		if len(calls) == 1 {
 			if err := switching.WriteHandoff(handoff, switching.Handoff{Account: "work", SessionID: "never-written"}); err != nil {
@@ -215,7 +216,7 @@ func TestRunClaudeOnceTerminatesOnHandoff(t *testing.T) {
 
 	done := make(chan bool, 1)
 	go func() {
-		_, switched := runClaudeOnce(fake, nil, os.Environ(), handoff, nil)
+		_, switched := runClaudeOnce(fake, nil, os.Environ(), handoff, "acct", nil)
 		done <- switched
 	}()
 	select {
@@ -237,7 +238,7 @@ func TestRunClaudeOnceReturnsChildExitCode(t *testing.T) {
 	mustWrite(t, fake, "#!/bin/sh\nexit 7\n")
 	os.Chmod(fake, 0o755)
 
-	code, switched := runClaudeOnce(fake, nil, os.Environ(), filepath.Join(dir, "no-handoff.json"), nil)
+	code, switched := runClaudeOnce(fake, nil, os.Environ(), filepath.Join(dir, "no-handoff.json"), "acct", nil)
 	if switched {
 		t.Error("a clean exit is not a switch")
 	}
@@ -263,7 +264,7 @@ func TestRunStagesSwitchInsideSupervisedSession(t *testing.T) {
 	launched := false
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, env []string, handoff string, _ onSwitch) (int, bool) {
+	claudeRunner = func(bin string, args, env []string, handoff, accountID string, _ onSwitch) (int, bool) {
 		launched = true
 		return 0, false
 	}
@@ -315,7 +316,7 @@ func TestRunWithArgsInsideASessionDoesNotStageASwitch(t *testing.T) {
 	var got []string
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, env []string, handoff string, _ onSwitch) (int, bool) {
+	claudeRunner = func(bin string, args, env []string, handoff, accountID string, _ onSwitch) (int, bool) {
 		got = append([]string{}, args...)
 		return 0, false
 	}
@@ -342,7 +343,7 @@ func TestRunAutoFollowsTheAccountTheShellPointsAt(t *testing.T) {
 	var env []string
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, e []string, handoff string, _ onSwitch) (int, bool) {
+	claudeRunner = func(bin string, args, e []string, handoff, accountID string, _ onSwitch) (int, bool) {
 		env = e
 		return 0, false
 	}
@@ -365,7 +366,7 @@ func TestRunAutoFallsBackToTheDefaultAccount(t *testing.T) {
 	var env []string
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, e []string, handoff string, _ onSwitch) (int, bool) {
+	claudeRunner = func(bin string, args, e []string, handoff, accountID string, _ onSwitch) (int, bool) {
 		env = e
 		return 0, false
 	}
@@ -390,7 +391,7 @@ func TestRunAutoNeverStagesASwitch(t *testing.T) {
 
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, e []string, h string, _ onSwitch) (int, bool) { return 0, false }
+	claudeRunner = func(bin string, args, e []string, h, accountID string, _ onSwitch) (int, bool) { return 0, false }
 
 	if code := cmdRun([]string{"--auto"}); code != 0 {
 		t.Fatalf("cmdRun --auto exit = %d, want 0", code)
@@ -410,7 +411,7 @@ func TestRunRefusesWithoutATerminal(t *testing.T) {
 	launched := false
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, env []string, handoff string, _ onSwitch) (int, bool) {
+	claudeRunner = func(bin string, args, env []string, handoff, accountID string, _ onSwitch) (int, bool) {
 		launched = true
 		return 0, false
 	}
@@ -432,7 +433,7 @@ func TestRunWithArgsSkipsTheTerminalGuard(t *testing.T) {
 	var got []string
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, env []string, handoff string, _ onSwitch) (int, bool) {
+	claudeRunner = func(bin string, args, env []string, handoff, accountID string, _ onSwitch) (int, bool) {
 		got = append([]string{}, args...)
 		return 0, false
 	}
@@ -486,7 +487,7 @@ func TestSwitchRelaunchesOntoTheOtherAccount(t *testing.T) {
 
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, env []string, handoff string, applyInPlace onSwitch) (int, bool) {
+	claudeRunner = func(bin string, args, env []string, handoff, accountID string, applyInPlace onSwitch) (int, bool) {
 		launches = append(launches, append([]string{}, args...))
 		if len(launches) == 1 {
 			// The session runs on the account's own directory: there is no
@@ -544,7 +545,7 @@ func TestSwitchRelaunchResumesTheConversation(t *testing.T) {
 	var launches [][]string
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
-	claudeRunner = func(bin string, args, env []string, handoff string, applyInPlace onSwitch) (int, bool) {
+	claudeRunner = func(bin string, args, env []string, handoff, accountID string, applyInPlace onSwitch) (int, bool) {
 		launches = append(launches, append([]string{}, args...))
 		if len(launches) == 1 {
 			if applyInPlace != nil && applyInPlace(switching.Handoff{Account: "work", SessionID: "sess-2"}) {
@@ -576,4 +577,44 @@ func realpath(t *testing.T, p string) string {
 		return r
 	}
 	return p
+}
+
+// A revoked account must stop its live session: the supervisor notices the
+// panel's revocation marker on the same poll it watches for switches, and
+// terminates the child WITHOUT reporting a switch, so cmdRun exits (with the
+// revocation message) rather than relaunching.
+func TestRunClaudeOnceStopsOnRevocation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-script fake claude is POSIX")
+	}
+	t.Setenv("HOME", t.TempDir()) // config.HomeDir -> a temp ~/.ccam
+	t.Setenv("USERPROFILE", t.TempDir())
+
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "claude")
+	mustWrite(t, fake, "#!/bin/sh\nsleep 30\n")
+	os.Chmod(fake, 0o755)
+	handoff := filepath.Join(dir, "handoff.json")
+
+	// The account is taken back shortly after launch.
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		if err := config.MarkRevoked("work"); err != nil {
+			t.Errorf("MarkRevoked: %v", err)
+		}
+	}()
+
+	done := make(chan bool, 1)
+	go func() {
+		_, switched := runClaudeOnce(fake, nil, os.Environ(), handoff, "work", nil)
+		done <- switched
+	}()
+	select {
+	case switched := <-done:
+		if switched {
+			t.Error("a revoked session must not report a switch (which would relaunch it)")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the supervisor did not stop the session when its account was revoked")
+	}
 }
