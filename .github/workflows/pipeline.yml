@@ -315,3 +315,23 @@ jobs:
               --notes "Continuously published from main — install.sh/install.ps1 default to this. For a pinned version, use a vX.Y.Z release instead." \
               --latest
           fi
+
+  # The server half of "both self-update on every release": the panel is a
+  # Vercel deployment, and every push to main redeploys it, in lockstep with the
+  # client release published above. Opt-in — it runs only once the three Vercel
+  # secrets and the VERCEL_DEPLOY repo variable are set, so the pipeline is
+  # unaffected until the panel is actually being hosted.
+  deploy-panel:
+    needs: publish
+    if: ${{ github.event_name == 'push' && vars.VERCEL_DEPLOY == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy the panel to Vercel
+        run: |
+          npm install --global vercel@latest
+          vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
+          vercel deploy --prod --token="${{ secrets.VERCEL_TOKEN }}"

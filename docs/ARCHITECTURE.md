@@ -94,6 +94,16 @@ amd64/arm64 (`CGO_ENABLED=0`).
   anything it holds and is not told about is given back: nothing has to reach a
   machine to take an account away from it.
 
+  The panel keeps its whole state as one blob behind a small `Backend`
+  interface: a JSON file for `ccam panel serve` on one machine, and Postgres
+  (`internal/panelpg`, a separate package so its driver never links into the
+  client binary) for a panel hosted as several instances at once. The one-holder
+  rule that a single writer gets from a mutex, several writers get from a
+  compare-and-swap on a version column — the losing writer re-runs its decision
+  against the winner's result, so two people are never handed the same account.
+  Admin sessions are a cookie sealed with the panel key rather than anything held
+  in memory, for the same reason: any instance can check it.
+
 - **`internal/httpserver`** — the REST + SSE API and the embedded web UI
   (`internal/httpserver/webui`, plain HTML/CSS/JS via `embed.FS`, no build
   step). Binds `127.0.0.1` only.

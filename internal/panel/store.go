@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"os"
-	"path/filepath"
 	"sort"
 	"sync"
 	"time"
@@ -41,19 +39,52 @@ type Data struct {
 	Activity    []Event      `json:"activity,omitempty"`
 }
 
-// Store is the panel's persistence. Every mutation takes the lock, re-reads
-// from disk, decides, and writes atomically, so a crash mid-write leaves the
-// previous file intact rather than a half-written one.
+// Store is the panel's persistence. Every mutation takes the lock, re-reads the
+// current state, decides, and writes it back — atomically for a file, and with
+// a compare-and-swap for a shared database, so two writers can never both
+// believe they won.
+//
+// The one-holder rule lives in that read-decide-write being indivisible. On a
+// single machine the mutex makes it so. On several machines behind one database
+// — a panel deployed to a serverless host, where each request may be a fresh
+// process — the mutex cannot, so the write is conditional on nothing having
+// changed since the read, and a lost race simply runs the decision again
+// against the winner's result. Either way, two people are never handed the same
+// account: the second attempt sees the first assignment and refuses.
 type Store struct {
-	mu   sync.Mutex
-	path string
-	now  func() time.Time
+	mu      sync.Mutex
+	backend Backend
+	now     func() time.Time
 }
 
-// NewStore returns a Store backed by path, which need not exist yet.
-func NewStore(path string) *Store {
-	return &Store{path: path, now: time.Now}
+// Backend is where a Store keeps its one blob of state. Load returns the
+// current bytes and a version; Save writes new bytes only if the version has
+// not moved, reporting whether it won. A brand-new store loads as (nil, 0).
+//
+// It is exported so a Postgres implementation can live in its own package,
+// keeping that driver out of the ccam client binary that ships to every machine.
+type Backend interface {
+	Load() (raw []byte, version int64, err error)
+	Save(raw []byte, expected int64) (ok bool, err error)
 }
+
+// NewStore returns a Store kept in one JSON file, which need not exist yet.
+// This is what `ccam panel serve` uses: one machine, one writer.
+func NewStore(path string) *Store {
+	return &Store{backend: &fileBackend{path: path}, now: time.Now}
+}
+
+// NewStoreWithBackend returns a Store over any backend — a database, for a
+// panel that runs as more than one process at once.
+func NewStoreWithBackend(b Backend) *Store {
+	return &Store{backend: b, now: time.Now}
+}
+
+// maxCASRetries bounds how many times a lost compare-and-swap is retried before
+// giving up. Contention is a handful of admin clicks and a check-in every
+// thirty seconds per machine, so a real collision is rare and clears in one
+// retry; this only stops a pathological livelock.
+const maxCASRetries = 8
 
 // Load reads the panel. A missing file is an empty panel, not an error: that is
 // what a machine looks like before anyone has set it up.
@@ -64,18 +95,24 @@ func (s *Store) Load() (Data, error) {
 }
 
 func (s *Store) loadLocked() (Data, error) {
+	d, _, err := s.readLocked()
+	return d, err
+}
+
+// readLocked returns the current panel and the version to write back against.
+func (s *Store) readLocked() (Data, int64, error) {
 	var d Data
-	raw, err := os.ReadFile(s.path)
+	raw, version, err := s.backend.Load()
 	if err != nil {
-		if os.IsNotExist(err) {
-			return d, nil
-		}
-		return d, err
+		return d, 0, err
+	}
+	if len(raw) == 0 {
+		return d, version, nil // never set up yet
 	}
 	if err := json.Unmarshal(raw, &d); err != nil {
-		return d, fmt.Errorf("reading %s: %w", s.path, err)
+		return d, 0, fmt.Errorf("reading the panel state: %w", err)
 	}
-	return d, nil
+	return d, version, nil
 }
 
 // Mutate runs fn against the current panel and writes the result. fn returning
@@ -89,15 +126,30 @@ func (s *Store) Mutate(fn func(*Data) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	d, err := s.loadLocked()
-	if err != nil {
-		return err
+	for attempt := 0; ; attempt++ {
+		d, version, err := s.readLocked()
+		if err != nil {
+			return err
+		}
+		s.sealExpired(&d)
+		if err := fn(&d); err != nil {
+			return err
+		}
+		ok, err := s.saveVersioned(&d, version)
+		if err != nil {
+			return err
+		}
+		if ok {
+			return nil
+		}
+		// Someone else wrote between our read and our write. Their change is
+		// now the truth — including any assignment they just made — so run the
+		// whole decision again against it. fn re-checks the invariant, so a
+		// second assignment of the same account still refuses.
+		if attempt >= maxCASRetries {
+			return errors.New("the panel is being changed by too many people at once; try again")
+		}
 	}
-	s.sealExpired(&d)
-	if err := fn(&d); err != nil {
-		return err
-	}
-	return s.saveLocked(&d)
 }
 
 // sealExpired ends assignments whose time has run out, and says so in the log.
@@ -115,39 +167,15 @@ func (s *Store) sealExpired(d *Data) {
 	}
 }
 
-func (s *Store) saveLocked(d *Data) error {
+func (s *Store) saveVersioned(d *Data, version int64) (bool, error) {
 	if len(d.Activity) > maxActivity {
 		d.Activity = d.Activity[len(d.Activity)-maxActivity:]
 	}
 	raw, err := json.MarshalIndent(d, "", "  ")
 	if err != nil {
-		return err
+		return false, err
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".panel-*.json")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	defer os.Remove(name)
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(raw); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(name, s.path)
+	return s.backend.Save(raw, version)
 }
 
 // ---------------------------------------------------------------- lookups
@@ -352,3 +380,6 @@ func newID() string {
 	}
 	return hex.EncodeToString(b[:])
 }
+
+// jsonMarshal is exposed to tests that need to build a raw backend blob.
+func jsonMarshal(d Data) ([]byte, error) { return json.MarshalIndent(d, "", "  ") }

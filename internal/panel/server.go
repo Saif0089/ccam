@@ -2,12 +2,12 @@ package panel
 
 import (
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -30,19 +30,11 @@ type Server struct {
 	store  *Store
 	secret *Secret
 	now    func() time.Time
-
-	mu       sync.Mutex
-	sessions map[string]time.Time // token hash -> expiry
 }
 
 // NewServer wires a panel over a store and its key.
 func NewServer(store *Store, secret *Secret) *Server {
-	return &Server{
-		store:    store,
-		secret:   secret,
-		now:      time.Now,
-		sessions: map[string]time.Time{},
-	}
+	return &Server{store: store, secret: secret, now: time.Now}
 }
 
 // Handler is the whole panel.
@@ -167,11 +159,6 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie(sessionCookie); err == nil {
-		s.mu.Lock()
-		delete(s.sessions, HashToken(c.Value))
-		s.mu.Unlock()
-	}
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: "", Path: "/", MaxAge: -1,
 		HttpOnly: true, SameSite: http.SameSiteLaxMode,
@@ -179,27 +166,22 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
+// startSession seals an expiry into the cookie itself, so nothing about who is
+// signed in is kept on the server. That is what lets a panel run as several
+// processes at once — a serverless deployment — without an admin signed in on
+// one instance being a stranger to the next. The cookie is sealed with the
+// panel's own key, so it cannot be forged, and it simply stops working once its
+// sealed expiry passes.
 func (s *Server) startSession(w http.ResponseWriter) {
-	token, hash, err := NewToken()
+	expiry := s.now().Add(sessionLife)
+	sealed, err := s.secret.Seal([]byte(expiry.UTC().Format(time.RFC3339)))
 	if err != nil {
 		fail(w, 500, err.Error())
 		return
 	}
-	s.mu.Lock()
-	// Sweep here rather than on a timer: sessions are few, and a map that is
-	// only ever added to is a slow leak in a process meant to run for months.
-	now := s.now()
-	for h, exp := range s.sessions {
-		if now.After(exp) {
-			delete(s.sessions, h)
-		}
-	}
-	s.sessions[hash] = now.Add(sessionLife)
-	s.mu.Unlock()
-
 	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: token, Path: "/",
-		Expires: now.Add(sessionLife), HttpOnly: true, SameSite: http.SameSiteLaxMode,
+		Name: sessionCookie, Value: base64.RawURLEncoding.EncodeToString(sealed), Path: "/",
+		Expires: expiry, HttpOnly: true, SameSite: http.SameSiteLaxMode,
 	})
 }
 
@@ -208,10 +190,19 @@ func (s *Server) sessionValid(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	exp, ok := s.sessions[HashToken(c.Value)]
-	return ok && s.now().Before(exp)
+	sealed, err := base64.RawURLEncoding.DecodeString(c.Value)
+	if err != nil {
+		return false
+	}
+	plain, err := s.secret.Open(sealed)
+	if err != nil {
+		return false // not sealed by this panel's key
+	}
+	exp, err := time.Parse(time.RFC3339, string(plain))
+	if err != nil {
+		return false
+	}
+	return s.now().Before(exp)
 }
 
 // admin guards everything only the administrator may do.

@@ -40,6 +40,8 @@ func cmdPanel(args []string) int {
 		return panelCheck(args[1:])
 	case "push":
 		return panelPush(args[1:])
+	case "genkey":
+		return panelGenkey()
 	case "help", "--help", "-h":
 		panelUsage(os.Stdout)
 		return 0
@@ -57,6 +59,7 @@ func panelUsage(w *os.File) {
   ccam panel join <url> <code>          enrol this machine with a panel
   ccam panel check                      ask the panel what this machine holds, now
   ccam panel push <account> <url>       store an account's login in the panel
+  ccam panel genkey                     print a new sealing key for a hosted panel
 
 Serving on 127.0.0.1 keeps the panel to this machine. To let other people
 reach it, give --addr an address they can see, and put it behind TLS.
@@ -325,4 +328,20 @@ func watchPanel(ctx context.Context) {
 		case <-t.C:
 		}
 	}
+}
+
+// panelGenkey prints a fresh sealing key for a panel that runs somewhere with no
+// disk of its own — a serverless deployment. The value goes in that host's
+// environment as CCAM_PANEL_KEY, and is the only thing that can open the logins
+// the panel holds, so it is printed once and never kept by ccam.
+func panelGenkey() int {
+	key, err := panel.GenerateKeyBase64()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ccam:", err)
+		return 1
+	}
+	fmt.Println(key)
+	fmt.Fprintln(os.Stderr, "Set this as CCAM_PANEL_KEY in the panel's environment. Keep it — it cannot be recovered,")
+	fmt.Fprintln(os.Stderr, "and losing it makes every stored login unreadable.")
+	return 0
 }

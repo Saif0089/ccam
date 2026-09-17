@@ -8,11 +8,13 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // pbkdf2Rounds stretches the admin password. The panel is reached over the
@@ -63,6 +65,41 @@ func LoadSecret(path string) (*Secret, error) {
 		return nil, err
 	}
 	return &Secret{aead: aead}, nil
+}
+
+// SecretFromBase64 builds a key from a base64 string rather than a file. This
+// is how a panel that has no writable disk of its own — one deployed to a
+// serverless host — is given its key: the same value in an environment variable
+// every instance reads, so a login sealed by one instance opens on the next.
+func SecretFromBase64(encoded string) (*Secret, error) {
+	key, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
+	if err != nil {
+		return nil, fmt.Errorf("the panel key is not valid base64: %w", err)
+	}
+	if len(key) != 32 {
+		return nil, fmt.Errorf("the panel key is %d bytes once decoded, want 32", len(key))
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	return &Secret{aead: aead}, nil
+}
+
+// GenerateKeyBase64 mints a fresh panel key, ready to paste into a hosting
+// provider's environment. It is printed once and never stored by ccam: whoever
+// runs the panel keeps it, because it is the only thing that can open the
+// logins the panel holds.
+func GenerateKeyBase64() (string, error) {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(key), nil
 }
 
 // Seal encrypts a login for storage. The nonce is prepended to the result.

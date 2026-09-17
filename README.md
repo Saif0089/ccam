@@ -119,6 +119,13 @@ ccam panel push work http://host:47933   # store an account's login in the panel
 ccam panel join http://host:47933 <code> # on each person's machine, once
 ```
 
+Run it on any machine with a disk, or host it. The admin panel deploys to
+Vercel as one serverless function with its state in Postgres — see
+[docs/DEPLOY_VERCEL.md](docs/DEPLOY_VERCEL.md). Every machine runs the ordinary
+ccam client, which obeys whatever the panel says and self-updates on each
+release; the hosted panel redeploys itself from the same pipeline, so one push
+ships both.
+
 Open the panel and it asks for a password the first time. Three tabs: the
 accounts and who has each one, the people and their machines, and a log of every
 decision. Assigning an account someone else holds moves it — an account works on
