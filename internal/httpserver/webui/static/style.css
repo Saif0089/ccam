@@ -255,6 +255,15 @@ button.danger { color: var(--crit); }
   font-variant-numeric: tabular-nums;
 }
 
+/* How old the numbers above are, once that is old enough to matter.
+   Quiet, like the reset line: it qualifies the bars, it is not an alarm. */
+.usage-age {
+  margin: 0.55rem 0 0;
+  color: var(--faint);
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .usage-note {
   margin-top: 0.9rem;
   color: var(--faint);

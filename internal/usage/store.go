@@ -17,6 +17,13 @@ import (
 // empty card is the honest answer.
 const StaleReportAge = 6 * time.Hour
 
+// tooOld reports whether a report is missing or past StaleReportAge.
+// The same rule decides what is read back from disk and what is served
+// from memory.
+func tooOld(report *Report, now time.Time) bool {
+	return report == nil || now.Sub(report.FetchedAt) > StaleReportAge
+}
+
 // savedReports is the on-disk shape: account id -> the last report read
 // for it. Numbers only; no part of a credential is ever written here.
 type savedReports struct {
@@ -43,7 +50,7 @@ func (s *Service) loadReports() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for id, report := range saved.Accounts {
-		if report == nil || now.Sub(report.FetchedAt) > StaleReportAge {
+		if tooOld(report, now) {
 			continue
 		}
 		s.lastReport[id] = report

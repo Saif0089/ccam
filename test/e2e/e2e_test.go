@@ -62,6 +62,10 @@ func newHarness(t *testing.T) *harness {
 	env := os.Environ()
 	env = setEnv(env, "HOME", home)
 	env = setEnv(env, "PATH", claudeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// The keychain belongs to the machine, not to this temporary HOME. Without
+	// this, every run on a Mac left a "Claude Code-credentials-<hash>" item in
+	// the real login keychain for a directory that no longer exists.
+	env = setEnv(env, "CCAM_CREDENTIALS_FILE", "1")
 	if runtime.GOOS == "windows" {
 		env = setEnv(env, "USERPROFILE", home)
 		env = setEnv(env, "APPDATA", filepath.Join(home, "AppData", "Roaming"))

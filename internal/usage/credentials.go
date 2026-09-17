@@ -4,6 +4,7 @@
 package usage
 
 import (
+	"ccam/internal/accounts"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -51,15 +52,15 @@ type storedCredentials struct {
 // file to read and usage reports itself unavailable, which is the
 // honest answer rather than a guess.
 func ReadCredentials(configDir string) (Credentials, error) {
-	raw, err := os.ReadFile(CredentialsPath(configDir))
+	// Read the login wherever it lives — a file, or on macOS the Keychain.
+	// Reading is safe (it is what shows the card its numbers); only writing a
+	// credential store was ever dangerous, and ccam does not do that. Reusing
+	// the account layer's capture keeps one derivation of the Keychain item
+	// name, not two.
+	raw, err := accounts.CaptureLogin(configDir)
 	if err != nil {
-		// Say what this means rather than passing on an errno: for the
-		// reader of the card, a missing file is "nobody has signed this
-		// account in".
-		if os.IsNotExist(err) {
-			return Credentials{}, errNoLogin
-		}
-		return Credentials{}, err
+		// Nothing readable anywhere means nobody has signed this account in.
+		return Credentials{}, errNoLogin
 	}
 	return parseCredentials(raw)
 }

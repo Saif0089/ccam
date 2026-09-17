@@ -37,12 +37,26 @@ function usagePayload() {
 // "the API rejected this login" state without expiring anything.
 const REJECTED_TOKEN = "revoked-access-token";
 
+// The one token this stub is slow to answer, standing in for a call to
+// Anthropic that takes its time: longer than two poll intervals, and
+// shorter than the 15 seconds ccam allows the call.
+const SLOW_TOKEN = "slow-access-token";
+const SLOW_ANSWER_MS = 12_000;
+
 function startUsageStub() {
   return new Promise((resolve) => {
     const srv = http.createServer((req, res) => {
-      if ((req.headers.authorization || "").includes(REJECTED_TOKEN)) {
+      const auth = req.headers.authorization || "";
+      if (auth.includes(REJECTED_TOKEN)) {
         res.writeHead(401, { "Content-Type": "application/json" });
         res.end("{}");
+        return;
+      }
+      if (auth.includes(SLOW_TOKEN)) {
+        setTimeout(() => {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(usagePayload());
+        }, SLOW_ANSWER_MS);
         return;
       }
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -87,6 +101,17 @@ async function deleteAccount(id) {
     headers: { Origin: baseURL },
   });
   expect(res.ok).toBeTruthy();
+}
+
+// setVisibility tells the page its tab was hidden or shown. A headless
+// browser never hides a page by itself, so the state is overridden and
+// the event dispatched the way the browser would dispatch it.
+async function setVisibility(page, state) {
+  await page.evaluate((s) => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => s });
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => s === "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, state);
 }
 
 function build(pkg, outPath) {
@@ -353,6 +378,145 @@ test("never dates a rejected login as having ended in the future", async ({ page
   await expect(card.locator(".session")).not.toContainText("ended");
 
   await deleteAccount(account.id);
+});
+
+// One slow account used to hold up the whole page: the poll waited for
+// every card's numbers, so the other cards stopped updating and the poll
+// skipped its ticks until the slow answer came back.
+test("a slow account does not hold up the other cards", async ({ page }) => {
+  const slow = await createAccount("Slow Answer");
+  writeCredentials(slow.configDir, { accessToken: SLOW_TOKEN, accessInHours: 8, refreshInDays: 27 });
+  const quick = await createAccount("Quick Answer");
+  writeCredentials(quick.configDir, { accessToken: "fake-access-token", accessInHours: 8, refreshInDays: 27 });
+
+  let quickRequests = 0;
+  let slowRequests = 0;
+  page.on("request", (req) => {
+    if (req.url().includes(`/accounts/${quick.id}/usage`)) quickRequests++;
+    if (req.url().includes(`/accounts/${slow.id}/usage`)) slowRequests++;
+  });
+
+  const loaded = Date.now();
+  await page.goto(baseURL);
+  const quickCard = page.locator(".account-card", { hasText: "Quick Answer" });
+  await expect(quickCard.locator(".meter").first()).toBeVisible();
+
+  // The next tick asks the quick account again while the slow answer is
+  // still out. Waiting on it would push that request past SLOW_ANSWER_MS.
+  await expect.poll(() => quickRequests, { timeout: 9_000 }).toBeGreaterThan(1);
+  // That tick leaves the slow card alone: it is still waiting on its first
+  // answer, and asking again on top would pile requests up behind it. The
+  // tick sends every card's request together, so a moment is enough to
+  // see a second one if it went.
+  await page.waitForTimeout(500);
+  expect(slowRequests).toBe(1);
+  expect(Date.now() - loaded).toBeLessThan(SLOW_ANSWER_MS);
+  await expect(page.locator(".account-card", { hasText: "Slow Answer" }).locator(".meter")).toHaveCount(0);
+  // And the poll itself finished without it.
+  await expect(page.locator("#refreshed")).toContainText("updated", { timeout: 1000 });
+
+  await deleteAccount(slow.id);
+  await deleteAccount(quick.id);
+});
+
+// Numbers that stopped updating look exactly like numbers that did not
+// change, unless the card says how old they are. The browser's clock is
+// moved on rather than the server's numbers aged: to the page, a read
+// minutes behind its own clock is the same thing.
+test("says how old a card's numbers are once they fall behind", async ({ page }) => {
+  const account = await createAccount("Aging Numbers");
+  writeCredentials(account.configDir, { accessToken: "fake-access-token", accessInHours: 8, refreshInDays: 27 });
+
+  // Every usage request for this card passes through here, so the test
+  // can tell when none is out, and hold one when it needs to.
+  const usagePath = `/api/accounts/${account.id}/usage`;
+  let outstanding = 0;
+  let holding = false;
+  let hold;
+  const held = new Promise((resolve) => (hold = resolve));
+  const isUsage = (req) => new URL(req.url()).pathname === usagePath;
+  page.on("request", (req) => isUsage(req) && outstanding++);
+  page.on("requestfinished", (req) => isUsage(req) && outstanding--);
+  page.on("requestfailed", (req) => isUsage(req) && outstanding--);
+  await page.route(
+    (url) => url.pathname === usagePath,
+    (route) => (holding ? hold(route) : route.continue())
+  );
+
+  await page.clock.install();
+  await page.goto(baseURL);
+  const card = page.locator(".account-card", { hasText: "Aging Numbers" });
+  const age = card.locator(".usage-age");
+  await expect(card.locator(".meter").first()).toBeVisible();
+  // Numbers just read need no caption.
+  await expect(age).toBeHidden();
+
+  // Stop the page's clock, so no poll runs but the ones this test moves
+  // it through, and let any usage request already out come back.
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+  await expect.poll(() => outstanding).toBe(0);
+  // Marked, so a meter rebuilt to move the label would be noticed.
+  await card.locator(".meter").first().evaluate((el) => (el.dataset.original = "yes"));
+
+  // The next usage request is held, so from here on no answer from the
+  // server can be what moves the label: only the page's own clock can.
+  holding = true;
+  await page.clock.fastForward("03:30");
+  const route = await held;
+  await expect(age).toBeVisible();
+  await expect(age).toHaveText(/^as of .+ · 3 min ago$/);
+
+  // It keeps counting by itself, and leaves the meters alone doing so.
+  await page.clock.runFor(60_000);
+  await expect(age).toHaveText(/ · 4 min ago$/);
+  await expect(card.locator('.meter[data-original="yes"]')).toHaveCount(1);
+
+  // A fresh read takes the caption away again. The same numbers under a
+  // different note do not rebuild the meters either: a stale card's note
+  // says how old its numbers are, so it changes every minute while they
+  // stay put.
+  const response = await route.fetch();
+  const snapshot = await response.json();
+  snapshot.usage.fetchedAt = await page.evaluate(() => new Date().toISOString());
+  snapshot.error = "A note that changed while the numbers did not.";
+  await route.fulfill({ response, json: snapshot });
+  await expect(age).toBeHidden();
+  await expect(card.locator(".usage-note")).toHaveText(snapshot.error);
+  await expect(card.locator('.meter[data-original="yes"]')).toHaveCount(1);
+
+  // The clock is still stopped, so no poll can ask for this account's
+  // usage once it is gone: that would be a 404, which the console
+  // listener above fails the test on.
+  await deleteAccount(account.id);
+});
+
+// A hidden tab's timers are throttled, so a page left behind another
+// window came back out of date and stayed that way until its next tick.
+test("reads everything again as soon as a hidden tab is shown", async ({ page }) => {
+  await page.clock.install();
+  await page.goto(baseURL);
+  // The first poll has come back; no account is needed for that.
+  await expect(page.locator("#refreshed")).toContainText("updated");
+
+  // Stop the page's clock so no scheduled poll can be what answers
+  // below, and let any poll already out come back first.
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+  await page.waitForTimeout(1000);
+
+  const isAccountList = (req) => new URL(req.url()).pathname === "/api/accounts";
+  let listRequests = 0;
+  page.on("request", (req) => {
+    if (isAccountList(req)) listRequests++;
+  });
+
+  // Going away is no reason to read anything.
+  await setVisibility(page, "hidden");
+  await page.waitForTimeout(500);
+  expect(listRequests).toBe(0);
+
+  const reread = page.waitForRequest(isAccountList, { timeout: 2000 });
+  await setVisibility(page, "visible");
+  await reread;
 });
 
 // Closing the dialog mid-login must leave the UI able to start another

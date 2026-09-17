@@ -61,7 +61,7 @@ async function loadAccounts() {
   const generation = accountsGeneration;
   const data = await api("/api/accounts");
   if (generation !== accountsGeneration) return;
-  await renderAccounts(data.accounts || []);
+  renderAccounts(data.accounts || []);
 }
 
 // --- time formatting --------------------------------------------------
@@ -96,6 +96,17 @@ function formatWhen(date) {
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+// formatAgo is the same two units looking back, worded the way the
+// server's notes word an age: "6 min ago", "1 h 5 min ago".
+function formatAgo(ms) {
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 1) return "less than a minute ago";
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours === 0) return `${mins} min ago`;
+  return mins > 0 ? `${hours} h ${mins} min ago` : `${hours} h ago`;
+}
+
 // Countdowns tick in the browser from the absolute timestamps the server
 // sent, so the page stays honest while it sits open without polling.
 const countdowns = [];
@@ -120,6 +131,8 @@ setInterval(() => {
     if (!countdowns[i].el.isConnected) countdowns.splice(i, 1);
     else tickOne(countdowns[i]);
   }
+  // Ages count up on the same beat, on whatever cards are on screen.
+  accountsList.querySelectorAll(".account-card").forEach(tickAge);
 }, 1000);
 
 function planLabel(plan) {
@@ -157,12 +170,12 @@ function listSignature(accounts) {
 
 let renderedSignature = null;
 
-async function renderAccounts(accounts) {
+function renderAccounts(accounts) {
   const signature = listSignature(accounts);
   if (signature === renderedSignature && accountsList.children.length === accounts.length) {
     // Same accounts as last time: leave the cards alone and let the
-    // usage poll update what is inside them.
-    await refreshVisibleUsage(accounts);
+    // usage requests update what is inside them.
+    refreshVisibleUsage(accounts);
     return;
   }
   renderedSignature = signature;
@@ -170,7 +183,6 @@ async function renderAccounts(accounts) {
   accountsList.innerHTML = "";
   emptyState.hidden = accounts.length > 0;
 
-  const pending = [];
   for (const account of accounts) {
     const node = rowTemplate.content.cloneNode(true);
     const card = node.querySelector(".account-card");
@@ -223,22 +235,17 @@ async function renderAccounts(accounts) {
     removeBtn.addEventListener("click", () => removeAccount(account, isDefault));
 
     accountsList.appendChild(node);
-    pending.push(loadUsage(account, card));
+    refreshUsage(account, card);
   }
-  await Promise.all(pending);
 }
 
 // refreshVisibleUsage re-reads the numbers for cards that are already on
 // screen, which is every poll after the first.
 function refreshVisibleUsage(accounts) {
-  const pending = [];
   for (const account of accounts) {
     const card = accountsList.querySelector(`.account-card[data-id="${CSS.escape(account.id)}"]`);
-    if (card) pending.push(loadUsage(account, card));
+    if (card) refreshUsage(account, card);
   }
-  // Awaited by the poll, so a slow round of requests delays the next
-  // tick instead of stacking another round on top of it.
-  return Promise.all(pending);
 }
 
 // --- usage ------------------------------------------------------------
@@ -256,6 +263,21 @@ function setStatus(badge, status) {
   badge.textContent = STATUS_TEXT[status] || status;
 }
 
+// Cards whose usage request has not come back yet.
+//
+// Nothing waits on these requests but the card they belong to. The poll
+// used to wait for every card's, so one account slow to answer — a cold
+// cache, a call to Anthropic that stalled — held back every other card
+// and made the poll skip its ticks until it returned. A card still
+// waiting is not asked again on top, so a slow answer never stacks up.
+const usageInFlight = new WeakSet();
+
+function refreshUsage(account, card) {
+  if (usageInFlight.has(card)) return;
+  usageInFlight.add(card);
+  loadUsage(account, card).finally(() => usageInFlight.delete(card));
+}
+
 async function loadUsage(account, card) {
   let snapshot;
   try {
@@ -268,13 +290,23 @@ async function loadUsage(account, card) {
   // account's numbers from reappearing under a live one.
   if (!card.isConnected) return;
   renderUsage(card, account, snapshot);
-  return !snapshot.error;
 }
 
 // usageSignature is everything a card actually draws. The poll runs
 // every few seconds and most of those answers are identical, so this is
 // what tells them apart — without it, every poll would rebuild the
 // meters and the bars would flick back to zero as they re-animated.
+//
+// usage.fetchedAt stays out of it on purpose. The server reads each
+// account once a minute, and a new read of the same numbers changes
+// nothing a meter draws; it only moves the age label, which follows it
+// separately (see noteReadAt).
+//
+// So does the note under the meters. On a card whose numbers have
+// stopped moving, the server's note says how many minutes old they are,
+// so it changes every minute while nothing else does. Counted here, it
+// rebuilt exactly those cards once a minute, and took any hover or
+// selection on them along (see showNote).
 function usageSignature(account, snapshot) {
   const limits = ((snapshot.usage && snapshot.usage.limits) || []).map((l) => [
     l.label,
@@ -285,7 +317,6 @@ function usageSignature(account, snapshot) {
   const session = snapshot.session || {};
   return JSON.stringify([
     liveStatus(account, snapshot),
-    snapshot.error || "",
     session.plan || "",
     session.accessExpiresAt || "",
     session.sessionExpiresAt || "",
@@ -299,6 +330,10 @@ function usageSignature(account, snapshot) {
 const drawnFrom = new WeakMap();
 
 function renderUsage(card, account, snapshot) {
+  // Ahead of the signature check: an answer identical in every number
+  // can still be a newer read of them, or come with a newer note.
+  noteReadAt(card, snapshot);
+  showNote(card, snapshot.error);
   const signature = usageSignature(account, snapshot);
   if (drawnFrom.get(card) === signature) return;
   // First paint for this card is the one that animates; later ones are
@@ -307,7 +342,6 @@ function renderUsage(card, account, snapshot) {
   drawnFrom.set(card, signature);
 
   const meters = card.querySelector(".meters");
-  const note = card.querySelector(".usage-note");
   const session = card.querySelector(".session");
   meters.innerHTML = "";
   session.innerHTML = "";
@@ -323,10 +357,50 @@ function renderUsage(card, account, snapshot) {
     meters.appendChild(buildMeter(limit, firstPaint));
   }
 
-  note.hidden = !snapshot.error;
-  if (snapshot.error) note.textContent = snapshot.error;
-
   buildSession(session, snapshot.session, state);
+}
+
+// showNote puts the server's note under a card's meters. The text is only
+// touched when it changed, so a note someone is reading or selecting is
+// not swapped out from under them by a poll that said the same thing.
+function showNote(card, text) {
+  const note = card.querySelector(".usage-note");
+  note.hidden = !text;
+  if (text && note.textContent !== text) note.textContent = text;
+}
+
+// How old a card's numbers may get before the card says so. The server
+// reads each account once a minute, so numbers two minutes old have
+// missed a read — a rate limit, a token waiting on Claude Code, an
+// outage — and bars that stopped moving look just like bars that had
+// nothing to move.
+const STALE_AFTER_MS = 2 * 60_000;
+
+// When the numbers on each card were read, keyed by the card itself.
+const numbersReadAt = new WeakMap();
+
+function noteReadAt(card, snapshot) {
+  const at = new Date(snapshot.usage ? snapshot.usage.fetchedAt : NaN);
+  if (isNaN(at)) numbersReadAt.delete(card);
+  else numbersReadAt.set(card, at);
+  tickAge(card);
+}
+
+// tickAge shows a card's age label once its numbers are old enough to
+// need one, and keeps it counting: it runs every second with the
+// countdowns, so "6 min ago" turns into "7 min ago" on a card nothing
+// has redrawn.
+function tickAge(card) {
+  const label = card.querySelector(".usage-age");
+  const at = numbersReadAt.get(card);
+  const age = at ? Date.now() - at : 0;
+  label.hidden = !(age > STALE_AFTER_MS);
+  if (label.hidden) return;
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const time = at.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const when = at >= midnight ? time : `${fullDate(at)} ${time}`;
+  label.textContent = `as of ${when} · ${formatAgo(age)}`;
 }
 
 // liveStatus is the one word that says whether this account will work if
@@ -667,18 +741,21 @@ async function loadBuildTag() {
 
 let polling = false;
 
-// poll is the whole refresh story: no button, no manual reload. A slow
-// answer must not stack up behind the next tick, so a poll already in
-// flight simply skips this one.
+// poll is the whole refresh story: no button, no manual reload. It
+// waits on the account list and the build tag and nothing else — each
+// card asks for its own numbers, see refreshUsage. A slow answer must
+// not stack up behind the next tick, so a poll already in flight simply
+// skips this one.
 async function poll() {
   if (polling) return;
   polling = true;
   try {
     await loadAccounts();
     await loadBuildTag();
-    // Stamped here, once a whole round actually came back: the label is
+    // Stamped here, once the server has actually answered: the label is
     // the only thing on the page that says the polling is still alive,
-    // so it must not tick while the answers are failing.
+    // so it must not tick while the answers are failing. A card whose
+    // own numbers have fallen behind says so on the card.
     refreshedLabel.textContent =
       "updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   } catch (err) {
@@ -696,3 +773,11 @@ poll().catch((err) => {
 });
 
 setInterval(poll, POLL_MS);
+
+// A hidden tab's timers are throttled — to once a minute, and after a
+// while less often still — so a page left behind another window comes
+// back out of date. Coming back is when someone is about to read it, so
+// read everything then rather than at whatever tick comes next.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") poll();
+});

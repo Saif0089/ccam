@@ -19,6 +19,7 @@ const usagePayload = `{"limits":[
 ],"extra_usage":{"is_enabled":false}}`
 
 func TestAccountUsage(t *testing.T) {
+	t.Setenv("CCAM_CREDENTIALS_FILE", "1") // the file written below, never the Keychain
 	srv, _ := newTestServer(t)
 
 	account, err := srv.manager.Add("Work")
@@ -84,14 +85,27 @@ func TestAccountUsage(t *testing.T) {
 		t.Errorf("response leaked the access token: %s", raw)
 	}
 
-	// A plain reload is served from cache; the Refresh button is not.
+	// A plain reload is served from cache, and so is a leftover ?refresh=1:
+	// a GET must never be a way to make ccam ask Anthropic sooner.
+	get("/api/accounts/" + account.ID + "/usage")
+	get("/api/accounts/" + account.ID + "/usage?refresh=1")
+	if calls != 1 {
+		t.Errorf("calls = %d, want every repeat read served from cache", calls)
+	}
+
+	// The expire route answers without reading anything, and leaves numbers
+	// read a moment ago alone: switching accounts can send several in a row.
+	resp, err := http.Post(ts.URL+"/api/accounts/"+account.ID+"/usage/expire", "", nil)
+	if err != nil {
+		t.Fatalf("POST usage/expire: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("POST usage/expire: status = %d, want 204", resp.StatusCode)
+	}
 	get("/api/accounts/" + account.ID + "/usage")
 	if calls != 1 {
-		t.Errorf("calls = %d, want the reload served from cache", calls)
-	}
-	get("/api/accounts/" + account.ID + "/usage?refresh=1")
-	if calls != 2 {
-		t.Errorf("calls = %d, want ?refresh=1 to bypass the cache", calls)
+		t.Errorf("calls = %d, want numbers read a moment ago kept after an expire", calls)
 	}
 }
 
@@ -107,6 +121,15 @@ func TestAccountUsageUnknownAccount(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", resp.StatusCode)
+	}
+
+	expired, err := http.Post(ts.URL+"/api/accounts/nope/usage/expire", "", nil)
+	if err != nil {
+		t.Fatalf("POST usage/expire: %v", err)
+	}
+	defer expired.Body.Close()
+	if expired.StatusCode != http.StatusNotFound {
+		t.Errorf("POST usage/expire: status = %d, want 404", expired.StatusCode)
 	}
 }
 

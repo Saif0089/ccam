@@ -16,6 +16,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/accounts/{id}", s.handleDeleteAccount)
 
 	mux.HandleFunc("GET /api/accounts/{id}/usage", s.handleAccountUsage)
+	mux.HandleFunc("POST /api/accounts/{id}/usage/expire", s.handleExpireUsage)
 
 	mux.HandleFunc("POST /api/accounts/{id}/login", s.handleStartLogin)
 	mux.HandleFunc("GET /api/accounts/{id}/login/events", s.handleLoginEvents)
