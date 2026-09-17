@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"ccam/internal/panel"
+	"ccam/panel"
 )
 
 // dsn is the test database, or the test is skipped. CI without a database, and

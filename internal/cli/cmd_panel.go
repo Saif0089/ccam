@@ -16,8 +16,8 @@ import (
 
 	"ccam/internal/accounts"
 	"ccam/internal/config"
-	"ccam/internal/panel"
 	"ccam/internal/shellrc"
+	"ccam/panel"
 )
 
 // defaultPanelAddr is the panel's own port, one above the local UI's. It binds

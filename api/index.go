@@ -18,8 +18,8 @@ import (
 	"os"
 	"sync"
 
-	"ccam/internal/panel"
-	"ccam/internal/panelpg"
+	"ccam/panel"
+	"ccam/panelpg"
 )
 
 var (

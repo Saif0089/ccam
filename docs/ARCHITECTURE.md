@@ -96,7 +96,7 @@ amd64/arm64 (`CGO_ENABLED=0`).
 
   The panel keeps its whole state as one blob behind a small `Backend`
   interface: a JSON file for `ccam panel serve` on one machine, and Postgres
-  (`internal/panelpg`, a separate package so its driver never links into the
+  (`panelpg`, a separate package so its driver never links into the
   client binary) for a panel hosted as several instances at once. The one-holder
   rule that a single writer gets from a mutex, several writers get from a
   compare-and-swap on a version column — the losing writer re-runs its decision

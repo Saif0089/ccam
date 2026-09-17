@@ -3,91 +3,74 @@
 The panel is one Go serverless function (`api/index.go`) that serves the admin
 UI and the API every machine's client talks to. Its state lives in Postgres, not
 on disk, because a serverless panel is many short-lived instances at once and the
-one-machine-per-account rule is held by a database compare-and-swap that all of
-them share. The client on each machine is unchanged: it checks in every thirty
-seconds and obeys whatever the panel says.
+one-machine-per-account rule is held by a database compare-and-swap they share.
+The client on each machine is the ordinary ccam binary: it checks in every thirty
+seconds, obeys the panel, and self-updates from the GitHub `latest` release.
 
-Both halves update themselves on every release. The client is the ordinary ccam
-binary, which already self-updates from the GitHub `latest` release. The server
-redeploys itself: the CI pipeline's `deploy-panel` job runs on every push to
-main, once the four settings below are in place.
+## What is already set up
 
-## One-time setup
+The project is linked and deployed:
 
-Everything here is on your Vercel/GitHub account — the parts ccam cannot do for
-you. About ten minutes.
+- Project: `cc_account_manager` on Vercel, live at **https://ccaccountmanager.vercel.app**
+- `CCAM_PANEL_KEY` (the key that seals stored logins) is set in the Production
+  environment. Keep your copy — losing it makes every stored login unreadable.
+- Vercel's own authentication wall (SSO) is turned off for this project, so the
+  panel's own password is the gate rather than a second Vercel login the client
+  machines could not pass.
 
-1. **A Postgres database.** Any Postgres works; Neon (neon.tech) has a free tier
-   and pairs with Vercel in a click. Create one and copy its connection string
-   (`postgres://…`). The panel creates its own table on first run.
+Until the two steps below are done, the panel answers every request with
+"set DATABASE_URL" — the function is running, it just has nowhere to keep state.
 
-2. **A sealing key.** On this machine:
+## The two remaining steps (dashboard, ~3 min)
 
-   ```sh
-   ccam panel genkey
-   ```
+Both are on your Vercel account, which is why they are yours to click.
 
-   It prints one base64 line. This key opens the logins the panel stores; keep a
-   copy somewhere safe, because losing it makes every stored login unreadable.
+1. **Give it a database.** Vercel dashboard → the `cc_account_manager` project →
+   **Storage** → **Create Database** → **Neon** (Postgres, has a free tier).
+   Accept the defaults and attach it to the project. Vercel injects `DATABASE_URL`
+   into the environment automatically; the panel creates its own table on first
+   request. Redeploy once (Deployments → ⋯ → Redeploy) so the new variable is
+   picked up.
 
-3. **Point the Vercel CLI at the right account** (you said it is signed in to a
-   different one):
+2. **Turn on auto-deploy** so the server updates itself on every release.
+   Project → **Settings** → **Git** → connect it to `Saif0089/ccam` (this asks
+   you to link your GitHub account to Vercel once). From then on every push to
+   `main` redeploys the panel — in lockstep with the client release the CI
+   pipeline publishes from the same push.
 
-   ```sh
-   vercel logout
-   vercel login          # sign in as the account that should own this
-   ```
-
-4. **Link and set the environment**, from the repo root:
-
-   ```sh
-   vercel link                                    # create/select the project
-   vercel env add DATABASE_URL production         # paste the Postgres string
-   vercel env add CCAM_PANEL_KEY production        # paste the genkey output
-   vercel deploy --prod                            # first deploy
-   ```
-
-   The URL it prints is the panel. Open it once and set the admin password.
-
-## Make the server redeploy on every release
-
-So a `git push` ships the client release *and* the panel together, add these to
-the GitHub repo (Settings → Secrets and variables → Actions):
-
-- Secret `VERCEL_TOKEN` — from Vercel → Account Settings → Tokens.
-- Secret `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` — both are in `.vercel/project.json`
-  after `vercel link` (that folder is gitignored; read the values out of it).
-- Variable `VERCEL_DEPLOY` = `true` — the switch that turns the deploy job on.
-  Until it is set, the job is skipped and the pipeline is unchanged.
+Then open https://ccaccountmanager.vercel.app and set the admin password.
 
 ## Enrolling machines against it
 
-On each machine, once:
+On each machine, once — the panel shows the exact command under
+People → *the person* → **Send a code**:
 
 ```sh
-# in the panel: People → the person → Send a code, which shows the command:
-ccam panel join https://your-panel.vercel.app <code>
+ccam panel join https://ccaccountmanager.vercel.app <code>
 ```
 
-From then on that machine holds whatever the panel assigns it, and lets go of
-whatever it takes back, within one check-in. An account signed in on a machine is
-handed to the panel with `ccam panel push <account> https://your-panel.vercel.app`.
+An account signed in on a machine is handed to the panel from that machine:
 
-## What this does and does not defend against
+```sh
+ccam panel push <account> https://ccaccountmanager.vercel.app
+```
 
-The panel binds real logins into a Postgres row, sealed with the key. A copy of
-the database alone is not a working set of logins; the key is needed too, and the
-key lives only in Vercel's environment and wherever you kept it. It does not
-defend against someone who already controls the Vercel project or the database.
-A machine that cannot reach the panel keeps what it was last told it had, so
-taking an account back reaches an online machine within thirty seconds and a
-sleeping one when it wakes. If a login may have been copied while someone held
-it, sign that account out at Anthropic after taking it back — that is what makes
-an old copy useless.
+## What this defends against, and what it does not
 
-## Note on the Go version
+The panel keeps real logins in a Postgres row, sealed with `CCAM_PANEL_KEY`. A
+copy of the database alone is not a working set of logins; the key is needed too,
+and it lives only in Vercel's environment and wherever you kept it. It does not
+defend against someone who already controls the Vercel project or the database. A
+machine that cannot reach the panel keeps what it was last told it had, so taking
+an account back reaches an online machine within thirty seconds and a sleeping one
+when it wakes. If a login may have been copied while someone held it, sign that
+account out at Anthropic after taking it back — that is what makes an old copy
+useless.
 
-Vercel's Go runtime must be recent enough for this code (Go 1.24+, for
-`crypto/pbkdf2`). If a deploy fails on the Go version, that is why; Vercel picks
-the runtime, and the fix is on their side or by pinning `GO_VERSION` in the
-project's environment.
+## Alternative to step 2: deploy from CI instead of Git integration
+
+If you would rather not connect GitHub to Vercel, the pipeline has a dormant
+`deploy-panel` job. Set repo secrets `VERCEL_TOKEN` (mint one at Vercel → Account
+Settings → Tokens), `VERCEL_ORG_ID` = `team_6DQvdeYVNBbVbDQ1ZVsez1rb`, and
+`VERCEL_PROJECT_ID` = `prj_XCexE8s0MWmP5aYZg4AiGcLKZr15`, plus the repo variable
+`VERCEL_DEPLOY` = `true`. Use one mechanism or the other, not both.
