@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"ccam/internal/accounts"
@@ -95,8 +96,11 @@ func TestCheckInTakesDeliveryAndThenGivesItBack(t *testing.T) {
 	if string(raw) != `{"claudeAiOauth":{"accessToken":"lent"}}` {
 		t.Errorf("written login = %s", raw)
 	}
-	if info, err := os.Stat(credPath); err == nil && info.Mode().Perm() != 0o600 {
-		t.Errorf("the login is readable by others: mode %v", info.Mode().Perm())
+	// File permissions are a Unix concept; Windows reports 0666 for every file.
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat(credPath); err == nil && info.Mode().Perm() != 0o600 {
+			t.Errorf("the login is readable by others: mode %v", info.Mode().Perm())
+		}
 	}
 
 	// Now take it back.

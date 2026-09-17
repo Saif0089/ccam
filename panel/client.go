@@ -223,10 +223,11 @@ func (c *Client) release(a accounts.Account) error {
 	if a.PanelID == "" {
 		return fmt.Errorf("refusing to give back %s: it is not the panel's to take", a.Name)
 	}
+	// Delete the login wherever it lives — the file, and on macOS the Keychain
+	// item Claude Code migrates it into on first refresh. Deleting only the file
+	// would leave the real credential behind after the member had used it once.
 	if a.ConfigDir != "" {
-		if err := os.Remove(filepath.Join(a.ConfigDir, ".credentials.json")); err != nil && !os.IsNotExist(err) {
-			return err
-		}
+		accounts.RemoveLogin(a.ConfigDir)
 	}
 	_, err := c.Accounts.Remove(a.ID)
 	return err

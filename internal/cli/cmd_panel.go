@@ -251,7 +251,7 @@ func panelPush(args []string) int {
 		fmt.Fprintf(os.Stderr, "ccam: no account called %q on this machine.\n", name)
 		return 1
 	}
-	raw, err := CaptureLogin(acct.ConfigDir)
+	raw, err := accounts.CaptureLogin(acct.ConfigDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ccam: %s is not signed in on this machine, so there is no login to hand to the panel.\n", acct.Name)
 		fmt.Fprintf(os.Stderr, "      Open http://127.0.0.1:%d, connect %s, finish the browser login, then run this again.\n", config.DefaultPort, acct.Slug)

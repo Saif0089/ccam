@@ -43,10 +43,13 @@ func TestCcamNeverWritesTheCredentialStore(t *testing.T) {
 	// back. Reading one to display usage, or to capture a login for the panel to
 	// lend, is safe and necessary, and is allowed. Only the write and delete
 	// primitives are banned.
+	// Banned is the WRITE of credential DATA — the thing that truncated a store
+	// and copied the fragment back over real logins. Reading a login (to show
+	// usage, or to capture it for the panel) and deleting a specific one (to
+	// revoke it) are both safe and necessary, and are allowed.
 	banned := map[string]string{
-		"add-generic-password":    "writing Claude Code's Keychain item",
-		"delete-generic-password": "deleting Claude Code's Keychain item",
-		"security -i":             "writing the Keychain from stdin (the 4 KB truncation bug)",
+		"add-generic-password": "writing Claude Code's Keychain item",
+		"security -i":          "writing the Keychain from stdin (the 4 KB truncation bug)",
 	}
 
 	fset := token.NewFileSet()

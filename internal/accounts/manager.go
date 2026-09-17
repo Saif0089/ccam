@@ -52,7 +52,12 @@ func withLoginState(a Account) Account {
 	if a.Status != StatusLinked {
 		return a
 	}
-	if linked, known := loginStillThere(a.ConfigDir); known && !linked {
+	// Downgrade a stale "linked" when the login is actually gone. This reads
+	// whether a credential exists (a file, or on macOS the Keychain item) —
+	// never whether it is still valid, which only Claude Code can settle. An
+	// expired-but-present login stays "linked"; the live status beside it
+	// reports expiry separately.
+	if _, err := CaptureLogin(a.ConfigDir); err != nil {
 		a.Status = StatusPending
 	}
 	return a
