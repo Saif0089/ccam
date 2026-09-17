@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -109,4 +111,36 @@ func (s *Server) handlePanelDisconnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, panelStatus{})
+}
+
+// handlePanelProxy makes the admin panel first-party. It forwards every request
+// under /panel/ to the panel this machine is enrolled with, so the panel's own
+// UI — the same one it serves on the web, no second copy — runs inside the ccam
+// page. Being same-origin with the local server is what makes its login cookie
+// work; embedded straight from the web it would be a blocked third-party cookie.
+func (s *Server) handlePanelProxy(w http.ResponseWriter, r *http.Request) {
+	st := s.currentPanelStatus()
+	if !st.Enrolled {
+		http.Error(w, "This machine is not connected to a panel.", http.StatusNotFound)
+		return
+	}
+	target, err := url.Parse(st.Server)
+	if err != nil {
+		http.Error(w, "The panel address is not a valid URL.", http.StatusInternalServerError)
+		return
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	base := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		base(req)
+		// Strip the /panel prefix so /panel/api/login reaches the panel's
+		// /api/login, and send the panel's own host so it routes and its
+		// certificate matches.
+		req.URL.Path = strings.TrimPrefix(req.URL.Path, "/panel")
+		if req.URL.Path == "" {
+			req.URL.Path = "/"
+		}
+		req.Host = target.Host
+	}
+	proxy.ServeHTTP(w, r)
 }

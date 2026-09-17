@@ -408,3 +408,9 @@ dialog input[type="text"] {
 #team-panel input#tp-code { flex: 0 1 9rem; }
 #team-panel .tp-err { margin-top: 0.5rem; font-size: 0.8rem; color: var(--crit); min-height: 1em; }
 #team-panel .tp-actions { margin-left: auto; display: flex; gap: 0.4rem; }
+
+#tp-admin-embed { margin-top: 0.9rem; }
+#tp-admin-embed iframe {
+  width: 100%; height: 640px; border: 1px solid var(--rule);
+  border-radius: 8px; background: var(--ink); display: block;
+}

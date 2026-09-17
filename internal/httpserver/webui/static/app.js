@@ -830,12 +830,25 @@ function enrolledView(st) {
       <span class="tp-sub">connected to
         <a class="tp-link" href="${escapeAttr(st.server)}" target="_blank" rel="noopener">${escapeHTML(prettyURL(st.server))}</a>${who}</span>
       <span class="tp-actions">
-        <button id="tp-admin" class="primary">Open admin panel</button>
+        <button id="tp-manage" class="primary">Manage accounts</button>
+        <button id="tp-pop">Open in a tab</button>
         <button id="tp-disconnect">Disconnect</button>
       </span>
     </div>
-    <div class="tp-holds">Holding: ${holds}</div>`;
-  wrap.querySelector("#tp-admin").addEventListener("click", () => window.open(st.server, "_blank", "noopener"));
+    <div class="tp-holds">Holding: ${holds}</div>
+    <div id="tp-admin-embed" hidden>
+      <iframe id="tp-frame" title="Admin panel" src="about:blank"></iframe>
+    </div>`;
+  const embed = wrap.querySelector("#tp-admin-embed");
+  const frame = wrap.querySelector("#tp-frame");
+  wrap.querySelector("#tp-manage").addEventListener("click", (e) => {
+    const show = embed.hidden;
+    embed.hidden = !show;
+    e.target.textContent = show ? "Hide" : "Manage accounts";
+    // Load the proxied panel lazily, and only once.
+    if (show && frame.src === "about:blank") frame.src = "/panel/";
+  });
+  wrap.querySelector("#tp-pop").addEventListener("click", () => window.open("/panel/", "_blank", "noopener"));
   wrap.querySelector("#tp-disconnect").addEventListener("click", disconnectFromPanel);
   return wrap;
 }

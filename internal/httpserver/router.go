@@ -28,6 +28,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/panel", s.handlePanelStatus)
 	mux.HandleFunc("POST /api/panel/connect", s.handlePanelConnect)
 	mux.HandleFunc("POST /api/panel/disconnect", s.handlePanelDisconnect)
+	mux.HandleFunc("/panel/", s.handlePanelProxy)
 
 	mux.Handle("/", webui.Handler())
 }

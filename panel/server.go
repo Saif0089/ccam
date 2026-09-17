@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io/fs"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -99,8 +100,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{
-		"needsSetup": d.Admin == nil,
-		"signedIn":   s.sessionValid(r),
+		"needsSetup":   d.Admin == nil,
+		"signedIn":     s.sessionValid(r),
+		"canonicalUrl": strings.TrimRight(os.Getenv("CCAM_PANEL_URL"), "/"),
 	})
 }
 
