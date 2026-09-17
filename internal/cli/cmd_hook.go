@@ -5,13 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"ccam/internal/accounts"
 	"ccam/internal/config"
-	"ccam/internal/credstore"
 	"ccam/internal/switching"
 )
 
@@ -64,9 +62,9 @@ func hookUserPromptSubmit() int {
 			name, accountNames(list)))
 	}
 
-	// With a supervisor, hand it the switch: it owns the session's store and,
-	// if the switch cannot be applied in place, it is the only thing that can
-	// relaunch the session instead.
+	// With a supervisor, hand it the switch: relaunching the session is the
+	// only way to change the login it reads, and the supervisor is the only
+	// thing that can relaunch it.
 	if handoff := os.Getenv(switching.HandoffEnvVar); handoff != "" {
 		// Any answer left over from a previous switch would otherwise be read
 		// as the answer to this one.
@@ -84,32 +82,12 @@ func hookUserPromptSubmit() int {
 		return block("Switching to " + displayName(acct) + "…")
 	}
 
-	// No supervisor — an editor's conversation, or any session ccam launched
-	// without one. The switch can still be done from here, because it is only a
-	// write to the credential store this session is reading, and the hook runs
-	// inside that session with the store's path in its environment.
-	//
-	// Strictly the stores ccam made for one session. Anything else — an
-	// account's own directory, the user's default login — is read by every
-	// other session using it, and switching this conversation must not move
-	// theirs.
-	store := ownSessionStore()
-	if store == "" {
-		return 0
-	}
-	if err := credstore.Copy(acct.ConfigDir, store); err != nil {
-		return 0
-	}
-	if !credstore.Same(acct.ConfigDir, store) {
-		return 0 // the write did not land where Claude Code will look
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		_ = switching.AppendOwnership(switching.LedgerPath(home), in.SessionID, acct.ConfigDir)
-		if accountsDir, err := config.AccountsDir(); err == nil {
-			applyIdentity(acct, accountsDir, filepath.Join(home, ".claude.json"))
-		}
-	}
-	return block("Switched to " + displayName(acct) + ". This conversation continues on that account.")
+	// No supervisor. Switching used to be possible from here, by writing the
+	// credential store this session was reading — that write path is gone, and
+	// with it the class of bug that destroyed two real logins. Say plainly that
+	// this session cannot be switched rather than failing silently.
+	return block("This session was not started by ccam, so it cannot be switched to " +
+		displayName(acct) + ". Start sessions with `ccam <account>` and the same command switches them.")
 }
 
 // switchReportTimeout is how long the hook waits for the supervisor to report
@@ -139,28 +117,6 @@ func block(reason string) int {
 	}
 	os.Stdout.Write(out)
 	return 0
-}
-
-// ownSessionStore is the credential store this session is reading, but only
-// when ccam made it for this session alone. A store under sessions/ or
-// editors/ is ccam's own; an account directory is shared by every session of
-// that account, and the default login is shared by everything.
-func ownSessionStore() string {
-	dir := strings.TrimSpace(os.Getenv(accounts.SecureStorageEnvVar))
-	if dir == "" {
-		return ""
-	}
-	accountsDir, err := config.AccountsDir()
-	if err != nil {
-		return ""
-	}
-	root := filepath.Dir(accountsDir)
-	for _, own := range []string{filepath.Join(root, "sessions"), filepath.Join(root, "editors")} {
-		if rel, err := filepath.Rel(own, dir); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return dir
-		}
-	}
-	return ""
 }
 
 func loadAccounts() ([]accounts.Account, error) {

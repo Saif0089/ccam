@@ -4,8 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"ccam/internal/credstore"
 )
 
 func newTestManager(t *testing.T) *Manager {
@@ -156,31 +154,28 @@ func TestGetUnknownAccountErrors(t *testing.T) {
 // what it did not know was broken. Both managed accounts on the author's machine
 // were in exactly that state.
 func TestListReportsAnAccountWhoseLoginIsGoneAsPending(t *testing.T) {
-	t.Setenv(credstore.ForceFileEnvVar, "1")
 	m := newTestManager(t)
 
 	acct, err := m.Add("work")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := credstore.Write(acct.ConfigDir, []byte(`{"claudeAiOauth":{"accessToken":"not-a-real-token"}}`)); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := m.SetStatus(acct.ID, StatusLinked); err != nil {
 		t.Fatal(err)
 	}
+
+	// A login that is there: the stored status stands.
+	seedLoginState(acct.ConfigDir, true)
 	got, err := m.Get(acct.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Status != StatusLinked {
-		t.Fatalf("an account with a login in its store reports %q, want linked", got.Status)
+		t.Fatalf("an account whose login is there reports %q, want linked", got.Status)
 	}
 
 	// The login goes, as it does when a store is emptied or destroyed.
-	if err := credstore.Delete(acct.ConfigDir); err != nil {
-		t.Fatal(err)
-	}
+	seedLoginState(acct.ConfigDir, false)
 	got, err = m.Get(acct.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -197,4 +192,42 @@ func TestListReportsAnAccountWhoseLoginIsGoneAsPending(t *testing.T) {
 			t.Errorf("List: an account with no login reports %q, want pending", a.Status)
 		}
 	}
+}
+
+// Until ccam has actually looked, a stored "linked" stands. Downgrading an
+// account nobody has probed yet would report every account as disconnected for
+// the first moments after every restart, which is the same lie in the other
+// direction.
+func TestStatusIsLeftAloneUntilTheLoginHasBeenChecked(t *testing.T) {
+	m := newTestManager(t)
+	acct, err := m.Add("work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SetStatus(acct.ID, StatusLinked); err != nil {
+		t.Fatal(err)
+	}
+	got, err := m.Get(acct.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusLinked {
+		t.Errorf("status before anything was observed = %q, want linked", got.Status)
+	}
+}
+
+// seedLoginState records an observation without running a probe, so the tests
+// are deterministic and never shell out to a real `claude`.
+func seedLoginState(configDir string, linked bool) {
+	loginMu.Lock()
+	defer loginMu.Unlock()
+	loginCache[configDir] = loginState{at: loginNow(), linked: linked, observed: true}
+}
+
+// TestMain keeps the background login probe away from the real `claude`: it is
+// goroutine work behind List and Get, so a slow or missing binary would surface
+// as flakiness in tests that are about something else entirely.
+func TestMain(m *testing.M) {
+	probeLogin = func(string) bool { return true }
+	os.Exit(m.Run())
 }

@@ -9,28 +9,28 @@ import (
 
 	"ccam/internal/accounts"
 	"ccam/internal/config"
-	"ccam/internal/switching"
 )
 
 // cmdExec is what an editor runs instead of Claude Code.
 //
 // The Claude Code extension can be told to launch Claude through another
 // executable — `claudeCode.claudeProcessWrapper` — which it then runs with the
-// real binary as the first argument. ccam puts itself there so that every
-// conversation the editor starts gets a credential store of ITS OWN, seeded
-// from the account that editor is set to.
+// real binary as the first argument. ccam puts itself there so every
+// conversation the editor starts is scoped to the account that editor is set
+// to, rather than to whatever the extension's machine-wide environment setting
+// happened to hold.
 //
-// That per-conversation store is the whole point. The setting that would
-// otherwise carry the account is machine-scoped: one value for the entire
-// editor, so writing to it moves every conversation at once. Launching each
-// conversation ourselves is the only way to give them separate stores, and
-// separate stores are what let `ccam <name>`, typed in one chat, switch that
-// chat and leave the others alone.
+// Each conversation used to get a credential store of its own, seeded from the
+// account, so `ccam <name>` typed in one chat could move that chat alone. That
+// needed ccam to write credential stores, which is exactly the thing that
+// destroyed two real logins, so it is gone: every conversation in an editor now
+// runs as the account the editor is set to, and changing account is a setting
+// for the whole editor again.
 //
 // It is deliberately hard to break. Anything unexpected — no account, no
-// credentials, a store that cannot be written — falls through to running the
-// real binary exactly as the editor would have. A user's editor must not stop
-// working because ccam had an opinion.
+// config directory — falls through to running the real binary exactly as the
+// editor would have. A user's editor must not stop working because ccam had an
+// opinion.
 func cmdExec(args []string) int {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: ccam exec <claude-binary> [args...]")
@@ -40,32 +40,14 @@ func cmdExec(args []string) int {
 
 	// Whichever account this editor is set to, and the user's default login
 	// when it has never been set — which is what a plain `claude` would have
-	// used, so an editor nobody has configured behaves exactly as before. The
-	// store is still per-conversation, so `ccam <name>` in one chat can move
-	// that chat without touching the others.
+	// used, so an editor nobody has configured behaves exactly as before.
 	acct, ok := editorAccount()
 	if !ok {
 		return runPlainClaude(bin, passthrough)
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return runPlainClaude(bin, passthrough)
-	}
-	accountsDir, err := config.AccountsDir()
-	if err != nil {
-		return runPlainClaude(bin, passthrough)
-	}
-
-	creds := newSessionCreds(filepath.Join(filepath.Dir(accountsDir), "sessions"), acct, switching.LedgerPath(home))
-	if creds == nil {
-		return runPlainClaude(bin, passthrough)
-	}
-	defer creds.close()
-
-	env := accounts.EnvForSharedConfig(creds.dir())
 	cmd := exec.Command(bin, passthrough...)
-	cmd.Env = env
+	cmd.Env = accounts.EnvForSharedConfig(acct.ConfigDir)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 
 	// The editor talks to this process over its stdio, so ccam must be a plain

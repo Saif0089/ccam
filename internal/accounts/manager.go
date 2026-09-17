@@ -7,8 +7,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-
-	"ccam/internal/credstore"
 )
 
 // Manager is the CRUD API the HTTP layer drives. It owns slug/alias
@@ -54,8 +52,7 @@ func withLoginState(a Account) Account {
 	if a.Status != StatusLinked {
 		return a
 	}
-	data, err := credstore.Read(a.ConfigDir)
-	if err != nil || !credstore.HasLogin(data) {
+	if linked, known := loginStillThere(a.ConfigDir); known && !linked {
 		a.Status = StatusPending
 	}
 	return a

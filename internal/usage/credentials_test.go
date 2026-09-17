@@ -60,24 +60,6 @@ func TestParseCredentialsMissingExpiry(t *testing.T) {
 	}
 }
 
-// The default account and a managed one are different Keychain items;
-// mixing them up would show one account's usage under another's name.
-func TestKeychainService(t *testing.T) {
-	if got := keychainService(""); got != "Claude Code-credentials" {
-		t.Errorf("default service = %q", got)
-	}
-	got := keychainService("/Users/x/.ccam/accounts/work")
-	if len(got) != len("Claude Code-credentials")+9 {
-		t.Errorf("service = %q, want an 8-hex suffix", got)
-	}
-	if got == keychainService("/Users/x/.ccam/accounts/home") {
-		t.Error("two config dirs produced the same Keychain service")
-	}
-	if got != keychainService("/Users/x/.ccam/accounts/work") {
-		t.Error("keychainService is not stable for the same config dir")
-	}
-}
-
 func TestCredentialsPath(t *testing.T) {
 	dir := t.TempDir()
 	if got, want := CredentialsPath(dir), filepath.Join(dir, ".credentials.json"); got != want {

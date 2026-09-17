@@ -4,15 +4,11 @@
 package usage
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"time"
 )
 
@@ -28,7 +24,7 @@ type Credentials struct {
 	Scopes           []string
 }
 
-// storedCredentials mirrors the on-disk / in-Keychain JSON.
+// storedCredentials mirrors the on-disk JSON.
 type storedCredentials struct {
 	ClaudeAIOAuth struct {
 		AccessToken           string   `json:"accessToken"`
@@ -46,29 +42,20 @@ type storedCredentials struct {
 // configDir is the account's CLAUDE_CONFIG_DIR, or empty for the
 // default account — the one plain `claude` uses.
 //
-// Where they live differs by platform, and on macOS the Keychain entry
-// is keyed by config directory: the default account is under
-// "Claude Code-credentials" and every other one under
-// "Claude Code-credentials-<first 8 hex of sha256(configDir)>". That
-// derivation is Claude Code's own, verified against a real install; if
-// it ever changes this degrades to "usage unavailable" rather than
-// breaking anything.
+// This reads the credentials file and nothing else. ccam used to also
+// derive and read Claude Code's macOS Keychain item, duplicating an
+// undocumented name derivation that only Claude Code owns; the write
+// half of that arrangement destroyed two real logins (see the 4 KB
+// truncation in the history), so the whole of it is gone. On a machine
+// where Claude Code keeps its credentials in the Keychain there is no
+// file to read and usage reports itself unavailable, which is the
+// honest answer rather than a guess.
 func ReadCredentials(configDir string) (Credentials, error) {
-	// On macOS the Keychain is the usual home, but not the only one:
-	// Claude Code writes the plain file when the Keychain is
-	// unavailable, which is the normal case over SSH and in containers.
-	// Try both, in that order, rather than assuming by platform.
-	if runtime.GOOS == "darwin" {
-		if raw, err := readKeychain(keychainService(configDir)); err == nil {
-			return parseCredentials(raw)
-		}
-	}
-
 	raw, err := os.ReadFile(CredentialsPath(configDir))
 	if err != nil {
-		// Both stores came up empty, which means nobody has signed this
-		// account in — say that, rather than passing on an errno or a
-		// `security` exit status that explains nothing to the reader.
+		// Say what this means rather than passing on an errno: for the
+		// reader of the card, a missing file is "nobody has signed this
+		// account in".
 		if os.IsNotExist(err) {
 			return Credentials{}, errNoLogin
 		}
@@ -108,32 +95,8 @@ func millisToTime(ms int64) time.Time {
 	return time.UnixMilli(ms)
 }
 
-// keychainService is the macOS Keychain service name for an account.
-func keychainService(configDir string) string {
-	const base = "Claude Code-credentials"
-	if configDir == "" {
-		return base
-	}
-	sum := sha256.Sum256([]byte(configDir))
-	return base + "-" + hex.EncodeToString(sum[:])[:8]
-}
-
-// readKeychain shells out to /usr/bin/security rather than calling the
-// Keychain API directly. Keychain access is granted per executable, and
-// the item was created by Claude Code — going through the same tool a
-// person would use by hand means ccam inherits that tool's access
-// instead of prompting under its own unfamiliar name.
-func readKeychain(service string) ([]byte, error) {
-	cmd := exec.Command("/usr/bin/security", "find-generic-password", "-s", service, "-w")
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("reading this account's login from the Keychain: %w", err)
-	}
-	return out, nil
-}
-
-// CredentialsPath is where Claude Code keeps credentials on systems
-// without a Keychain.
+// CredentialsPath is where Claude Code keeps credentials when it is not
+// using an OS keychain.
 func CredentialsPath(configDir string) string {
 	if configDir == "" {
 		home, err := os.UserHomeDir()

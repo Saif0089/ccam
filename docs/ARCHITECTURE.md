@@ -138,63 +138,54 @@ for readers that have not been updated, including ones that cannot be.
 the store actually writes, and says in its failure message why it exists, so
 whoever renames a field finds out here rather than from a bug report.
 
-## Why `claude auth status`, not Keychain code
+## Why `claude auth status`, and no Keychain code at all
 
-Claude Code's credential storage is file-based on Linux/Windows, and on
-macOS may additionally use the Keychain — keyed off `CLAUDE_CONFIG_DIR`
-itself, so two accounts (two different config dirs) never collide. Rather
-than reimplement Anthropic's exact Keychain key derivation, ccam asks the
-CLI: `claude auth status --json` prints `{"loggedIn": true|false, …}` for
-whatever `CLAUDE_CONFIG_DIR` it's given. That's correct regardless of which
-backend a given OS/version uses, costs nothing (it's a local check, unlike
-the `claude -p ping` call this used to make, which spent real tokens on
-every poll), and keeps `CGO_ENABLED=0` viable everywhere.
+Claude Code's credential storage is file-based on Linux and Windows, and on
+macOS may additionally use the Keychain, keyed off the config directory so
+that two accounts never collide. ccam does not reimplement any of that. It
+asks the CLI: `claude auth status --json` prints `{"loggedIn": true|false, …}`
+for whatever config directory it is given. That is correct regardless of which
+backend a given OS or version uses, costs nothing (a local check, unlike the
+`claude -p ping` this once did, which spent real tokens on every poll), and
+keeps `CGO_ENABLED=0` viable everywhere.
 
-`internal/usage` is the one exception, because a "does this work?" answer
-isn't enough there: reporting plan usage means calling Anthropic with the
-account's own access token, which means reading the token itself. So it does
-derive the Keychain item name — `Claude Code-credentials` for the default
-account, `Claude Code-credentials-<first 8 hex of sha256(configDir)>` for
-every other — and falls back to `<configDir>/.credentials.json`, which is
-where Claude Code stores the record when no Keychain is available (over SSH,
-in containers, and on Linux and Windows generally).
+`internal/usage` was once the exception, because reporting plan usage means
+reading the access token rather than asking whether one works. It derived the
+Keychain item name — `Claude Code-credentials-<first 8 hex of sha256(configDir)>`
+— and read it through `/usr/bin/security`.
 
-Both of those follow `CLAUDE_SECURESTORAGE_CONFIG_DIR` when it is set, and
-`CLAUDE_CONFIG_DIR` only as the fallback — verified in the shipped bundle
-for darwin, linux-x64 and win32-x64:
+That exception is gone, along with the `internal/credstore` package that wrote
+the same items. Both existed to support switching an account in place, and the
+write half destroyed two real logins: `security -i` truncates its input at 4095
+bytes, a credential store passes that size once MCP logins are in it, and the
+truncated prefix was *still* a valid `add-generic-password`, so the item was
+replaced with a fragment. Reads preferred the Keychain over the file, so the
+fragment shadowed the good copy, and a mirror then wrote it over the account's
+own store.
 
-```js
-function jy(){let n=process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR;
-  if(n!==void 0)return(n||l(o(),".claude")).normalize("NFC");
-  return be()}
-```
+So the rule now is flat, and `test/guard` enforces it against the whole tree:
+**ccam never reads or writes an OS keychain, and never writes a credential
+store of any kind.** `internal/usage` reads `<configDir>/.credentials.json`
+and nothing else; where Claude Code has put its credentials in the Keychain
+instead, usage reports itself unavailable, which is true rather than a guess.
+`internal/accounts` corrects a stale `linked` status by probing with
+`claude auth status`, cached for 30s and refreshed in the background so the
+HTTP layer never waits on a subprocess (`internal/accounts/loginstate.go`).
 
-Since ccam passes the same absolute path to whichever variable it exports,
-the hash input does not change and **switching an account between the two
-schemes keeps its existing login — no re-login, on any OS.**
-
-Two traps worth writing down. The CLI branches on whether the name is
-**present**, not on what it holds, so `CLAUDE_SECURESTORAGE_CONFIG_DIR=""`
-resolves to the bare `Claude Code-credentials` — the user's real default
-login — and the next token refresh would rotate that login's single-use
-refresh token. ccam therefore never emits either name with an empty value;
-the default account is reached by removing both. And the two branches
-normalise differently — the securestorage path is NFC-normalised, the
-config-dir path is hashed raw — so a non-ASCII account directory would
-hash to two different items if login and sessions took different branches.
-That is why `EnvForConfigDir` sets both variables rather than just the one.
+Two traps are still worth writing down, because `EnvForConfigDir` still has to
+get them right. The CLI branches on whether the variable is **present**, not on
+what it holds, so `CLAUDE_SECURESTORAGE_CONFIG_DIR=""` resolves to the bare
+`Claude Code-credentials` — the user's real default login — and the next token
+refresh would rotate that login's single-use refresh token. ccam therefore
+never emits either name with an empty value; the default account is reached by
+removing both. And the two branches normalise differently — the securestorage
+path is NFC-normalised, the config-dir path is hashed raw — so a non-ASCII
+account directory would resolve to two different items if login and sessions
+took different branches. That is why `EnvForConfigDir` sets both variables.
 
 The bundle is plain-text JS inside the binary. Grep it with `/usr/bin/grep -a`
 or python — a shell whose `grep` is aliased to `ugrep` fails on a bounded
 `{0,240}` window and prints nothing, which reads as "not found".
-
-That derivation is Claude Code's, not ours, so it can change. Everything
-downstream is built to degrade rather than break: a miss here means the card
-says usage is unavailable, and nothing else in ccam is affected. Reading
-goes through `/usr/bin/security` rather than the Keychain API on purpose —
-Keychain access is granted per executable, and the item belongs to Claude
-Code, so using the same tool a person would use by hand inherits that access
-instead of prompting under ccam's unfamiliar name.
 
 ## Testing strategy
 

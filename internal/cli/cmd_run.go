@@ -16,7 +16,6 @@ import (
 	"ccam/internal/accounts"
 	"ccam/internal/claudebin"
 	"ccam/internal/config"
-	"ccam/internal/credstore"
 	"ccam/internal/service"
 	"ccam/internal/switching"
 )
@@ -31,9 +30,9 @@ var switchPollInterval = 150 * time.Millisecond
 var claudeRunner = runClaudeOnce
 
 // onSwitch is called when a switch is staged while Claude Code runs. It
-// returns true if it applied the switch in place — the session keeps running,
-// and everything inside it survives — and false if the session has to be
-// relaunched instead.
+// returns true if it dealt with the handoff on its own — there is nothing to
+// relaunch — and false if the session has to be relaunched on the other
+// account.
 type onSwitch func(switching.Handoff) bool
 
 // claudeCodeEnvVar is set in every process Claude Code spawns, so it tells a
@@ -172,41 +171,33 @@ func cmdRun(args []string) int {
 	handoff := filepath.Join(accountsDir, fmt.Sprintf(".handoff-%d.json", os.Getpid()))
 	defer os.Remove(handoff)
 
-	// Give the session a credential store of its own, seeded from the account.
-	// That is what makes switching in place possible: Claude Code re-reads its
-	// store when it changes, so a switch becomes a write to THIS session's
-	// store rather than a restart that kills everything running inside it.
-	// Falls back to the account's own store, and to relaunching, when a private
-	// store cannot be made.
 	ledger := switching.LedgerPath(home)
-	creds := newSessionCreds(filepath.Join(filepath.Dir(accountsDir), "sessions"), acct, ledger)
-	defer creds.close()
 
 	// Minting the session id means ccam knows it before Claude Code starts, so
 	// the session's usage is attributed to the right account from its first
 	// token rather than from its first switch. Only on a fresh launch: an id
 	// cannot be chosen for a conversation that already has one.
-	sessionID := ""
-	if creds != nil && !hasSessionArgs(passthrough) {
+	//
+	// It is kept out of passthrough deliberately. passthrough is what the user
+	// asked for, and it is what a relaunch is rebuilt from below — carrying a
+	// minted --session-id into a relaunch would hand Claude Code both that and
+	// the --resume of the conversation being moved, which are contradictory.
+	launchArgs := passthrough
+	if !hasSessionArgs(passthrough) {
 		if id, err := newSessionID(); err == nil {
-			sessionID = id
-			passthrough = append([]string{"--session-id", id}, passthrough...)
+			launchArgs = append([]string{"--session-id", id}, passthrough...)
 			if err := switching.AppendOwnership(ledger, id, acct.ConfigDir); err != nil {
 				fmt.Fprintln(os.Stderr, "ccam: could not record this session for the usage monitor:", err)
 			}
 		}
 	}
 
-	sessionArgs := passthrough
+	sessionArgs := launchArgs
 	for {
 		applyIdentity(acct, accountsDir, claudeJSON)
 		switching.ClearHandoff(handoff)
 
-		storeDir := acct.ConfigDir
-		if d := creds.dir(); d != "" {
-			storeDir = d
-		}
-		env := append(accounts.EnvForSharedConfig(storeDir),
+		env := append(accounts.EnvForSharedConfig(acct.ConfigDir),
 			switching.HandoffEnvVar+"="+handoff,
 			fmt.Sprintf("%s=%d", switching.SupervisorEnvVar, os.Getpid()))
 
@@ -232,37 +223,19 @@ func cmdRun(args []string) int {
 				})
 				return true // not a reason to restart the session
 			}
-			id := h.SessionID
-			if id == "" {
-				id = sessionID
-			}
-			ok, reason := creds.switchTo(next, id)
-			if !ok {
-				// Relaunching is the fallback, and it rebuilds the screen, so
-				// this message is safe to be seen on the way past.
-				switching.WriteOutcome(handoff, switching.Outcome{
-					Message: "Switching to " + displayName(next) + " needs a restart of this session (" + reason + "). Restarting now — the conversation comes with it.",
-				})
-				return false
-			}
-			applyIdentity(next, accountsDir, claudeJSON)
-			acct = next
-			msg := "Switched to " + displayName(next) + ". Same session — subagents, background tasks and this conversation all carry on."
-			if credstore.KeychainBacked(creds.dir()) {
-				msg += " macOS caches credential reads for up to 30s, so the next request or two may still bill the old account."
-			}
-			switching.WriteOutcome(handoff, switching.Outcome{OK: true, Message: msg})
-			return true
+			// Switching means relaunching. ccam does not write credential
+			// stores any more — that is what this whole change is about — so
+			// the only way to put a running Claude Code on another login is to
+			// start it again. Relaunching rebuilds the screen, so this message
+			// is safe to be seen on the way past.
+			switching.WriteOutcome(handoff, switching.Outcome{
+				Message: "Switching to " + displayName(next) + " restarts this session. The conversation comes with it; anything running inside it does not.",
+			})
+			return false
 		})
 		if !switched {
 			return code
 		}
-
-		// The switch could not be applied in place, so this is the old path:
-		// relaunch as the other account. The private store goes with it —
-		// whatever stopped the write would stop it again.
-		creds.close()
-		creds = nil
 
 		h, ok := switching.ReadHandoff(handoff)
 		if !ok {
@@ -391,14 +364,12 @@ func runClaudeOnce(bin string, args, env []string, handoff string, applyInPlace 
 					continue
 				}
 				switching.ClearHandoff(handoff)
-				// Preferred path: rewrite the credentials this session is
-				// reading. Claude Code notices and continues on the other
-				// account, so subagents, background tasks and the
-				// conversation itself are untouched.
+				// The callback settles anything that needs no relaunch — an
+				// account that has gone away, an unreadable list — and reports
+				// it to the waiting hook itself.
 				if applyInPlace != nil && applyInPlace(h) {
 					continue
 				}
-				// It could not be done in place — relaunch instead.
 				if err := switching.WriteHandoff(handoff, h); err == nil {
 					select {
 					case switched <- struct{}{}:

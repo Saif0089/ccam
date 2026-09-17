@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"ccam/internal/accounts"
-	"ccam/internal/credstore"
 	"ccam/internal/switching"
 )
 
@@ -51,9 +50,6 @@ func seedRunEnv(t *testing.T) string {
 	// A ccam-supervised shell would export a handoff path; clear it so these
 	// tests exercise the supervisor rather than the switch-staging path.
 	t.Setenv(switching.HandoffEnvVar, "")
-
-	// Credential stores go to files here, never the developer's keychain.
-	t.Setenv(credstore.ForceFileEnvVar, "1")
 
 	// `go test` runs with stdin on a pipe. Claim the terminal so cmdRun's
 	// interactive guard does not turn every supervisor test into a refusal.
@@ -117,8 +113,8 @@ func TestRunSupervisorRelaunchesOnSwitch(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("want 2 launches (ehti, then work), got %d: %v", len(calls), calls)
 	}
-	if len(calls[0]) != 0 {
-		t.Errorf("first launch should carry no resume args, got %v", calls[0])
+	if rest := withoutMintedID(calls[0]); len(rest) != 0 {
+		t.Errorf("first launch should carry no resume args, got %v", rest)
 	}
 	want := []string{"--resume", "sess-123", "--fork-session"}
 	if !reflect.DeepEqual(calls[1], want) {
@@ -330,7 +326,7 @@ func TestRunWithArgsInsideASessionDoesNotStageASwitch(t *testing.T) {
 	if _, ok := switching.ReadHandoff(handoff); ok {
 		t.Error("a command with arguments must not stage a switch")
 	}
-	if want := []string{"-p", "hello"}; !reflect.DeepEqual(got, want) {
+	if want := []string{"-p", "hello"}; !reflect.DeepEqual(withoutMintedID(got), want) {
 		t.Errorf("launch args = %v, want %v", got, want)
 	}
 }
@@ -445,9 +441,20 @@ func TestRunWithArgsSkipsTheTerminalGuard(t *testing.T) {
 		t.Fatalf("cmdRun exit = %d, want 0", code)
 	}
 	want := []string{"-p", "hello"}
-	if !reflect.DeepEqual(got, want) {
+	if !reflect.DeepEqual(withoutMintedID(got), want) {
 		t.Errorf("launch args = %v, want %v", got, want)
 	}
+}
+
+// withoutMintedID drops the --session-id ccam mints for every fresh launch, so
+// a test can assert on the arguments it is actually about.
+func withoutMintedID(args []string) []string {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--session-id" {
+			return append(append([]string{}, args[:i]...), args[i+2:]...)
+		}
+	}
+	return args
 }
 
 func readJSONFile(t *testing.T, path string) map[string]any {
@@ -463,83 +470,64 @@ func readJSONFile(t *testing.T, path string) map[string]any {
 	return m
 }
 
-// mustCreds puts fabricated credentials in an account's store. Nothing real is
-// touched: the store name is derived from a directory that exists only for
-// this test.
-func mustCreds(t *testing.T, configDir, body string) {
-	t.Helper()
-	if err := credstore.Write(configDir, []byte(body)); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { credstore.Delete(configDir) })
-}
-
-// The point of the release: switching moves the session onto another account by
-// rewriting the credentials it is reading, so the process is never restarted
-// and everything running inside it — subagents, background tasks, the
-// conversation — survives.
-func TestSwitchIsAppliedInPlaceWithoutRelaunching(t *testing.T) {
+// Switching a live session relaunches it. ccam does not write credential stores
+// any more, so the login a running Claude Code reads cannot be changed
+// underneath it: the conversation is carried across, and anything running
+// inside the old process ends with it.
+func TestSwitchRelaunchesOntoTheOtherAccount(t *testing.T) {
 	home := seedRunEnv(t)
+	seedTranscript(t, home, "sess-1")
 	ehti := filepath.Join(home, ".ccam", "accounts", "ehti")
-	work := filepath.Join(home, ".ccam", "accounts", "work")
-	mustCreds(t, ehti, `{"claudeAiOauth":{"accessToken":"fake-ehti"}}`)
-	mustCreds(t, work, `{"claudeAiOauth":{"accessToken":"fake-work"}}`)
 	ledger := filepath.Join(home, switching.LedgerFile)
 	mustWrite(t, ledger, "#cutover\t1.000000\n")
 
-	storeDir := filepath.Join(home, ".ccam", "sessions", "s-"+strconv.Itoa(os.Getpid()))
 	var launches [][]string
-	var applied, storeSwitched bool
+	var handled bool
 
 	origRunner := claudeRunner
 	t.Cleanup(func() { claudeRunner = origRunner })
 	claudeRunner = func(bin string, args, env []string, handoff string, applyInPlace onSwitch) (int, bool) {
 		launches = append(launches, append([]string{}, args...))
-		if !slices.Contains(env, accounts.SecureStorageEnvVar+"="+storeDir) {
-			t.Errorf("session was not given its own credential store; env had %v", env)
+		if len(launches) == 1 {
+			// The session runs on the account's own directory: there is no
+			// per-session copy of the login any more.
+			if !slices.Contains(env, accounts.SecureStorageEnvVar+"="+ehti) {
+				t.Errorf("session was not scoped to the account's own directory; env had %v", env)
+			}
+			handled = applyInPlace(switching.Handoff{Account: "work", SessionID: "sess-1"})
+			if err := switching.WriteHandoff(handoff, switching.Handoff{Account: "work", SessionID: "sess-1"}); err != nil {
+				t.Fatal(err)
+			}
+			return 0, true
 		}
-		if !credstore.Same(ehti, storeDir) {
-			t.Error("the session store was not seeded from the account it started as")
-		}
-		applied = applyInPlace(switching.Handoff{Account: "work", SessionID: "sess-1"})
-		storeSwitched = credstore.Same(work, storeDir)
 		return 0, false
 	}
 
 	if code := cmdRun([]string{"ehti"}); code != 0 {
 		t.Fatalf("cmdRun exit = %d, want 0", code)
 	}
-	if !applied {
-		t.Error("the switch was not applied in place")
+	if handled {
+		t.Error("a switch to a real account must ask for a relaunch, not report itself done")
 	}
-	if !storeSwitched {
-		t.Error("the session's credential store does not hold the account it switched to")
-	}
-	if len(launches) != 1 {
-		t.Errorf("the session was relaunched %d time(s); a switch must not restart it", len(launches)-1)
+	if len(launches) != 2 {
+		t.Fatalf("want one relaunch, got %d launch(es)", len(launches))
 	}
 	if !slices.Contains(launches[0], "--session-id") {
 		t.Error("ccam should mint the session id so usage is attributed from the first token")
 	}
-
-	// The usage monitor learns about the switch from the ledger, since there is
-	// no restart and therefore no SessionStart hook to write one.
-	raw, err := os.ReadFile(ledger)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(raw), "sess-1\t"+realpath(t, work)) {
-		t.Errorf("no ownership line for the account switched to:\n%s", raw)
+	// The minted id must not survive into the relaunch: --session-id names a
+	// new conversation and --resume reopens an existing one.
+	want := []string{"--resume", "sess-1", "--fork-session"}
+	if !reflect.DeepEqual(launches[1], want) {
+		t.Errorf("relaunch args = %v, want %v", launches[1], want)
 	}
 }
 
-// When the credentials cannot be rewritten — no private store, an account with
-// no login, a platform where ccam cannot write the store Claude Code reads —
-// the old behaviour has to still be there.
-func TestSwitchFallsBackToRelaunchWhenItCannotBeAppliedInPlace(t *testing.T) {
+// The conversation is what has to survive a switch, so the relaunch resumes it
+// rather than starting clean.
+func TestSwitchRelaunchResumesTheConversation(t *testing.T) {
 	home := seedRunEnv(t)
 	seedTranscript(t, home, "sess-2")
-	// No credentials anywhere, so no private store can be seeded.
 
 	var launches [][]string
 	origRunner := claudeRunner
@@ -548,7 +536,7 @@ func TestSwitchFallsBackToRelaunchWhenItCannotBeAppliedInPlace(t *testing.T) {
 		launches = append(launches, append([]string{}, args...))
 		if len(launches) == 1 {
 			if applyInPlace != nil && applyInPlace(switching.Handoff{Account: "work", SessionID: "sess-2"}) {
-				t.Fatal("claimed an in-place switch with no credential store to write")
+				t.Fatal("a switch to a real account claimed it needed no relaunch")
 			}
 			if err := switching.WriteHandoff(handoff, switching.Handoff{Account: "work", SessionID: "sess-2"}); err != nil {
 				t.Fatal(err)

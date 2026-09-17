@@ -23,16 +23,20 @@ hash, so moving to the narrower one keeps every existing login working. ccam:
 - keeps one shell alias per account (`claude-work`, `claude-personal`, ...) in
   sync across bash, zsh, fish, and PowerShell — so opening *any* terminal and
   running that alias launches `claude` scoped to that account,
-- switches accounts **without restarting anything**: in any session — a
-  terminal, or a chat in VS Code — type `ccam <name>` at the prompt or run
-  `!ccam <name>` as a shell command,
-  and that session is on the other account a moment later — same process, same
-  conversation, and every subagent, workflow and background task still running.
-  Nothing is killed, because nothing is relaunched: ccam gives each session a
-  credential store of its own and a switch rewrites it, which Claude Code
-  notices by itself. (If the store cannot be written, it falls back to the old
-  behaviour — relaunch with the conversation resumed — rather than pretend.)
-  This works in a session you started with `ccam <account>` *and* in one you
+- switches the account a running session is on: type `ccam <name>` at the
+  prompt, or run `!ccam <name>` as a shell command, and the session comes back
+  on the other account **with the conversation resumed**. It is a genuine
+  relaunch, so the conversation survives but anything running inside the old
+  process — subagents, workflows, background tasks — does not.
+
+  This used to happen in place, with nothing restarted: ccam gave each session a
+  private copy of the login and a switch rewrote it. Keeping those copies meant
+  ccam had to *write* Claude Code's credential store, and that is what destroyed
+  two real logins — a store over 4 KB was truncated into a valid-looking
+  fragment and copied over the account's own. ccam now reads logins and never
+  writes them, and pays for it with the restart.
+
+  Switching works in a session you started with `ccam <account>` *and* in one you
   started by just typing `claude`: ccam puts a small `claude` function in your
   shell rc that runs the same supervisor. It steps aside — running Claude Code
   directly — inside an existing session, with no terminal (scripts, pipes, CI),
@@ -74,6 +78,12 @@ open the URL it shows you to finish logging in — the account flips to
 "linked" automatically once you do. Each account's card shows its alias
 (`claude-work`, etc.); open a new terminal and that alias is ready to use, or
 click **Open terminal** to launch one already scoped to that account.
+
+Accounts are no longer isolated from each other beyond their login, and ccam
+never writes a credential store — it reads `<account dir>/.credentials.json`
+and otherwise asks `claude auth status` what it thinks. On a machine where
+Claude Code keeps its credentials in the macOS Keychain there is no file to
+read, so those cards say plan usage is unavailable rather than guessing.
 
 Each card also shows that account's plan usage — the same numbers as
 `/usage` inside Claude Code — with a live countdown to each reset, and two
