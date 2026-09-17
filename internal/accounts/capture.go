@@ -1,4 +1,4 @@
-package cli
+package accounts
 
 import (
 	"crypto/sha256"
@@ -90,4 +90,23 @@ func hasClaudeLogin(raw []byte) bool {
 		} `json:"claudeAiOauth"`
 	}
 	return json.Unmarshal(raw, &stored) == nil && stored.ClaudeAIOAuth.AccessToken != ""
+}
+
+// RemoveLogin deletes an account's login from this machine, wherever it lives:
+// the credentials file, and on macOS the Keychain item too. This is what makes
+// revocation real. A lent login starts as a file, but Claude Code migrates it
+// into the Keychain on its first refresh, so deleting only the file would leave
+// the real credential behind after the member had used the account once.
+//
+// The Keychain delete is targeted at the one item for this account, by the name
+// Claude Code derives. It is a delete of a specific credential ccam is giving
+// back, not a write of credential data — the write path is what corrupted real
+// logins, and it stays gone. Best-effort: a missing item is success.
+func RemoveLogin(configDir string) {
+	_ = os.Remove(credentialsFilePath(configDir))
+	if runtime.GOOS == "darwin" {
+		// delete-generic-password removes exactly the named item; nothing is
+		// written. Ignore "not found" — that is the desired end state anyway.
+		_ = exec.Command("/usr/bin/security", "delete-generic-password", "-s", keychainItemName(configDir)).Run()
+	}
 }
