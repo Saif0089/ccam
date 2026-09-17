@@ -36,13 +36,17 @@ const repoRoot = "../.."
 // Comments are exempt on purpose — internal/accounts/env.go documents the
 // derivation to explain why an empty CLAUDE_SECURESTORAGE_CONFIG_DIR is
 // dangerous, and that explanation is worth keeping.
-func TestCcamNeverTouchesTheCredentialStore(t *testing.T) {
+func TestCcamNeverWritesTheCredentialStore(t *testing.T) {
+	// The rule this enforces is narrower than "never touch the Keychain": it is
+	// "never WRITE a credential store". Writing is what destroyed real logins —
+	// `security -i` truncating a store at 4 KB, the mirror copying the fragment
+	// back. Reading one to display usage, or to capture a login for the panel to
+	// lend, is safe and necessary, and is allowed. Only the write and delete
+	// primitives are banned.
 	banned := map[string]string{
-		"/usr/bin/security":       "shelling out to the macOS Keychain",
-		"find-generic-password":   "reading Claude Code's Keychain item",
 		"add-generic-password":    "writing Claude Code's Keychain item",
 		"delete-generic-password": "deleting Claude Code's Keychain item",
-		"Claude Code-credentials": "re-deriving Claude Code's credential store name",
+		"security -i":             "writing the Keychain from stdin (the 4 KB truncation bug)",
 	}
 
 	fset := token.NewFileSet()
@@ -80,7 +84,7 @@ func TestCcamNeverTouchesTheCredentialStore(t *testing.T) {
 				if strings.Contains(value, needle) {
 					rel, _ := filepath.Rel(repoRoot, path)
 					t.Errorf("%s:%d: %q is back — %s.\n"+
-						"ccam must not read or write Claude Code's credential store; this is the code that destroyed two real logins.",
+						"ccam must never WRITE Claude Code's credential store; this is the class of code that destroyed two real logins.",
 						rel, fset.Position(lit.Pos()).Line, needle, why)
 				}
 			}

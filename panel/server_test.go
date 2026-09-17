@@ -206,3 +206,23 @@ type cookieJar struct{ cookies []*http.Cookie }
 
 func (j *cookieJar) SetCookies(_ *neturl.URL, cookies []*http.Cookie) { j.cookies = cookies }
 func (j *cookieJar) Cookies(_ *neturl.URL) []*http.Cookie             { return j.cookies }
+
+// An account with no login is nothing to lend; assigning one is the confusing
+// state that made a member hold an empty account.
+func TestCannotAssignAnAccountWithNoLogin(t *testing.T) {
+	h := newHarness(t)
+	h.do("POST", "/api/setup", map[string]string{"password": "a-long-enough-one"}, "")
+	h.do("POST", "/api/accounts", map[string]string{"name": "Empty"}, "")
+	h.do("POST", "/api/people", map[string]string{"name": "Alice"}, "")
+	_, pb := h.do("GET", "/api/panel", nil, "")
+	acct := pb["accounts"].([]any)[0].(map[string]any)["id"].(string)
+	person := pb["people"].([]any)[0].(map[string]any)["id"].(string)
+
+	code, body := h.do("POST", "/api/assign", map[string]any{"accountId": acct, "personId": person}, "")
+	if code != 400 {
+		t.Fatalf("assigning a login-less account returned %d, want 400", code)
+	}
+	if body["error"] == nil {
+		t.Error("expected an explanation of why it was refused")
+	}
+}

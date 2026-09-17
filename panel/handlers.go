@@ -336,6 +336,14 @@ func (s *Server) handleAssign(w http.ResponseWriter, r *http.Request) {
 	if in.Hours > 0 {
 		until = s.now().Add(time.Duration(in.Hours) * time.Hour)
 	}
+	// An account with no login is nothing to lend — refuse rather than hand a
+	// member an empty account, which is exactly the confusing state this had.
+	if d, err := s.store.Load(); err == nil {
+		if a, ok := d.Account(in.AccountID); ok && !a.HasLogin() {
+			fail(w, 400, a.Name+" has no login yet. Authenticate it first: on the machine where it is signed in, run `ccam panel push "+a.Name+" <panel-url>`.")
+			return
+		}
+	}
 	if _, err := s.store.Assign(in.AccountID, in.PersonID, until, in.Move); err != nil {
 		if errors.Is(err, ErrAccountBusy) {
 			// Not a failure so much as a question: the interface asks whether
@@ -377,7 +385,7 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	if machine == "" {
 		machine = "a machine"
 	}
-	var deviceID string
+	var deviceID, personName string
 	err = s.store.Mutate(func(d *Data) error {
 		now := s.now()
 		want := HashToken(strings.TrimSpace(in.Code))
@@ -394,6 +402,7 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 			}
 			c.UsedAt = now
 			deviceID = newID()
+			personName = d.personName(c.PersonID)
 			d.Devices = append(d.Devices, Device{
 				ID: deviceID, PersonID: c.PersonID, Name: machine,
 				TokenHash: hash, EnrolledAt: now, LastSeen: now,
@@ -407,7 +416,7 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]string{"deviceId": deviceID, "token": token})
+	writeJSON(w, 200, map[string]string{"deviceId": deviceID, "token": token, "personName": personName})
 }
 
 // clientAssignment is one account a machine is entitled to right now.

@@ -139,7 +139,11 @@ func panelJoin(args []string) int {
 		fmt.Fprintln(os.Stderr, "ccam:", err)
 		return 1
 	}
-	fmt.Printf("This machine is enrolled with %s as %q.\n", server, name)
+	who := cfg.PersonName
+	if who == "" {
+		who = name
+	}
+	fmt.Printf("This machine is enrolled with %s. You are %s here.\n", server, who)
 	return panelCheck(nil)
 }
 
@@ -247,11 +251,10 @@ func panelPush(args []string) int {
 		fmt.Fprintf(os.Stderr, "ccam: no account called %q on this machine.\n", name)
 		return 1
 	}
-	raw, err := os.ReadFile(filepath.Join(acct.ConfigDir, ".credentials.json"))
+	raw, err := CaptureLogin(acct.ConfigDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ccam: no login file for %s. Claude Code may be keeping it in the macOS Keychain,\n", acct.Name)
-		fmt.Fprintln(os.Stderr, "      which ccam deliberately does not read. Sign this account in on a machine that")
-		fmt.Fprintln(os.Stderr, "      writes the file, or run the panel there.")
+		fmt.Fprintf(os.Stderr, "ccam: %s is not signed in on this machine, so there is no login to hand to the panel.\n", acct.Name)
+		fmt.Fprintf(os.Stderr, "      Open http://127.0.0.1:%d, connect %s, finish the browser login, then run this again.\n", config.DefaultPort, acct.Slug)
 		return 1
 	}
 

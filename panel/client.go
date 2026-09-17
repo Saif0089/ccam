@@ -22,9 +22,10 @@ var ErrNotEnrolled = errors.New("this machine is no longer enrolled with the pan
 
 // ClientConfig is what a machine remembers about the panel it answers to.
 type ClientConfig struct {
-	Server   string `json:"server"`
-	DeviceID string `json:"deviceId"`
-	Token    string `json:"token"`
+	Server     string `json:"server"`
+	DeviceID   string `json:"deviceId"`
+	Token      string `json:"token"`
+	PersonName string `json:"personName,omitempty"`
 }
 
 // Configured reports whether this machine answers to a panel at all. ccam
@@ -63,9 +64,10 @@ func SaveClientConfig(path string, c ClientConfig) error {
 // Enroll trades a one-shot join code for this machine's own token.
 func Enroll(ctx context.Context, server, code, machine string) (ClientConfig, error) {
 	var out struct {
-		DeviceID string `json:"deviceId"`
-		Token    string `json:"token"`
-		Error    string `json:"error"`
+		DeviceID   string `json:"deviceId"`
+		Token      string `json:"token"`
+		PersonName string `json:"personName"`
+		Error      string `json:"error"`
 	}
 	if err := post(ctx, http.DefaultClient, server+"/api/v1/enroll", "",
 		map[string]string{"code": code, "machine": machine}, &out); err != nil {
@@ -74,7 +76,7 @@ func Enroll(ctx context.Context, server, code, machine string) (ClientConfig, er
 	if out.Error != "" {
 		return ClientConfig{}, errors.New(out.Error)
 	}
-	return ClientConfig{Server: strings.TrimRight(server, "/"), DeviceID: out.DeviceID, Token: out.Token}, nil
+	return ClientConfig{Server: strings.TrimRight(server, "/"), DeviceID: out.DeviceID, Token: out.Token, PersonName: out.PersonName}, nil
 }
 
 // Client reconciles this machine against the panel.

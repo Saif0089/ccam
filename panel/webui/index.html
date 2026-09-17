@@ -263,22 +263,45 @@ function renderAccounts() {
   const body = $("#accounts-body");
   body.replaceChildren();
   const inUse = state.accounts.filter((a) => a.holder).length;
+  const needAuth = state.accounts.filter((a) => !a.hasLogin).length;
   $("#accounts-sub").textContent = state.accounts.length
     ? `${state.accounts.length} ${state.accounts.length === 1 ? "account" : "accounts"}, ${inUse} in use`
+      + (needAuth ? `, ${needAuth} need a login` : "")
     : "";
+
+  body.append(note(
+    "These are the Claude logins your team shares. Each one works on one machine at a time, "
+    + "so you hand accounts out of this pool rather than sharing a single login. "
+    + "An account has to be authenticated once (by you, on a machine where it is signed in) before it can be lent."
+  ));
+
   if (!state.accounts.length) {
     body.append(el("div", { className: "empty", textContent: "No accounts yet. Add the first Claude login you want to lend out." }));
     return;
   }
   const rows = state.accounts.map((a) => {
     const tr = el("tr");
-    tr.append(cell(a.name, a.email || (a.hasLogin ? "" : "no login stored yet")));
-    tr.append(a.holder
-      ? cell(a.holder, until(a.expiresAt))
-      : el("td", {}, el("span", { className: "free", textContent: "Free" })));
+    tr.append(cell(a.name, a.email || ""));
+
+    // Status is the thing that was missing: an account with no login is not
+    // usable, and the interface has to say so rather than let it be assigned.
+    const st = el("td");
+    if (!a.hasLogin) {
+      st.append(el("span", { style: "color:var(--rust)", textContent: "Needs a login" }));
+    } else if (a.holder) {
+      st.append(el("span", {}, [a.holder]));
+      st.append(el("div", { className: "under", textContent: until(a.expiresAt) }));
+    } else {
+      st.append(el("span", { style: "color:var(--ok)", textContent: "Ready to lend" }));
+    }
+    tr.append(st);
+
     const act = el("td", { className: "right" });
-    if (a.holder) {
-      act.append(el("button", { className: "link warn", textContent: "Take back", onclick: () => takeBack(a) }));
+    if (!a.hasLogin) {
+      act.append(el("button", { className: "link brass", textContent: "How to authenticate", onclick: () => howToAuth(a) }));
+    } else if (a.holder) {
+      act.append(el("button", { className: "link", textContent: "Give to someone else", onclick: () => reassign(a) }));
+      act.append(el("button", { className: "link warn", textContent: "Take back", style: "margin-left:16px", onclick: () => takeBack(a) }));
     } else {
       act.append(el("button", { className: "link", textContent: "Assign", onclick: () => assign(a) }));
     }
@@ -286,12 +309,56 @@ function renderAccounts() {
     tr.append(act);
     return tr;
   });
-  body.append(table([{ label: "Account" }, { label: "Who has it" }, { right: true }], rows));
+  body.append(table([{ label: "Account" }, { label: "Status" }, { right: true }], rows));
+}
+
+// note renders a line of explanation above a tab's content.
+function note(text) {
+  return el("p", { style: "margin:22px 0 0; font-size:12.6px; color:var(--faint); max-width:78ch; line-height:1.6", textContent: text });
+}
+
+// howToAuth tells you exactly how to give a login-less account its login.
+function howToAuth(a) {
+  ask({
+    title: `Authenticate ${a.name}`,
+    fields: [{ name: "cmd", label: "On a machine where this account is signed in, run", value: `ccam panel push ${a.name} ${location.origin}` }],
+    note: "The panel cannot log in for you — Claude's login needs a real browser. Sign the account in once via your local ccam, then this command hands the login up here. Members never do this.",
+    confirm: "Done",
+  });
+}
+
+// reassign moves a held account to a different person, ending the current hold.
+async function reassign(a) {
+  const others = state.people.filter((p) => p.name !== a.holder);
+  if (!others.length) {
+    await ask({ title: "Nobody else to give it to", note: "Add another person first.", confirm: "Close" });
+    return;
+  }
+  const out = await ask({
+    title: `Give ${a.name} to someone else`,
+    fields: [
+      { name: "personId", label: "To", options: others.map((p) => ({ value: p.id, label: p.name })) },
+      { name: "hours", label: "For how long", options: [
+        { value: "168", label: "7 days" }, { value: "24", label: "A day" },
+        { value: "0", label: "Until I take it back" },
+      ] },
+    ],
+    note: `${a.holder} has it now and will lose it the moment you do this.`,
+    confirm: "Give it over",
+  });
+  if (!out) return;
+  await run(() => api("POST", "/api/assign", {
+    accountId: a.id, personId: out.personId, hours: Number(out.hours), move: true,
+  }));
 }
 
 function renderPeople() {
   const body = $("#people-body");
   body.replaceChildren();
+  body.append(note(
+    "The people you lend accounts to. Each enrolls their own machine once with a join code; "
+    + "from then on whatever you assign them appears on their machine automatically, and they never log in to Claude themselves."
+  ));
   const setUp = state.people.filter((p) => (p.devices || []).length).length;
   $("#people-sub").textContent = state.people.length
     ? `${state.people.length} ${state.people.length === 1 ? "person" : "people"}, ${setUp} set up`
