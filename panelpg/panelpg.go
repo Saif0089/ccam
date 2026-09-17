@@ -20,7 +20,8 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 )
 
 // Backend implements the panel's storage over a single Postgres row.
@@ -31,10 +32,17 @@ type Backend struct {
 // Open connects to Postgres and ensures the one table and one row exist. dsn is
 // an ordinary Postgres URL — what a hosted Postgres hands you as DATABASE_URL.
 func Open(ctx context.Context, dsn string) (*Backend, error) {
-	db, err := sql.Open("pgx", dsn)
+	// Parse the DSN and force the simple query protocol. A serverless panel is
+	// handed a pooled (pgbouncer, transaction-mode) connection, under which
+	// pgx's default implicit prepared statements collide across pooled
+	// backends; the simple protocol sends no prepared statements at all. The
+	// panel's queries are a handful of trivial ones, so nothing is lost.
+	cfg, err := pgx.ParseConfig(dsn)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("the panel database URL could not be parsed: %w", err)
 	}
+	cfg.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+	db := stdlib.OpenDB(*cfg)
 	// A serverless instance handles one request and may vanish; a pile of idle
 	// connections left behind would exhaust a small database's limit. Keep the
 	// pool tiny and short-lived.
@@ -105,7 +113,7 @@ func (b *Backend) Save(raw []byte, expected int64) (bool, error) {
 
 	res, err := b.db.ExecContext(ctx,
 		`UPDATE panel_state SET version = version + 1, data = $1::jsonb
-		  WHERE id = 1 AND version = $2`, raw, expected)
+		  WHERE id = 1 AND version = $2`, string(raw), expected)
 	if err != nil {
 		return false, err
 	}
