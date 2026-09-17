@@ -189,6 +189,32 @@ func (m *Manager) SetStatus(id string, status Status) (Account, error) {
 	return updated, nil
 }
 
+// SetPanelID records that this account was lent by a ccam panel, so a later
+// check-in can tell it apart from one the user made themselves — which the
+// panel must never take away.
+func (m *Manager) SetPanelID(id, panelID string) (Account, error) {
+	var updated Account
+	found := false
+	_, err := m.store.Mutate(func(list []Account) ([]Account, error) {
+		for i := range list {
+			if list[i].ID == id {
+				list[i].PanelID = panelID
+				updated = list[i]
+				found = true
+				return list, nil
+			}
+		}
+		return list, nil
+	})
+	if err != nil {
+		return Account{}, err
+	}
+	if !found {
+		return Account{}, fmt.Errorf("no account with id %q", id)
+	}
+	return updated, nil
+}
+
 // Remove deletes an account's metadata and its on-disk config directory,
 // and returns the removed record so the caller (the HTTP layer) can also
 // strip its alias from shell rc files.

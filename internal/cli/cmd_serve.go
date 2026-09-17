@@ -103,6 +103,11 @@ func cmdServe(args []string) int {
 
 	startAutoUpdate(ctx, srv)
 
+	// If this machine answers to a panel, keep asking it what it is entitled
+	// to. This is what makes taking an account back work without the panel
+	// having to reach the machine: nothing is pushed, the machine asks.
+	go watchPanel(ctx)
+
 	if err := httpserver.Serve(ctx, srv, *port); err != nil {
 		fmt.Fprintln(os.Stderr, "ccam:", err)
 		// An update that installed but could not restart leaves no

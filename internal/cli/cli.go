@@ -40,6 +40,8 @@ func Run(args []string) int {
 		return cmdRun(args[1:])
 	case "hook":
 		return cmdHook(args[1:])
+	case "panel":
+		return cmdPanel(args[1:])
 	case "prune":
 		return cmdPrune(args[1:])
 	case "exec":
@@ -103,6 +105,7 @@ Usage:
   ccam editor [account]      Point VS Code (and Cursor, VSCodium, ...) at an account;
                              with no account, says which one each editor is on
   ccam prune [--yes] [id...] Reclaim disk from migrated accounts (previews unless --yes)
+  ccam panel <command>       Lend accounts out and take them back (see: ccam panel help)
   ccam version                Print the version
 
 Once running, open the printed URL in a browser to manage accounts.

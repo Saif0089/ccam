@@ -106,6 +106,40 @@ page has rolled over. The build answering on
 that port is named in the top-right corner, which is how you tell a fix
 that shipped from a fix that is actually running.
 
+## Lending accounts out
+
+ccam on its own is a single-machine tool: whoever installs it can add as many
+accounts as they like and stay signed in for ever. `ccam panel` is the other
+half — a small self-hosted panel that lends accounts to people and takes them
+back.
+
+```sh
+ccam panel serve                      # on the machine that keeps the accounts
+ccam panel push work http://host:47933   # store an account's login in the panel
+ccam panel join http://host:47933 <code> # on each person's machine, once
+```
+
+Open the panel and it asks for a password the first time. Three tabs: the
+accounts and who has each one, the people and their machines, and a log of every
+decision. Assigning an account someone else holds moves it — an account works on
+one machine at a time, which is not a policy but an OAuth fact: Claude Code
+rotates its refresh token on every renewal, so two machines on one login
+invalidate each other.
+
+Taking an account back reaches the machine within half a minute. It does not get
+pushed there: the machine asks what it is entitled to, and is answered with a
+complete list, so anything it holds and is not told about it lets go of — the
+login is deleted and the shell command disappears. An account somebody made
+themselves is never touched.
+
+What this does and does not do, plainly. It ends normal access reliably, keeps
+an account to one machine, and leaves a full record. It does not reach a login
+someone copied off disk while they had it, and a machine that cannot reach the
+panel keeps what it was last told it had. If that matters for an account, sign
+it out at Anthropic after taking it back; that is what makes an old copy
+useless. The panel binds `127.0.0.1` unless you give it `--addr`, and should be
+behind TLS before anyone signs in over a network.
+
 ## VS Code, Cursor, and the rest
 
 Nothing to run. If an editor has the Claude Code extension installed, ccam

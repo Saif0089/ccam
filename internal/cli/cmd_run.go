@@ -260,6 +260,13 @@ func cmdRun(args []string) int {
 		// `ccam default --dangerously-skip-permissions` that quietly dropped
 		// that flag would land the user in a session that behaves differently
 		// from the one they were in.
+		// The conversation keeps its id across the switch, so ccam can say who
+		// owns it from here on. The monitor reads this by interval, so the work
+		// done before the switch stays with the account that did it.
+		if err := switching.AppendOwnership(ledger, h.SessionID, next.ConfigDir); err != nil {
+			fmt.Fprintln(os.Stderr, "ccam: could not record the switch for the usage monitor:", err)
+		}
+
 		resume := switching.ResumeArgs(h.SessionID, switching.HasTranscript(claudeDir, h.SessionID))
 		sessionArgs = append(append([]string{}, passthrough...), resume...)
 	}

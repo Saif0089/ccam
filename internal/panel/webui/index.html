@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ccam</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: dark;
+    --ground:#14110E; --raised:#1D1916; --sunken:#100D0B;
+    --line:#2C2621; --chalk:#F2EDE6; --ash:#A79C90; --faint:#8D8276;
+    --ok:#4FB286; --brass:#D9A441; --rust:#D4573F;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin:0; background:var(--ground); color:var(--chalk);
+    font-family:Archivo, sans-serif; font-size:15px; line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:1040px; margin:0 auto; padding:34px 28px 80px; }
+  a { color:inherit; }
+  code, .mono { font-family:"IBM Plex Mono", monospace; }
+
+  .top { display:flex; align-items:baseline; gap:34px; border-bottom:1px solid var(--line); }
+  .brand { font-size:17px; font-weight:600; letter-spacing:-.02em; padding-bottom:14px; }
+  nav { display:flex; gap:26px; }
+  nav button {
+    background:none; border:none; font:inherit; font-size:13.5px; color:var(--ash);
+    padding:0 0 14px; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px;
+  }
+  nav button[aria-current="true"] { color:var(--chalk); font-weight:500; border-bottom-color:var(--brass); }
+  .signout { margin-left:auto; padding-bottom:14px; }
+
+  .head { display:flex; align-items:center; margin-top:30px; gap:14px; }
+  h1 { margin:0; font-size:21px; font-weight:600; letter-spacing:-.02em; }
+  .sub { margin-top:4px; font-size:12.5px; color:var(--faint); }
+
+  table { width:100%; border-collapse:collapse; margin-top:26px; }
+  th {
+    text-align:left; padding:0 0 12px; font-size:12px; font-weight:400; color:var(--faint);
+  }
+  td { padding:16px 0; border-top:1px solid var(--line); font-size:13.5px; vertical-align:middle; }
+  td.right, th.right { text-align:right; }
+  .name { font-weight:500; }
+  .under { margin-top:3px; font-size:11.8px; color:var(--faint); }
+  .free { color:var(--faint); }
+
+  button.fill, button.ghost, button.danger {
+    font:inherit; font-size:12.9px; border-radius:6px; padding:10px 16px; cursor:pointer;
+  }
+  button.fill { background:var(--sunken); border:1px solid #3A322B; color:var(--chalk); font-weight:500; }
+  button.ghost { background:none; border:1px solid var(--line); color:var(--ash); }
+  button.danger { background:var(--rust); border:1px solid var(--rust); color:#160908; font-weight:600; }
+  button.link {
+    background:none; border:none; font:inherit; font-size:13px; color:var(--ash);
+    padding:8px 0; cursor:pointer;
+  }
+  button.link.warn { color:var(--rust); }
+  button.link.brass { color:var(--brass); }
+  button:focus-visible, input:focus-visible, select:focus-visible {
+    outline:2px solid var(--brass); outline-offset:2px; border-radius:3px;
+  }
+
+  label { display:block; font-size:12.5px; color:var(--ash); margin-bottom:7px; }
+  input, select {
+    width:100%; background:var(--sunken); border:1px solid #3A322B; color:var(--chalk);
+    border-radius:6px; padding:10px 12px; font:inherit; font-size:13.2px;
+  }
+  .field + .field { margin-top:14px; }
+
+  dialog {
+    border:1px solid #3A322B; border-radius:10px; background:var(--raised); color:var(--chalk);
+    padding:26px 28px 22px; width:440px; max-width:92vw;
+  }
+  dialog::backdrop { background:rgba(10,8,6,.74); }
+  dialog h2 { margin:0; font-size:16px; font-weight:600; }
+  .actions { display:flex; gap:10px; justify-content:flex-end; margin-top:22px; }
+  .note { margin:16px 0 0; font-size:12.3px; color:var(--brass); }
+
+  .gate { max-width:360px; margin:16vh auto; }
+  .gate h1 { font-size:22px; }
+  .gate p { font-size:13px; color:var(--ash); margin:10px 0 24px; }
+  .err { margin-top:14px; font-size:12.6px; color:var(--rust); min-height:1.2em; }
+  .ok { color:var(--ok); }
+  .hidden { display:none; }
+  .empty { margin-top:26px; padding:28px; border:1px dashed var(--line); border-radius:10px;
+           text-align:center; color:var(--faint); font-size:13px; }
+  .ev { display:flex; gap:18px; padding:13px 0; border-top:1px solid var(--line); font-size:13.4px; }
+  .ev time { color:var(--faint); flex:0 0 130px; font-variant-numeric:tabular-nums; }
+</style>
+</head>
+<body>
+
+<!-- Setting up, or signing in -->
+<div class="wrap gate hidden" id="gate">
+  <h1 id="gate-title">Sign in</h1>
+  <p id="gate-blurb">This panel lends out Claude logins. Sign in to manage them.</p>
+  <form id="gate-form">
+    <div class="field">
+      <label for="pw">Password</label>
+      <input id="pw" type="password" autocomplete="current-password" required>
+    </div>
+    <div class="actions"><button class="fill" type="submit" id="gate-go">Sign in</button></div>
+    <div class="err" id="gate-err"></div>
+  </form>
+</div>
+
+<!-- The panel -->
+<div class="wrap hidden" id="panel">
+  <div class="top">
+    <span class="brand">ccam</span>
+    <nav>
+      <button data-tab="accounts" aria-current="true">Accounts</button>
+      <button data-tab="people">People</button>
+      <button data-tab="activity">Activity</button>
+    </nav>
+    <span class="signout"><button class="link" id="signout">Sign out</button></span>
+  </div>
+
+  <section id="tab-accounts">
+    <div class="head">
+      <div><h1>Accounts</h1><div class="sub" id="accounts-sub"></div></div>
+      <div style="margin-left:auto"><button class="fill" id="add-account">Add an account</button></div>
+    </div>
+    <div id="accounts-body"></div>
+  </section>
+
+  <section id="tab-people" class="hidden">
+    <div class="head">
+      <div><h1>People</h1><div class="sub" id="people-sub"></div></div>
+      <div style="margin-left:auto"><button class="fill" id="add-person">Add someone</button></div>
+    </div>
+    <div id="people-body"></div>
+  </section>
+
+  <section id="tab-activity" class="hidden">
+    <div class="head">
+      <div><h1>Activity</h1><div class="sub">Everything that happened to an account</div></div>
+    </div>
+    <div id="activity-body"></div>
+  </section>
+</div>
+
+<dialog id="dlg">
+  <h2 id="dlg-title"></h2>
+  <div id="dlg-body"></div>
+  <div class="actions">
+    <button class="ghost" id="dlg-cancel">Cancel</button>
+    <button class="fill" id="dlg-ok">OK</button>
+  </div>
+  <div class="err" id="dlg-err"></div>
+</dialog>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const el = (t, props = {}, kids = []) => {
+  const n = Object.assign(document.createElement(t), props);
+  for (const k of [].concat(kids)) n.append(k);
+  return n;
+};
+
+async function api(method, path, body) {
+  const res = await fetch(path, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let data = {};
+  try { data = await res.json(); } catch {}
+  if (!res.ok) throw new Error(data.error || `That did not work (${res.status}).`);
+  return data;
+}
+
+// --- when things happen, in words rather than timestamps -------------------
+function when(iso) {
+  if (!iso) return "";
+  const d = new Date(iso), now = new Date();
+  const mins = Math.round((now - d) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs} ${hrs === 1 ? "hour" : "hours"} ago`;
+  const days = Math.round(hrs / 24);
+  if (days < 7) return `${days} ${days === 1 ? "day" : "days"} ago`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+function until(iso) {
+  if (!iso) return "until it is taken back";
+  const left = new Date(iso) - new Date();
+  if (left <= 0) return "over";
+  const hrs = Math.round(left / 3600000);
+  if (hrs < 48) return `${hrs} ${hrs === 1 ? "hour" : "hours"} left`;
+  return `${Math.round(hrs / 24)} days left`;
+}
+
+// --- the dialog, reused ----------------------------------------------------
+function ask({ title, fields = [], note = "", confirm = "OK", danger = false }) {
+  return new Promise((resolve) => {
+    $("#dlg-title").textContent = title;
+    $("#dlg-err").textContent = "";
+    const body = $("#dlg-body");
+    body.replaceChildren();
+    for (const f of fields) {
+      const wrap = el("div", { className: "field" });
+      wrap.append(el("label", { htmlFor: "f-" + f.name, textContent: f.label }));
+      if (f.options) {
+        const sel = el("select", { id: "f-" + f.name, name: f.name });
+        for (const o of f.options) sel.append(el("option", { value: o.value, textContent: o.label }));
+        wrap.append(sel);
+      } else {
+        wrap.append(el("input", {
+          id: "f-" + f.name, name: f.name, type: f.type || "text",
+          value: f.value || "", placeholder: f.placeholder || "",
+        }));
+      }
+      body.append(wrap);
+    }
+    if (note) body.append(el("p", { className: "note", textContent: note }));
+
+    const ok = $("#dlg-ok");
+    ok.textContent = confirm;
+    ok.className = danger ? "danger" : "fill";
+
+    const close = (value) => {
+      ok.onclick = null; $("#dlg-cancel").onclick = null;
+      $("#dlg").close();
+      resolve(value);
+    };
+    ok.onclick = () => {
+      const out = {};
+      for (const f of fields) out[f.name] = $("#f-" + f.name).value;
+      close(out);
+    };
+    $("#dlg-cancel").onclick = () => close(null);
+    $("#dlg").showModal();
+  });
+}
+
+// --- rendering -------------------------------------------------------------
+let state = { accounts: [], people: [], activity: [] };
+
+function table(headers, rows) {
+  const t = el("table");
+  const tr = el("tr");
+  for (const h of headers) tr.append(el("th", { textContent: h.label || "", className: h.right ? "right" : "" }));
+  t.append(el("thead", {}, tr));
+  const tb = el("tbody");
+  for (const r of rows) tb.append(r);
+  t.append(tb);
+  return t;
+}
+function cell(main, under, cls = "") {
+  const td = el("td", { className: cls });
+  td.append(el("div", { className: "name", textContent: main }));
+  if (under) td.append(el("div", { className: "under", textContent: under }));
+  return td;
+}
+
+function renderAccounts() {
+  const body = $("#accounts-body");
+  body.replaceChildren();
+  const inUse = state.accounts.filter((a) => a.holder).length;
+  $("#accounts-sub").textContent = state.accounts.length
+    ? `${state.accounts.length} ${state.accounts.length === 1 ? "account" : "accounts"}, ${inUse} in use`
+    : "";
+  if (!state.accounts.length) {
+    body.append(el("div", { className: "empty", textContent: "No accounts yet. Add the first Claude login you want to lend out." }));
+    return;
+  }
+  const rows = state.accounts.map((a) => {
+    const tr = el("tr");
+    tr.append(cell(a.name, a.email || (a.hasLogin ? "" : "no login stored yet")));
+    tr.append(a.holder
+      ? cell(a.holder, until(a.expiresAt))
+      : el("td", {}, el("span", { className: "free", textContent: "Free" })));
+    const act = el("td", { className: "right" });
+    if (a.holder) {
+      act.append(el("button", { className: "link warn", textContent: "Take back", onclick: () => takeBack(a) }));
+    } else {
+      act.append(el("button", { className: "link", textContent: "Assign", onclick: () => assign(a) }));
+    }
+    act.append(el("button", { className: "link", textContent: "Remove", style: "margin-left:16px", onclick: () => removeAccount(a) }));
+    tr.append(act);
+    return tr;
+  });
+  body.append(table([{ label: "Account" }, { label: "Who has it" }, { right: true }], rows));
+}
+
+function renderPeople() {
+  const body = $("#people-body");
+  body.replaceChildren();
+  const setUp = state.people.filter((p) => (p.devices || []).length).length;
+  $("#people-sub").textContent = state.people.length
+    ? `${state.people.length} ${state.people.length === 1 ? "person" : "people"}, ${setUp} set up`
+    : "";
+  if (!state.people.length) {
+    body.append(el("div", { className: "empty", textContent: "Nobody yet. Add someone, then send them a join code." }));
+    return;
+  }
+  const rows = state.people.map((p) => {
+    const tr = el("tr");
+    tr.append(cell(p.name, p.email));
+    tr.append(el("td", {}, el("span", {
+      className: (p.holds || []).length ? "" : "free",
+      textContent: (p.holds || []).join(", ") || "Nothing",
+    })));
+    const machines = el("td");
+    const devices = p.devices || [];
+    if (!devices.length) {
+      machines.append(el("span", { className: "free", textContent: "Not set up yet" }));
+    } else {
+      for (const d of devices) {
+        const row = el("div", { style: "display:flex; gap:10px; align-items:baseline" });
+        row.append(el("span", { className: "mono", style: "font-size:12.4px", textContent: d.name }));
+        row.append(el("span", { className: "under", textContent: d.lastSeen ? when(d.lastSeen) : "" }));
+        row.append(el("button", {
+          className: "link warn", style: "margin-left:auto; font-size:12px",
+          textContent: "Cut off", onclick: () => cutOff(p, d),
+        }));
+        machines.append(row);
+      }
+    }
+    tr.append(machines);
+    const act = el("td", { className: "right" });
+    act.append(el("button", { className: "link brass", textContent: "Send a code", onclick: () => joinCode(p) }));
+    act.append(el("button", { className: "link warn", textContent: "Remove", style: "margin-left:16px", onclick: () => removePerson(p) }));
+    tr.append(act);
+    return tr;
+  });
+  body.append(table([{ label: "Person" }, { label: "Has" }, { label: "Machines" }, { right: true }], rows));
+}
+
+function renderActivity() {
+  const body = $("#activity-body");
+  body.replaceChildren();
+  if (!state.activity.length) {
+    body.append(el("div", { className: "empty", textContent: "Nothing has happened yet." }));
+    return;
+  }
+  const list = el("div", { style: "margin-top:22px" });
+  for (const e of state.activity) {
+    const row = el("div", { className: "ev" });
+    row.append(el("time", { dateTime: e.at, textContent: when(e.at) }));
+    row.append(el("span", { textContent: `${e.who} ${e.what}.` }));
+    list.append(row);
+  }
+  body.append(list);
+}
+
+async function refresh() {
+  state = await api("GET", "/api/panel");
+  state.accounts ||= []; state.people ||= []; state.activity ||= [];
+  renderAccounts(); renderPeople(); renderActivity();
+}
+
+// --- decisions -------------------------------------------------------------
+async function assign(a) {
+  if (!state.people.length) {
+    await ask({ title: "Nobody to give it to", note: "Add someone on the People tab first.", confirm: "Close" });
+    return;
+  }
+  const out = await ask({
+    title: `Assign ${a.name}`,
+    fields: [
+      { name: "personId", label: "To", options: state.people.map((p) => ({ value: p.id, label: p.name })) },
+      { name: "hours", label: "For how long", options: [
+        { value: "168", label: "7 days" }, { value: "24", label: "A day" },
+        { value: "8", label: "8 hours" }, { value: "0", label: "Until I take it back" },
+      ] },
+    ],
+    note: a.hasLogin ? "" : "No login is stored for this account yet, so there is nothing to hand over. Run `ccam panel push` on the machine where it is signed in.",
+    confirm: "Assign",
+  });
+  if (!out) return;
+  await run(() => api("POST", "/api/assign", {
+    accountId: a.id, personId: out.personId, hours: Number(out.hours), move: false,
+  }));
+}
+
+async function takeBack(a) {
+  const out = await ask({
+    title: `Take ${a.name} back from ${a.holder}?`,
+    note: "Their ccam removes the login within half a minute and stops any session running on it.",
+    confirm: "Take back", danger: true,
+  });
+  if (!out) return;
+  await run(() => api("POST", `/api/assignments/${a.assignmentId}/takeback`));
+}
+
+async function removeAccount(a) {
+  const out = await ask({
+    title: `Remove ${a.name}?`,
+    note: a.holder ? `${a.holder} has it right now and will lose it.` : "",
+    confirm: "Remove", danger: true,
+  });
+  if (out) await run(() => api("DELETE", `/api/accounts/${a.id}`));
+}
+
+async function removePerson(p) {
+  const out = await ask({
+    title: `Remove ${p.name}?`,
+    note: "Everything they hold comes back, and their machines stop working straight away.",
+    confirm: "Remove", danger: true,
+  });
+  if (out) await run(() => api("DELETE", `/api/people/${p.id}`));
+}
+
+async function cutOff(p, d) {
+  const out = await ask({
+    title: `Cut off ${d.name}?`,
+    note: `${p.name}'s other machines keep working.`,
+    confirm: "Cut off", danger: true,
+  });
+  if (out) await run(() => api("DELETE", `/api/devices/${d.id}`));
+}
+
+async function joinCode(p) {
+  try {
+    const { code } = await api("POST", `/api/people/${p.id}/code`);
+    await ask({
+      title: `${p.name}'s join code`,
+      fields: [{ name: "cmd", label: "They run this once, on each machine", value: `ccam panel join ${location.origin} ${code}` }],
+      note: "It works once and lasts a day.",
+      confirm: "Done",
+    });
+    await refresh();
+  } catch (e) { alert(e.message); }
+}
+
+async function addAccount() {
+  const out = await ask({
+    title: "Add an account",
+    fields: [
+      { name: "name", label: "Name", placeholder: "Work" },
+      { name: "email", label: "Its Claude sign-in (optional)", placeholder: "work@example.com" },
+    ],
+    confirm: "Add",
+  });
+  if (out?.name) await run(() => api("POST", "/api/accounts", out));
+}
+
+async function addPerson() {
+  const out = await ask({
+    title: "Add someone",
+    fields: [
+      { name: "name", label: "Name", placeholder: "Alice" },
+      { name: "email", label: "Email (optional)" },
+    ],
+    confirm: "Add",
+  });
+  if (out?.name) await run(() => api("POST", "/api/people", out));
+}
+
+// run does a thing, then reloads, and puts any refusal in front of the person
+// rather than leaving the interface silently unchanged.
+async function run(fn) {
+  try { await fn(); await refresh(); }
+  catch (e) { alert(e.message); }
+}
+
+// --- getting in ------------------------------------------------------------
+async function boot() {
+  const st = await api("GET", "/api/status");
+  if (st.signedIn) { show("panel"); await refresh(); return; }
+  show("gate");
+  if (st.needsSetup) {
+    $("#gate-title").textContent = "Set up this panel";
+    $("#gate-blurb").textContent = "Choose a password. It is the only thing between a stranger and every login this panel lends out, so make it a long one.";
+    $("#pw").autocomplete = "new-password";
+    $("#gate-go").textContent = "Set up";
+    $("#gate-form").dataset.mode = "setup";
+  }
+}
+function show(which) {
+  $("#gate").classList.toggle("hidden", which !== "gate");
+  $("#panel").classList.toggle("hidden", which !== "panel");
+}
+
+$("#gate-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const setup = e.target.dataset.mode === "setup";
+  try {
+    await api("POST", setup ? "/api/setup" : "/api/login", { password: $("#pw").value });
+    show("panel");
+    await refresh();
+  } catch (err) { $("#gate-err").textContent = err.message; }
+});
+
+$("#signout").addEventListener("click", async () => {
+  await api("POST", "/api/logout");
+  location.reload();
+});
+
+for (const b of document.querySelectorAll("nav button")) {
+  b.addEventListener("click", () => {
+    for (const other of document.querySelectorAll("nav button")) other.setAttribute("aria-current", String(other === b));
+    for (const name of ["accounts", "people", "activity"]) {
+      $("#tab-" + name).classList.toggle("hidden", name !== b.dataset.tab);
+    }
+  });
+}
+$("#add-account").addEventListener("click", addAccount);
+$("#add-person").addEventListener("click", addPerson);
+
+boot().catch((e) => { $("#gate-err").textContent = e.message; show("gate"); });
+</script>
+</body>
+</html>

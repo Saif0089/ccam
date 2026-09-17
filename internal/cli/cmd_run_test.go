@@ -116,7 +116,7 @@ func TestRunSupervisorRelaunchesOnSwitch(t *testing.T) {
 	if rest := withoutMintedID(calls[0]); len(rest) != 0 {
 		t.Errorf("first launch should carry no resume args, got %v", rest)
 	}
-	want := []string{"--resume", "sess-123", "--fork-session"}
+	want := []string{"--resume", "sess-123"}
 	if !reflect.DeepEqual(calls[1], want) {
 		t.Errorf("second launch args = %v, want %v", calls[1], want)
 	}
@@ -151,7 +151,7 @@ func TestRunKeepsLaunchFlagsAcrossASwitch(t *testing.T) {
 	if code := cmdRun([]string{"ehti", "--dangerously-skip-permissions"}); code != 0 {
 		t.Fatalf("cmdRun exit = %d, want 0", code)
 	}
-	want := []string{"--dangerously-skip-permissions", "--resume", "sess-9", "--fork-session"}
+	want := []string{"--dangerously-skip-permissions", "--resume", "sess-9"}
 	if len(calls) != 2 || !reflect.DeepEqual(calls[1], want) {
 		t.Errorf("relaunch args = %v, want %v", calls[len(calls)-1], want)
 	}
@@ -517,9 +517,21 @@ func TestSwitchRelaunchesOntoTheOtherAccount(t *testing.T) {
 	}
 	// The minted id must not survive into the relaunch: --session-id names a
 	// new conversation and --resume reopens an existing one.
-	want := []string{"--resume", "sess-1", "--fork-session"}
+	want := []string{"--resume", "sess-1"}
 	if !reflect.DeepEqual(launches[1], want) {
 		t.Errorf("relaunch args = %v, want %v", launches[1], want)
+	}
+
+	// The conversation keeps its id, so ccam can record who owns it from the
+	// switch onward. The monitor reads ownership by interval, so the work done
+	// before the switch stays with the account that did it.
+	work := filepath.Join(home, ".ccam", "accounts", "work")
+	raw, err := os.ReadFile(ledger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "sess-1\t"+realpath(t, work)) {
+		t.Errorf("no ownership line for the account switched to:\n%s", raw)
 	}
 }
 
@@ -552,7 +564,7 @@ func TestSwitchRelaunchResumesTheConversation(t *testing.T) {
 	if len(launches) != 2 {
 		t.Fatalf("want a relaunch as the fallback, got %d launch(es)", len(launches))
 	}
-	want := []string{"--resume", "sess-2", "--fork-session"}
+	want := []string{"--resume", "sess-2"}
 	if !reflect.DeepEqual(launches[1], want) {
 		t.Errorf("relaunch args = %v, want %v", launches[1], want)
 	}

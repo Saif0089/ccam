@@ -77,6 +77,12 @@ type Account struct {
 	Status     Status    `json:"status"`
 	CreatedAt  time.Time `json:"createdAt"`
 	LastUsedAt time.Time `json:"lastUsedAt,omitempty"`
+	// PanelID is set on an account this machine was lent by a ccam panel, and
+	// holds that panel's id for it. It is how a check-in tells an account the
+	// panel may take back from one the user made themselves, which it must
+	// never touch. Absent on every locally-made account, which is what an
+	// accounts.json written before this field existed describes.
+	PanelID string `json:"panelId,omitempty"`
 }
 
 // IsolationOrDefault reports the account's isolation, treating an absent

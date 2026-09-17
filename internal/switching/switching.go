@@ -80,7 +80,16 @@ func ResolveAccount(list []accounts.Account, name string) (accounts.Account, boo
 // switch, given the staged session id and whether that session has anything
 // recorded (see HasTranscript). The three cases are genuinely different:
 //
-//   - a recorded session forks exactly it, so the thread continues;
+// The session is resumed, not forked. Forking was a holdover from when a switch
+// was applied in place: it made a second conversation out of every switch, so
+// /resume filled up with near-duplicates, and the fork's new id is minted by
+// Claude Code, which means ccam never learns it and cannot record who owns it.
+// Resuming keeps one conversation with one id, and the usage monitor resolves
+// ownership by interval — the last ledger entry at or before a line's timestamp
+// — so the same id being account A's before the switch and account B's after is
+// exactly what that ledger is built to express.
+//
+//   - a recorded session is resumed exactly as it was, keeping its id;
 //   - a session id with nothing recorded is one switched before its first
 //     message. There is no conversation to carry, and --resume on it makes
 //     Claude Code exit with "No conversation found with session ID", taking
@@ -93,7 +102,7 @@ func ResumeArgs(sessionID string, recorded bool) []string {
 	case strings.TrimSpace(sessionID) == "":
 		return []string{"--continue"}
 	case recorded:
-		return []string{"--resume", sessionID, "--fork-session"}
+		return []string{"--resume", sessionID}
 	default:
 		return nil
 	}

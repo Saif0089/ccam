@@ -99,7 +99,7 @@ func TestBlockDecisionJSON(t *testing.T) {
 
 func TestResumeArgs(t *testing.T) {
 	got := ResumeArgs("sess-1", true)
-	want := []string{"--resume", "sess-1", "--fork-session"}
+	want := []string{"--resume", "sess-1"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("ResumeArgs(recorded) = %v, want %v", got, want)
 	}
