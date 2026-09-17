@@ -383,3 +383,28 @@ dialog input[type="text"] {
   header { padding-top: 1.75rem; }
   .plan-chip { margin-left: 0; }
 }
+
+/* Team panel — connect to and see status of a ccam admin panel. */
+#team-panel {
+  border: 1px solid var(--rule);
+  background: var(--panel);
+  border-radius: var(--radius);
+  padding: 1rem 1.2rem;
+  margin-bottom: 1.1rem;
+}
+#team-panel .tp-head { display: flex; align-items: baseline; gap: 0.6rem; }
+#team-panel .tp-title { font-size: 0.95rem; font-weight: 620; }
+#team-panel .tp-sub { font-size: 0.8rem; color: var(--muted); }
+#team-panel .tp-link { color: var(--ok); text-decoration: none; }
+#team-panel .tp-link:hover { text-decoration: underline; }
+#team-panel .tp-holds { margin-top: 0.55rem; font-size: 0.82rem; color: var(--muted); }
+#team-panel .tp-holds b { color: var(--text); font-weight: 600; }
+#team-panel .tp-row { display: flex; gap: 0.5rem; margin-top: 0.7rem; flex-wrap: wrap; align-items: center; }
+#team-panel input {
+  background: var(--sunken); border: 1px solid var(--rule); color: var(--text);
+  border-radius: 6px; padding: 0.5rem 0.6rem; font: inherit; font-size: 0.85rem;
+}
+#team-panel input#tp-server { flex: 1 1 15rem; min-width: 12rem; }
+#team-panel input#tp-code { flex: 0 1 9rem; }
+#team-panel .tp-err { margin-top: 0.5rem; font-size: 0.8rem; color: var(--crit); min-height: 1em; }
+#team-panel .tp-actions { margin-left: auto; display: flex; gap: 0.4rem; }

@@ -28,10 +28,11 @@ const defaultPanelAddr = "127.0.0.1:47933"
 
 func cmdPanel(args []string) int {
 	if len(args) == 0 {
-		panelUsage(os.Stderr)
-		return 1
+		return panelStatusCmd()
 	}
 	switch args[0] {
+	case "status":
+		return panelStatusCmd()
 	case "serve":
 		return panelServe(args[1:])
 	case "join":
@@ -71,9 +72,13 @@ func panelPaths() (store, key, client string, err error) {
 	if err != nil {
 		return "", "", "", err
 	}
+	client, err = config.PanelClientFile()
+	if err != nil {
+		return "", "", "", err
+	}
 	return filepath.Join(base, "panel.json"),
 		filepath.Join(base, "panel.key"),
-		filepath.Join(base, "panel-client.json"), nil
+		client, nil
 }
 
 func panelServe(args []string) int {
@@ -303,13 +308,21 @@ const checkInEvery = 30 * time.Second
 // as long as ccam is running. It is silent when nothing changes, which is
 // almost always, and gives up quietly when this machine answers to no panel.
 func watchPanel(ctx context.Context) {
-	c, err := panelClient()
-	if err != nil || !c.Config.Configured() {
-		return
-	}
 	t := time.NewTicker(checkInEvery)
 	defer t.Stop()
 	for {
+		// Reload the config each tick rather than once at startup, so a machine
+		// enrolled from the web page (or by `ccam panel join`) after the service
+		// was already running is picked up without a restart.
+		c, err := panelClient()
+		if err != nil || !c.Config.Configured() {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				continue
+			}
+		}
 		change, err := c.CheckIn(ctx)
 		for _, name := range change.Gained {
 			fmt.Printf("ccam: %s was assigned to this machine.\n", name)
@@ -347,4 +360,67 @@ func panelGenkey() int {
 	fmt.Fprintln(os.Stderr, "Set this as CCAM_PANEL_KEY in the panel's environment. Keep it — it cannot be recovered,")
 	fmt.Fprintln(os.Stderr, "and losing it makes every stored login unreadable.")
 	return 0
+}
+
+// panelStatusCmd prints, in plain terms, whether this machine is connected to a
+// panel, which one, who it is there, and what it is holding — so the CLI says
+// what is going on without the reader having to know the sub-commands.
+func panelStatusCmd() int {
+	_, _, clientPath, err := panelPaths()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ccam:", err)
+		return 1
+	}
+	cfg, err := panel.LoadClientConfig(clientPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ccam:", err)
+		return 1
+	}
+
+	if !cfg.Configured() {
+		fmt.Println("This machine is not connected to a team panel.")
+		fmt.Println()
+		fmt.Println("Connect it from the ccam page:")
+		fmt.Printf("    http://127.0.0.1:%d\n", config.DefaultPort)
+		fmt.Println("or from here:")
+		fmt.Println("    ccam panel join <panel-url> <code>")
+		return 0
+	}
+
+	who := cfg.PersonName
+	if who == "" {
+		who = "this machine"
+	}
+	fmt.Printf("Connected to %s\n", cfg.Server)
+	fmt.Printf("You are %s there.\n", who)
+
+	// What this machine holds from the panel.
+	held := panelHeldAccounts()
+	fmt.Println()
+	if len(held) == 0 {
+		fmt.Println("The panel has not assigned this machine any account yet.")
+	} else {
+		fmt.Println("Accounts the panel has given you:")
+		for _, a := range held {
+			fmt.Printf("    %-16s use it with:  %s\n", a.Name, a.Alias)
+		}
+	}
+	fmt.Println()
+	fmt.Printf("Open the admin panel:  %s\n", cfg.Server)
+	return 0
+}
+
+// panelHeldAccounts is the local accounts this machine was lent by a panel.
+func panelHeldAccounts() []accounts.Account {
+	list, err := loadAccounts()
+	if err != nil {
+		return nil
+	}
+	var held []accounts.Account
+	for _, a := range list {
+		if a.PanelID != "" {
+			held = append(held, a)
+		}
+	}
+	return held
 }

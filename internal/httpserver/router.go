@@ -25,6 +25,10 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("POST /api/accounts/{id}/launch-terminal", s.handleLaunchTerminal)
 
+	mux.HandleFunc("GET /api/panel", s.handlePanelStatus)
+	mux.HandleFunc("POST /api/panel/connect", s.handlePanelConnect)
+	mux.HandleFunc("POST /api/panel/disconnect", s.handlePanelDisconnect)
+
 	mux.Handle("/", webui.Handler())
 }
 

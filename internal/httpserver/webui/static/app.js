@@ -752,6 +752,7 @@ async function poll() {
   try {
     await loadAccounts();
     await loadBuildTag();
+    await refreshTeamPanel();
     // Stamped here, once the server has actually answered: the label is
     // the only thing on the page that says the polling is still alive,
     // so it must not tick while the answers are failing. A card whose
@@ -781,3 +782,92 @@ setInterval(poll, POLL_MS);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") poll();
 });
+
+// ---- Team panel ---------------------------------------------------------
+// Connect this machine to a ccam admin panel, and show who it is and what it
+// holds — the same thing `ccam panel join` does, on the page instead of a
+// terminal. The browser only ever talks to this local server, which talks to
+// the panel; the device token never reaches the page.
+const teamPanel = document.getElementById("team-panel");
+
+async function refreshTeamPanel() {
+  let st;
+  try {
+    st = await api("/api/panel");
+  } catch {
+    return; // an older server without the endpoint: just leave it hidden
+  }
+  teamPanel.hidden = false;
+  teamPanel.replaceChildren(st.enrolled ? enrolledView(st) : connectView());
+}
+
+function connectView() {
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `
+    <div class="tp-head">
+      <span class="tp-title">Team panel</span>
+      <span class="tp-sub">Connect this machine to your team's ccam panel.</span>
+    </div>
+    <div class="tp-row">
+      <input id="tp-server" type="url" placeholder="https://your-panel.vercel.app" autocomplete="off">
+      <input id="tp-code" type="text" placeholder="join code" autocomplete="off">
+      <button id="tp-connect" class="primary">Connect</button>
+    </div>
+    <div class="tp-err" id="tp-err"></div>`;
+  wrap.querySelector("#tp-connect").addEventListener("click", connectToPanel);
+  return wrap;
+}
+
+function enrolledView(st) {
+  const wrap = document.createElement("div");
+  const holds = (st.holdings && st.holdings.length)
+    ? st.holdings.map((h) => `<b>${escapeHTML(h)}</b>`).join(", ")
+    : "nothing yet — the panel hasn't assigned this machine an account.";
+  const who = st.personName ? ` &middot; you are <b>${escapeHTML(st.personName)}</b>` : "";
+  wrap.innerHTML = `
+    <div class="tp-head">
+      <span class="tp-title">Team panel</span>
+      <span class="tp-sub">connected to
+        <a class="tp-link" href="${escapeAttr(st.server)}" target="_blank" rel="noopener">${escapeHTML(prettyURL(st.server))}</a>${who}</span>
+      <span class="tp-actions">
+        <button id="tp-admin" class="primary">Open admin panel</button>
+        <button id="tp-disconnect">Disconnect</button>
+      </span>
+    </div>
+    <div class="tp-holds">Holding: ${holds}</div>`;
+  wrap.querySelector("#tp-admin").addEventListener("click", () => window.open(st.server, "_blank", "noopener"));
+  wrap.querySelector("#tp-disconnect").addEventListener("click", disconnectFromPanel);
+  return wrap;
+}
+
+async function connectToPanel() {
+  const server = document.getElementById("tp-server").value.trim();
+  const code = document.getElementById("tp-code").value.trim();
+  const err = document.getElementById("tp-err");
+  err.textContent = "";
+  if (!server || !code) { err.textContent = "Enter the panel address and the join code."; return; }
+  const btn = document.getElementById("tp-connect");
+  btn.disabled = true; btn.textContent = "Connecting…";
+  try {
+    await api("/api/panel/connect", { method: "POST", body: JSON.stringify({ server, code }) });
+    await refreshTeamPanel();
+    refreshAccounts();
+  } catch (e) {
+    err.textContent = e.message;
+    btn.disabled = false; btn.textContent = "Connect";
+  }
+}
+
+async function disconnectFromPanel() {
+  if (!confirm("Forget this panel on this machine? Accounts it lent you go back the usual way, when the panel takes them.")) return;
+  try {
+    await api("/api/panel/disconnect", { method: "POST" });
+    await refreshTeamPanel();
+  } catch (e) {
+    alert("Could not disconnect: " + e.message);
+  }
+}
+
+function prettyURL(u) { try { return new URL(u).host; } catch { return u; } }
+function escapeHTML(x) { return String(x).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function escapeAttr(x) { return escapeHTML(x); }

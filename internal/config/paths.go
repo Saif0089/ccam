@@ -59,6 +59,17 @@ func UsageCacheFile() (string, error) {
 	return filepath.Join(base, "usage.json"), nil
 }
 
+// PanelClientFile is where this machine remembers the panel it is enrolled
+// with: the server URL, this machine's device token, and the person it enrolled
+// as. It holds a token, so it is written 0600.
+func PanelClientFile() (string, error) {
+	base, err := HomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "panel-client.json"), nil
+}
+
 // LogFile returns the path ccam's background service writes its own
 // stdout/stderr to, so install issues are debuggable without a terminal.
 func LogFile() (string, error) {
