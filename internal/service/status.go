@@ -14,21 +14,21 @@ import (
 	"clawdh/internal/config"
 )
 
-// RunningInfo describes a live ccam server.
+// RunningInfo describes a live clawdh server.
 type RunningInfo struct {
 	Port    int
 	Version string
 	PID     int
 }
 
-// Running reports whether ccam's HTTP server is answering on the port
+// Running reports whether clawdh's HTTP server is answering on the port
 // it last recorded, and what it said about itself.
 //
-// This asks /api/status and requires a recognisably-ccam response
+// This asks /api/status and requires a recognisably-clawdh response
 // rather than just opening a TCP connection: a stale port file (left by
 // a kill -9 or a hard power-off) plus any unrelated process that later
-// happens to take that port would otherwise make every part of ccam —
-// `ccam status`, the installer's health check, Start()'s "already
+// happens to take that port would otherwise make every part of clawdh —
+// `clawdh status`, the installer's health check, Start()'s "already
 // running" short-circuit — confidently report a service that isn't
 // there, and quietly never start the real one.
 //
@@ -44,14 +44,14 @@ func Running() (*RunningInfo, error) {
 		if os.IsNotExist(err) {
 			// No record — but a server may still be running with its
 			// port file lost (a cleaned ~/.clawdh, or an older version
-			// that removed it). Without this ccam can't find, stop or
+			// that removed it). Without this clawdh can't find, stop or
 			// upgrade its own running server, and every start just
 			// fails to bind a port it already holds.
 			//
 			// Only ever adopt the server this installation's own pidfile
-			// names. Matching on "some ccam answers on the default
+			// names. Matching on "some clawdh answers on the default
 			// port" instead would make an instance with its own HOME
-			// and its own port attach to an unrelated ccam — reporting
+			// and its own port attach to an unrelated clawdh — reporting
 			// someone else's port as its own.
 			pid, err := readPID()
 			if err != nil || pid <= 0 || !processAlive(pid) {
@@ -78,7 +78,7 @@ func Running() (*RunningInfo, error) {
 			// stop it misleading the next caller.
 			_ = os.Remove(portPath)
 		}
-		// Something IS listening but didn't identify as ccam. Keep the
+		// Something IS listening but didn't identify as clawdh. Keep the
 		// record: deleting it would make Start() think the port is free
 		// and try to bind it, which just fails less informatively.
 		return nil, nil
@@ -86,7 +86,7 @@ func Running() (*RunningInfo, error) {
 	return info, nil
 }
 
-// IsHTTPRunning reports whether ccam's HTTP server is up.
+// IsHTTPRunning reports whether clawdh's HTTP server is up.
 func IsHTTPRunning() (bool, error) {
 	info, err := Running()
 	return info != nil, err
@@ -124,7 +124,7 @@ func probeStatus(port int) (info *RunningInfo, state listenState) {
 		return nil, listeningOther
 	}
 
-	// `service` identifies ccam, but versions before it existed replied
+	// `service` identifies clawdh, but versions before it existed replied
 	// with only `version` — and the moment that distinction matters most
 	// is an upgrade, when the *new* binary has to recognise the *old*
 	// server it needs to stop. Refusing to would leave the old one
@@ -133,9 +133,9 @@ func probeStatus(port int) (info *RunningInfo, state listenState) {
 		// Versions before the `service` marker replied with only
 		// `version`, and the moment that matters most is an upgrade,
 		// when the new binary has to recognise the old server it needs
-		// to stop. Accept that shape only when ccam's own pidfile names
+		// to stop. Accept that shape only when clawdh's own pidfile names
 		// a live process, so an unrelated app that happens to serve
-		// /api/status can't be mistaken for ccam.
+		// /api/status can't be mistaken for clawdh.
 		if body.Version == "" || !pidFileNamesLiveProcess() {
 			return nil, listeningOther
 		}
@@ -172,12 +172,12 @@ func writePortFile(port int) error {
 }
 
 // StatusServiceName is the identifying marker /api/status returns, so
-// callers can tell ccam apart from whatever else may hold the port.
-const StatusServiceName = "ccam"
+// callers can tell clawdh apart from whatever else may hold the port.
+const StatusServiceName = "clawdh"
 
 // RecordSelf writes the current process's PID, so a subsequent
 // Stop()/Uninstall() can find it regardless of how it was launched
-// (spawned by ccam itself, a LaunchAgent, or a systemd unit).
+// (spawned by clawdh itself, a LaunchAgent, or a systemd unit).
 func RecordSelf() error {
 	return writePID(os.Getpid())
 }

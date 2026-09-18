@@ -4,7 +4,7 @@ The panel is one Go serverless function (`api/index.go`) that serves the admin
 UI and the API every machine's client talks to. Its state lives in Postgres, not
 on disk, because a serverless panel is many short-lived instances at once and the
 one-machine-per-account rule is held by a database compare-and-swap they share.
-The client on each machine is the ordinary ccam binary: it checks in every thirty
+The client on each machine is the ordinary clawdh binary: it checks in every thirty
 seconds, obeys the panel, and self-updates from the GitHub `latest` release.
 
 ## What is already set up
@@ -33,7 +33,7 @@ Both are on your Vercel account, which is why they are yours to click.
    picked up.
 
 2. **Turn on auto-deploy** so the server updates itself on every release.
-   Project → **Settings** → **Git** → connect it to `Saif0089/ccam` (this asks
+   Project → **Settings** → **Git** → connect it to `Saif0089/clawdh` (this asks
    you to link your GitHub account to Vercel once). From then on every push to
    `main` redeploys the panel — in lockstep with the client release the CI
    pipeline publishes from the same push.
@@ -46,13 +46,13 @@ On each machine, once — the panel shows the exact command under
 People → *the person* → **Send a code**:
 
 ```sh
-ccam panel join https://ccaccountmanager.vercel.app <code>
+clawdh panel join https://ccaccountmanager.vercel.app <code>
 ```
 
 An account signed in on a machine is handed to the panel from that machine:
 
 ```sh
-ccam panel push <account> https://ccaccountmanager.vercel.app
+clawdh panel push <account> https://ccaccountmanager.vercel.app
 ```
 
 ## What this defends against, and what it does not

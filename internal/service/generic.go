@@ -14,7 +14,7 @@ import (
 // per-platform types embed generic and add just that.
 //
 // Deliberately, none of the OS service managers (launchd/systemd) are
-// configured to supervise/auto-restart ccam; they're used only to start
+// configured to supervise/auto-restart clawdh; they're used only to start
 // it once at login. That keeps a single Start/Stop/IsRunning
 // implementation correct everywhere, since there's no risk of a service
 // manager silently reviving a process this package just told it to stop.
@@ -31,7 +31,7 @@ func (g generic) Start() error {
 	}
 	pid, err := spawnDetached(g.binaryPath, []string{"serve", "--port", strconv.Itoa(g.port)})
 	if err != nil {
-		return fmt.Errorf("starting ccam: %w", err)
+		return fmt.Errorf("starting clawdh: %w", err)
 	}
 	return writePID(pid)
 }
@@ -41,11 +41,11 @@ func (g generic) Start() error {
 // The pidfile alone isn't trusted for that verdict: it can be missing
 // (a cleaned ~/.clawdh, or a RecordSelf that failed) while the server is
 // very much alive, and reporting "Stopped." in that case is how
-// `ccam uninstall` ends up deleting its own binary and autostart entry
+// `clawdh uninstall` ends up deleting its own binary and autostart entry
 // while leaving an unstoppable server holding the port.
 func (g generic) Stop() error {
 	// Pin the port being stopped up front. Verifying with a fresh
-	// lookup instead would ask "is any ccam running?", and a server on
+	// lookup instead would ask "is any clawdh running?", and a server on
 	// some other port (another install, another HOME) would make this
 	// report failure for a process it stopped perfectly well.
 	target := g.port
@@ -84,7 +84,7 @@ func (g generic) Stop() error {
 	}
 
 	// Whatever the pidfile said, the question that matters is whether
-	// that port is still serving ccam.
+	// that port is still serving clawdh.
 	for i := 0; i < 20; i++ {
 		if _, state := probeStatus(target); state != listeningCcam {
 			return nil
@@ -92,7 +92,7 @@ func (g generic) Stop() error {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	return fmt.Errorf("a ccam server is still answering on port %d and could not be stopped "+
+	return fmt.Errorf("a clawdh server is still answering on port %d and could not be stopped "+
 		"(no matching pid on file); stop that process manually, then retry", target)
 }
 

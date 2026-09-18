@@ -12,7 +12,7 @@ import (
 	"clawdh/internal/config"
 )
 
-const serviceUnitName = "ccam.service"
+const serviceUnitName = "clawdh.service"
 
 type linuxService struct{ generic }
 
@@ -42,14 +42,14 @@ func xdgAutostartPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".config", "autostart", "ccam.desktop"), nil
+	return filepath.Join(home, ".config", "autostart", "clawdh.desktop"), nil
 }
 
 func (l *linuxService) Install(binaryPath string, port int) (string, error) {
 	// Whichever mechanism we're about to use, clear the other one:
 	// installing once from a desktop session (systemd) and later over
 	// SSH without a user bus (XDG autostart) would otherwise leave both
-	// registered, and at the next login they'd both start a ccam, one
+	// registered, and at the next login they'd both start a clawdh, one
 	// of which loses the port and dies with only a log line to show it.
 	l.removeSystemdUnit()
 	l.removeXDGAutostart()
@@ -74,7 +74,7 @@ func (l *linuxService) installSystemd(binaryPath string, port int) (string, erro
 	// installing shell's PATH so `claude` (and the node it needs) can
 	// be found, and WorkingDirectory keeps claude out of "/".
 	unit := fmt.Sprintf(`[Unit]
-Description=ccam - Claude Code Account Manager
+Description=clawdh - Claude Code Account Manager
 
 [Service]
 ExecStart="%s" serve --port %d
@@ -107,7 +107,7 @@ func (l *linuxService) installXDGAutostart(binaryPath string, port int) (string,
 	// with double quotes and escapes with backslashes.
 	entry := fmt.Sprintf(`[Desktop Entry]
 Type=Application
-Name=ccam
+Name=clawdh
 Comment=Claude Code Account Manager background service
 Exec="%s" serve --port %d
 Path=%s

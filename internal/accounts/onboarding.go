@@ -50,7 +50,7 @@ func MarkOnboarded(configDir, claudeBinary string) error {
 		return err
 	}
 
-	tmp := path + ".ccam-tmp"
+	tmp := path + ".clawdh-tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}

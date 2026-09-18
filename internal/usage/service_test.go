@@ -105,7 +105,7 @@ func TestServiceExpiresCache(t *testing.T) {
 // so in words rather than showing an empty card.
 func TestServiceWithoutCredentials(t *testing.T) {
 	fileCredentials(t)
-	// Not NewService: that one reads and writes the real ~/.ccam.
+	// Not NewService: that one reads and writes the real ~/.clawdh.
 	snapshot := NewServiceWithClient(&Client{}).Get(context.Background(), "missing", filepath.Join(t.TempDir(), "nope"))
 	if snapshot.State != StateSignedOut {
 		t.Errorf("State = %q, want %q", snapshot.State, StateSignedOut)
@@ -899,7 +899,7 @@ func TestExpire(t *testing.T) {
 	svc.Expire("nobody")
 }
 
-// The numbers survive a restart, which is the whole point: ccam
+// The numbers survive a restart, which is the whole point: clawdh
 // restarts itself whenever it updates, and landing in the middle of a
 // rate limit with an empty card is exactly the case this exists for.
 func TestLastGoodNumbersSurviveARestart(t *testing.T) {
@@ -966,7 +966,7 @@ func TestReportsTooOldToMeanAnythingAreDropped(t *testing.T) {
 }
 
 // A Service nobody pointed at a cache file writes nothing, anywhere.
-// This is what keeps a test run from reaching into the real ~/.ccam.
+// This is what keeps a test run from reaching into the real ~/.clawdh.
 func TestPersistenceIsOffWithoutACachePath(t *testing.T) {
 	fileCredentials(t)
 	dir := t.TempDir()

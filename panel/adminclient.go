@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// The handful of calls `ccam panel push` makes as the administrator. They live
+// The handful of calls `clawdh panel push` makes as the administrator. They live
 // here rather than in the CLI so the panel's wire format has exactly one
 // definition, on both ends of it.
 

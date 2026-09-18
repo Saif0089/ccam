@@ -2,7 +2,7 @@
 /dist/
 *.exe
 .DS_Store
-/ccam
+/clawdh
 .vercel
 .env*
 node_modules/

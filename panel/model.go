@@ -1,4 +1,4 @@
-// Package panel is ccam's account-lending server: the small admin panel a
+// Package panel is clawdh's account-lending server: the small admin panel a
 // person runs so the Claude logins a group shares can be handed out and taken
 // back, instead of living on somebody's laptop for ever.
 //

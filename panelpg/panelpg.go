@@ -1,9 +1,9 @@
-// Package panelpg keeps a ccam panel's state in Postgres, for a panel that runs
+// Package panelpg keeps a clawdh panel's state in Postgres, for a panel that runs
 // as more than one process at once — a serverless deployment, where each
 // request may be a fresh instance with no shared disk.
 //
 // It is a separate package on purpose. The Postgres driver is a dependency the
-// panel server needs and the ccam client that ships to every machine does not,
+// panel server needs and the clawdh client that ships to every machine does not,
 // so only the server's entrypoint imports this; the client binary stays on its
 // small, cgo-free dependency set.
 //

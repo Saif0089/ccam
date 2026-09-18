@@ -15,7 +15,7 @@ import (
 )
 
 // The local page's "Team panel" section talks to these. Enrolling a machine and
-// seeing what it holds used to be a terminal-only affair (`ccam panel join`);
+// seeing what it holds used to be a terminal-only affair (`clawdh panel join`);
 // this makes it part of the page every account already lives on. The browser
 // only ever talks to this local server, which talks to the panel itself — so
 // there is no cross-origin call and the device token never reaches the page.
@@ -29,7 +29,7 @@ type panelStatus struct {
 
 // sharedView is one account this machine can run through the gateway, named for
 // the page: the account and the slug its `claude-<slug>` command is built from.
-// The key stays out of it — the page never needs it; `ccam shared` holds it.
+// The key stays out of it — the page never needs it; `clawdh shared` holds it.
 type sharedView struct {
 	Account string `json:"account"`
 	Slug    string `json:"slug"`
@@ -124,7 +124,7 @@ func (s *Server) handlePanelDisconnect(w http.ResponseWriter, r *http.Request) {
 
 // handlePanelProxy makes the admin panel first-party. It forwards every request
 // under /panel/ to the panel this machine is enrolled with, so the panel's own
-// UI — the same one it serves on the web, no second copy — runs inside the ccam
+// UI — the same one it serves on the web, no second copy — runs inside the clawdh
 // page. Being same-origin with the local server is what makes its login cookie
 // work; embedded straight from the web it would be a blocked third-party cookie.
 func (s *Server) handlePanelProxy(w http.ResponseWriter, r *http.Request) {

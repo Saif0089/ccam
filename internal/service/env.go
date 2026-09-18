@@ -11,13 +11,13 @@ import (
 
 // servicePATH is the PATH baked into the autostart entry at install
 // time. Login-started services get a near-empty PATH (launchd hands out
-// roughly /usr/bin:/bin:/usr/sbin:/sbin), but ccam has to run `claude`,
+// roughly /usr/bin:/bin:/usr/sbin:/sbin), but clawdh has to run `claude`,
 // which normally lives under the user's home and is itself a Node
 // program that needs the rest of the user's PATH. The shell running
-// `ccam install` is by definition an environment where the user's
+// `clawdh install` is by definition an environment where the user's
 // `claude` works, so its PATH is the right thing to persist — plus the
 // directory of whatever claude we actually resolved, in case the user
-// installed ccam from a shell that couldn't see it either.
+// installed clawdh from a shell that couldn't see it either.
 func servicePATH() string {
 	path := os.Getenv("PATH")
 	claude := claudebin.Resolve()

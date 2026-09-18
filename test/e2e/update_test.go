@@ -22,7 +22,7 @@ import (
 // download, a real checksum, the real replace-and-restart.
 //
 // The claim being tested is the one nobody can verify by reading the
-// code — that after all of it, the ccam answering on the port is the
+// code — that after all of it, the clawdh answering on the port is the
 // *new* build. That is why the published binary is stamped with a
 // version of its own: /api/status reporting it can only happen if the
 // swap and the restart both worked.
@@ -36,10 +36,10 @@ func TestAutoUpdateInstallsAndRestartsIntoIt(t *testing.T) {
 	// The installed binary is deliberately older than the release, so
 	// the "never install something older" rule lets this one through.
 	older := time.Now().Add(-24 * time.Hour)
-	if err := os.Chtimes(h.ccamBin, older, older); err != nil {
+	if err := os.Chtimes(h.clawdhBin, older, older); err != nil {
 		t.Fatalf("ageing the installed binary: %v", err)
 	}
-	beforeSum := sha256File(t, h.ccamBin)
+	beforeSum := sha256File(t, h.clawdhBin)
 
 	h.env = setEnv(h.env, "CCAM_UPDATE_API", release.URL)
 	// Check straight away rather than after the minute a real machine
@@ -49,7 +49,7 @@ func TestAutoUpdateInstallsAndRestartsIntoIt(t *testing.T) {
 
 	out, err := h.run("install", "--port", fmt.Sprint(h.port))
 	if err != nil {
-		t.Fatalf("ccam install failed: %v\n%s", err, out)
+		t.Fatalf("clawdh install failed: %v\n%s", err, out)
 	}
 	t.Cleanup(func() { stopAndRelease(t, h) })
 
@@ -74,7 +74,7 @@ func TestAutoUpdateInstallsAndRestartsIntoIt(t *testing.T) {
 			got, publishedVersion, readLog(h))
 	}
 
-	if after := sha256File(t, h.ccamBin); after == beforeSum {
+	if after := sha256File(t, h.clawdhBin); after == beforeSum {
 		t.Error("the installed binary was never replaced")
 	}
 
@@ -91,7 +91,7 @@ func TestAutoUpdateInstallsAndRestartsIntoIt(t *testing.T) {
 	// not a thing there — so this is only a question worth asking where
 	// the answer means something.
 	if runtime.GOOS != "windows" {
-		if info, err := os.Stat(h.ccamBin); err != nil {
+		if info, err := os.Stat(h.clawdhBin); err != nil {
 			t.Errorf("stat of the updated binary: %v", err)
 		} else if info.Mode().Perm()&0o100 == 0 {
 			t.Errorf("updated binary is not executable: %v", info.Mode().Perm())
@@ -99,12 +99,12 @@ func TestAutoUpdateInstallsAndRestartsIntoIt(t *testing.T) {
 	}
 
 	// Nothing half-downloaded may be left in the install directory.
-	entries, err := os.ReadDir(filepath.Dir(h.ccamBin))
+	entries, err := os.ReadDir(filepath.Dir(h.clawdhBin))
 	if err != nil {
 		t.Fatalf("reading the install dir: %v", err)
 	}
 	for _, entry := range entries {
-		if name := entry.Name(); name != exeName("ccam") && name != exeName("ccam")+".old" {
+		if name := entry.Name(); name != exeName("clawdh") && name != exeName("clawdh")+".old" {
 			t.Errorf("left %q behind in the install directory", name)
 		}
 	}
@@ -118,14 +118,14 @@ func TestAutoUpdateLeavesANewerLocalBuildAlone(t *testing.T) {
 
 	published := buildStamped(t, "v0.0.1-published")
 	release := startReleaseServer(t, published, time.Now().Add(-48*time.Hour))
-	beforeSum := sha256File(t, h.ccamBin)
+	beforeSum := sha256File(t, h.clawdhBin)
 
 	h.env = setEnv(h.env, "CCAM_UPDATE_API", release.URL)
 	h.env = setEnv(h.env, "CCAM_UPDATE_DELAY", "0s")
 	h.env = setEnv(h.env, "CCAM_NOTIFY", "0")
 
 	if out, err := h.run("install", "--port", fmt.Sprint(h.port)); err != nil {
-		t.Fatalf("ccam install failed: %v\n%s", err, out)
+		t.Fatalf("clawdh install failed: %v\n%s", err, out)
 	}
 	t.Cleanup(func() { stopAndRelease(t, h) })
 	if !h.waitForHTTP(15 * time.Second) {
@@ -136,7 +136,7 @@ func TestAutoUpdateLeavesANewerLocalBuildAlone(t *testing.T) {
 	// happened: the delay is zero and the release server is local.
 	time.Sleep(3 * time.Second)
 
-	if after := sha256File(t, h.ccamBin); after != beforeSum {
+	if after := sha256File(t, h.clawdhBin); after != beforeSum {
 		t.Error("an older release was installed over a newer local build")
 	}
 	if v := statusVersion(h.baseURL()); v != "dev" {
@@ -159,28 +159,28 @@ func stopAndRelease(t *testing.T, h *harness) {
 		t.Logf("uninstall after the test: %v\n%s", err, out)
 	}
 
-	logPath := filepath.Join(h.home, ".clawdh", "ccam.log")
+	logPath := filepath.Join(h.home, ".clawdh", "clawdh.log")
 	deadline := time.Now().Add(20 * time.Second)
 	for {
 		if err := os.Remove(logPath); err == nil || os.IsNotExist(err) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Errorf("%s is still held open 20s after uninstall: a ccam process outlived it", logPath)
+			t.Errorf("%s is still held open 20s after uninstall: a clawdh process outlived it", logPath)
 			return
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
 }
 
-// buildStamped builds ccam with a version of its own, so the binary
+// buildStamped builds clawdh with a version of its own, so the binary
 // that gets published is distinguishable from the one that is running.
 func buildStamped(t *testing.T, version string) string {
 	t.Helper()
-	out := filepath.Join(t.TempDir(), exeName("ccam-published"))
+	out := filepath.Join(t.TempDir(), exeName("clawdh-published"))
 	cmd := exec.Command("go", "build",
-		"-ldflags", "-X ccam/internal/buildinfo.Version="+version,
-		"-o", out, filepath.Join(repoRoot(t), "cmd", "ccam"))
+		"-ldflags", "-X clawdh/internal/buildinfo.Version="+version,
+		"-o", out, filepath.Join(repoRoot(t), "cmd", "clawdh"))
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("building the published binary: %v\n%s", err, output)
 	}

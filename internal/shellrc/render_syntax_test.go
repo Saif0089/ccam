@@ -8,18 +8,18 @@ import (
 )
 
 // The managed block is sourced by the user's login shell on every start: a
-// syntax error in it does not break ccam, it breaks their shell. Parse what we
+// syntax error in it does not break clawdh, it breaks their shell. Parse what we
 // actually render with the real shells, where they are installed.
 func TestRenderedBlockParsesInTheShellItTargets(t *testing.T) {
 	// Aliases are slugified, so they are tame — but ConfigDir carries the
 	// user's home directory, which is not: apostrophes, spaces and quotes all
 	// occur in real macOS and Windows home paths.
 	entries := []AliasEntry{
-		{Alias: "claude-work", ConfigDir: "/home/me/.ccam/accounts/work", Account: "work"},
-		{Alias: "claude-obrien", ConfigDir: `/Users/o'brien/.ccam/accounts/work`, Account: "obrien"},
+		{Alias: "claude-work", ConfigDir: "/home/me/.clawdh/accounts/work", Account: "work"},
+		{Alias: "claude-obrien", ConfigDir: `/Users/o'brien/.clawdh/accounts/work`, Account: "obrien"},
 		{Alias: "claude-spaced", ConfigDir: `/Users/a b/dir with spaces/and"quote`, Account: "spaced"},
 		// No account: the direct-launch fallback has to parse too.
-		{Alias: "claude-legacy", ConfigDir: "/home/me/.ccam/accounts/legacy"},
+		{Alias: "claude-legacy", ConfigDir: "/home/me/.clawdh/accounts/legacy"},
 	}
 
 	cases := []struct {
@@ -44,7 +44,7 @@ func TestRenderedBlockParsesInTheShellItTargets(t *testing.T) {
 		}
 		out, err := exec.Command(bin, append(append([]string{}, c.args...), path)...).CombinedOutput()
 		if err != nil {
-			t.Errorf("%s cannot parse the block ccam writes: %v\n%s", c.bin, err, out)
+			t.Errorf("%s cannot parse the block clawdh writes: %v\n%s", c.bin, err, out)
 		}
 	}
 }

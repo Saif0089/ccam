@@ -39,7 +39,7 @@ const (
 	StateSignedOut State = "signed-out"
 	// StateExpired: there is a login, but it is no longer accepted.
 	StateExpired State = "expired"
-	// StateUnknown: ccam could not tell — usually no network.
+	// StateUnknown: clawdh could not tell — usually no network.
 	StateUnknown State = "unknown"
 )
 
@@ -216,7 +216,7 @@ func (s *Service) Get(ctx context.Context, accountID, configDir string) Snapshot
 func (s *Service) Forget(accountID string) {
 	s.mu.Lock()
 	delete(s.entries, accountID)
-	// The saved numbers go too. Every caller means "what ccam knows
+	// The saved numbers go too. Every caller means "what clawdh knows
 	// about this account no longer applies" — it was removed, or signed
 	// in as someone else — and numbers that outlived that would come
 	// back under an account they were never about.
@@ -459,7 +459,7 @@ func neverSent(err error) bool {
 
 // pausedNote is what the card says while an account is waiting out a
 // rate limit: what happened, how old the numbers under it are, and when
-// ccam will try again.
+// clawdh will try again.
 func pausedNote(until time.Time, last *Report, now time.Time) string {
 	when := "There are no recent numbers to show"
 	if last != nil && !last.FetchedAt.IsZero() {

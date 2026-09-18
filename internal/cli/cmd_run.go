@@ -40,8 +40,8 @@ var claudeRunner = runClaudeOnce
 type onSwitch func(switching.Handoff) bool
 
 // claudeCodeEnvVar is set in every process Claude Code spawns, so it tells a
-// `!ccam ...` invocation that it is running inside a session even when that
-// session has no ccam supervisor to switch.
+// `!clawdh ...` invocation that it is running inside a session even when that
+// session has no clawdh supervisor to switch.
 const claudeCodeEnvVar = "CLAUDECODE"
 
 // stdinIsTTY reports whether the session would own a real terminal. Swapped
@@ -49,19 +49,19 @@ const claudeCodeEnvVar = "CLAUDECODE"
 var stdinIsTTY = func() bool { return isatty(os.Stdin.Fd()) }
 
 // cmdRun is the switchable session supervisor. It launches Claude Code for one
-// account and stays resident: when the in-session `ccam <name>` hook records a
+// account and stays resident: when the in-session `clawdh <name>` hook records a
 // switch, it relaunches Claude Code as the new account with the conversation
 // resumed, in the same terminal. When Claude Code exits on its own, so does it.
 func cmdRun(args []string) int {
 	// --auto is how the `claude` shell wrapper calls in: the user did not name
-	// an account, so ccam supervises whichever one a plain `claude` would have
+	// an account, so clawdh supervises whichever one a plain `claude` would have
 	// used. Everything after it belongs to Claude Code.
 	auto := len(args) > 0 && args[0] == "--auto"
 	if auto {
 		args = args[1:]
 	}
 	if !auto && len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: ccam run <account> [claude args...]")
+		fmt.Fprintln(os.Stderr, "usage: clawdh run <account> [claude args...]")
 		return 2
 	}
 	var startName string
@@ -73,17 +73,17 @@ func cmdRun(args []string) int {
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	accountsFile, err := config.AccountsFile()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	accountsDir, err := config.AccountsDir()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 
@@ -98,13 +98,13 @@ func cmdRun(args []string) int {
 	// runs, so it is a warning, not fatal.
 	if self, err := service.SelfPath(); err == nil {
 		if err := switching.EnsureUserPromptSubmitHook(settings, self); err != nil {
-			fmt.Fprintln(os.Stderr, "ccam: could not install switch hook:", err)
+			fmt.Fprintln(os.Stderr, "clawdh: could not install switch hook:", err)
 		}
 	}
 
 	list, err := store.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	acct, ok := switching.ResolveAccount(list, startName)
@@ -117,21 +117,21 @@ func cmdRun(args []string) int {
 		}
 	}
 	if !ok {
-		fmt.Fprintf(os.Stderr, "ccam: no account %q\n", startName)
+		fmt.Fprintf(os.Stderr, "clawdh: no account %q\n", startName)
 		return 1
 	}
 	if startName == "" {
 		startName = acct.Slug
 	}
 
-	// Inside a session this supervisor is already running, `ccam <account>` is
+	// Inside a session this supervisor is already running, `clawdh <account>` is
 	// a switch, not a new session: stage the handoff and let the loop below
-	// relaunch the terminal on the other account. This is the path `!ccam
+	// relaunch the terminal on the other account. This is the path `!clawdh
 	// <name>` takes — Claude Code runs it as a plain shell command, so it
 	// never reaches the UserPromptSubmit hook, but it does inherit both the
 	// handoff path and the session id from the session it was typed in.
 	//
-	// Two things have to hold. Only the bare form is a switch: `ccam ehti -p
+	// Two things have to hold. Only the bare form is a switch: `clawdh ehti -p
 	// "..."` inside a session is a deliberate one-shot on another account, and
 	// staging a switch would kill the live session and throw those arguments
 	// away. And the supervisor has to still be there: CCAM_HANDOFF is
@@ -142,13 +142,13 @@ func cmdRun(args []string) int {
 		if supervisorAlive() {
 			h := switching.Handoff{Account: acct.Slug, SessionID: os.Getenv(switching.SessionIDEnvVar)}
 			if err := switching.WriteHandoff(handoffPath, h); err != nil {
-				fmt.Fprintln(os.Stderr, "ccam: could not stage the switch:", err)
+				fmt.Fprintln(os.Stderr, "clawdh: could not stage the switch:", err)
 				return 1
 			}
 			fmt.Printf("Switching to %s…\n", displayName(acct))
 			return 0
 		}
-		fmt.Fprintln(os.Stderr, "ccam: the ccam session this was launched from is gone, so there is nothing to switch.")
+		fmt.Fprintln(os.Stderr, "clawdh: the clawdh session this was launched from is gone, so there is nothing to switch.")
 		return 1
 	}
 
@@ -157,18 +157,18 @@ func cmdRun(args []string) int {
 	// be provided either through stdin or as a prompt argument" — an error
 	// about a flag nobody typed. Say what is actually wrong instead.
 	// Passthrough args mean the caller is driving Claude Code deliberately
-	// (`ccam ehti -p "..."`), so those are left alone.
+	// (`clawdh ehti -p "..."`), so those are left alone.
 	if len(passthrough) == 0 && !stdinIsTTY() {
 		if os.Getenv(claudeCodeEnvVar) != "" {
-			fmt.Fprintf(os.Stderr, "ccam: this Claude Code session was not started by ccam, so `!ccam %s` cannot switch it.\n", startName)
+			fmt.Fprintf(os.Stderr, "clawdh: this Claude Code session was not started by clawdh, so `!clawdh %s` cannot switch it.\n", startName)
 			fmt.Fprintln(os.Stderr, "      An account is fixed when claude starts; switching in place means relaunching")
-			fmt.Fprintln(os.Stderr, "      the session, which only ccam's supervisor can do.")
-			fmt.Fprintf(os.Stderr, "      Start sessions as `ccam <account> [claude flags...]` — then `!ccam %s`\n", startName)
+			fmt.Fprintln(os.Stderr, "      the session, which only clawdh's supervisor can do.")
+			fmt.Fprintf(os.Stderr, "      Start sessions as `clawdh <account> [claude flags...]` — then `!clawdh %s`\n", startName)
 			fmt.Fprintln(os.Stderr, "      switches the running session, conversation and all.")
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ccam: `ccam %s` starts an interactive Claude Code session, and stdin is not a terminal.\n", startName)
-		fmt.Fprintf(os.Stderr, "      Run it in your terminal, or pass Claude Code's own arguments (`ccam %s -p \"...\"`).\n", startName)
+		fmt.Fprintf(os.Stderr, "clawdh: `clawdh %s` starts an interactive Claude Code session, and stdin is not a terminal.\n", startName)
+		fmt.Fprintf(os.Stderr, "      Run it in your terminal, or pass Claude Code's own arguments (`clawdh %s -p \"...\"`).\n", startName)
 		return 1
 	}
 
@@ -177,7 +177,7 @@ func cmdRun(args []string) int {
 
 	ledger := switching.LedgerPath(home)
 
-	// Minting the session id means ccam knows it before Claude Code starts, so
+	// Minting the session id means clawdh knows it before Claude Code starts, so
 	// the session's usage is attributed to the right account from its first
 	// token rather than from its first switch. Only on a fresh launch: an id
 	// cannot be chosen for a conversation that already has one.
@@ -191,7 +191,7 @@ func cmdRun(args []string) int {
 		if id, err := newSessionID(); err == nil {
 			launchArgs = append([]string{"--session-id", id}, passthrough...)
 			if err := switching.AppendOwnership(ledger, id, acct.ConfigDir); err != nil {
-				fmt.Fprintln(os.Stderr, "ccam: could not record this session for the usage monitor:", err)
+				fmt.Fprintln(os.Stderr, "clawdh: could not record this session for the usage monitor:", err)
 			}
 		}
 	}
@@ -214,7 +214,7 @@ func cmdRun(args []string) int {
 			fresh, err := store.Load()
 			if err != nil {
 				switching.WriteOutcome(handoff, switching.Outcome{
-					Message: "ccam could not read its account list, so the switch did not happen: " + err.Error(),
+					Message: "clawdh could not read its account list, so the switch did not happen: " + err.Error(),
 				})
 				return true
 			}
@@ -227,7 +227,7 @@ func cmdRun(args []string) int {
 				})
 				return true // not a reason to restart the session
 			}
-			// Switching means relaunching. ccam does not write credential
+			// Switching means relaunching. clawdh does not write credential
 			// stores any more — that is what this whole change is about — so
 			// the only way to put a running Claude Code on another login is to
 			// start it again. Relaunching rebuilds the screen, so this message
@@ -250,12 +250,12 @@ func cmdRun(args []string) int {
 		}
 		fresh, err := store.Load()
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "ccam:", err)
+			fmt.Fprintln(os.Stderr, "clawdh:", err)
 			return 1
 		}
 		next, ok := switching.ResolveAccount(fresh, h.Account)
 		if !ok {
-			fmt.Fprintf(os.Stderr, "ccam: cannot switch to %q\n", h.Account)
+			fmt.Fprintf(os.Stderr, "clawdh: cannot switch to %q\n", h.Account)
 			return 1
 		}
 		acct = next
@@ -264,14 +264,14 @@ func cmdRun(args []string) int {
 		// relaunch instead of switching it.
 		//
 		// The flags the session was started with are kept: a switch out of
-		// `ccam default --dangerously-skip-permissions` that quietly dropped
+		// `clawdh default --dangerously-skip-permissions` that quietly dropped
 		// that flag would land the user in a session that behaves differently
 		// from the one they were in.
-		// The conversation keeps its id across the switch, so ccam can say who
+		// The conversation keeps its id across the switch, so clawdh can say who
 		// owns it from here on. The monitor reads this by interval, so the work
 		// done before the switch stays with the account that did it.
 		if err := switching.AppendOwnership(ledger, h.SessionID, next.ConfigDir); err != nil {
-			fmt.Fprintln(os.Stderr, "ccam: could not record the switch for the usage monitor:", err)
+			fmt.Fprintln(os.Stderr, "clawdh: could not record the switch for the usage monitor:", err)
 		}
 
 		resume := switching.ResumeArgs(h.SessionID, switching.HasTranscript(claudeDir, h.SessionID))
@@ -291,7 +291,7 @@ func sharedClaudeDir(home string) string {
 
 // autoAccount is the account a plain `claude` would have run as: the one whose
 // directory the shell already points at (someone who exported
-// CLAUDE_SECURESTORAGE_CONFIG_DIR by hand, or one of ccam's own aliases), and
+// CLAUDE_SECURESTORAGE_CONFIG_DIR by hand, or one of clawdh's own aliases), and
 // otherwise the default login — which is exactly what `claude` does with no
 // variables set at all.
 func autoAccount(list []accounts.Account) (accounts.Account, bool) {
@@ -313,7 +313,7 @@ func autoAccount(list []accounts.Account) (accounts.Account, bool) {
 
 // runPlainClaude is the last resort for --auto: hand the terminal to Claude
 // Code exactly as the shell would have, unsupervised, rather than refuse to
-// start because ccam has nothing registered.
+// start because clawdh has nothing registered.
 func runPlainClaude(bin string, args []string) int {
 	name, argv := claudebin.Invocation(bin, args)
 	cmd := exec.Command(name, argv...)
@@ -327,7 +327,7 @@ func runPlainClaude(bin string, args []string) int {
 // applyIdentity makes the shared ~/.claude.json name the account about to run,
 // so /status and the statusline are correct. For a managed account the
 // oauthAccount comes from its own stub; for the default account it comes from
-// the snapshot ccam took on first boot.
+// the snapshot clawdh took on first boot.
 func applyIdentity(acct accounts.Account, accountsDir, claudeJSON string) {
 	stubDir := acct.ConfigDir
 	if stubDir == "" {
@@ -350,7 +350,7 @@ func runClaudeOnce(bin string, args, env []string, handoff, accountID string, ap
 	cmd.Env = env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Start(); err != nil {
-		fmt.Fprintln(os.Stderr, "ccam: launching claude:", err)
+		fmt.Fprintln(os.Stderr, "clawdh: launching claude:", err)
 		return 1, false
 	}
 
@@ -436,7 +436,7 @@ func exitCodeOf(err error) int {
 	return 1
 }
 
-// newSessionID mints the uuid Claude Code will use for the session, so ccam
+// newSessionID mints the uuid Claude Code will use for the session, so clawdh
 // knows it before the session exists.
 func newSessionID() (string, error) {
 	var b [16]byte
@@ -450,7 +450,7 @@ func newSessionID() (string, error) {
 }
 
 // hasSessionArgs reports whether the caller already decided which conversation
-// this is — resuming one, continuing one, or naming an id. ccam must not mint
+// this is — resuming one, continuing one, or naming an id. clawdh must not mint
 // an id over the top of any of those.
 func hasSessionArgs(args []string) bool {
 	for _, a := range args {

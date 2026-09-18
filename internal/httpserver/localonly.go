@@ -13,14 +13,14 @@ import (
 // Binding to 127.0.0.1 keeps other machines out, but it does not keep
 // out the browser already running on this one: any page the user
 // visits can POST to http://127.0.0.1:47932. CORS stops it reading the
-// response, but every side effect still happens — and ccam's side
+// response, but every side effect still happens — and clawdh's side
 // effects include creating accounts, starting `claude` login processes,
 // and opening a terminal window running claude. So:
 //
-//   - Any state-changing request carrying an Origin that isn't ccam's
+//   - Any state-changing request carrying an Origin that isn't clawdh's
 //     own is refused. Browsers always send Origin on cross-origin
 //     requests, including "simple" ones and sendBeacon; a local CLI
-//     like curl sends none, and is already as privileged as ccam.
+//     like curl sends none, and is already as privileged as clawdh.
 //   - Every request must arrive addressed to a loopback host, which
 //     closes DNS rebinding: an attacker-controlled name resolving to
 //     127.0.0.1 would otherwise be same-origin to the browser and able
@@ -28,7 +28,7 @@ import (
 func withLocalOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !isLoopbackHost(r.Host) {
-			http.Error(w, "ccam only serves loopback addresses", http.StatusForbidden)
+			http.Error(w, "clawdh only serves loopback addresses", http.StatusForbidden)
 			return
 		}
 
@@ -70,7 +70,7 @@ func isLoopbackHost(host string) bool {
 	return false
 }
 
-// originMatchesHost reports whether an Origin header is ccam's own.
+// originMatchesHost reports whether an Origin header is clawdh's own.
 func originMatchesHost(origin, host string) bool {
 	const httpPrefix = "http://"
 	if !strings.HasPrefix(origin, httpPrefix) {

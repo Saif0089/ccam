@@ -9,7 +9,7 @@ package ptyio
 import "context"
 
 // The pseudo-terminal is deliberately far wider than a real one. The
-// only thing ccam reads off it is `claude`'s OAuth URL, which is ~600
+// only thing clawdh reads off it is `claude`'s OAuth URL, which is ~600
 // characters — at a normal 80/120-column width the CLI hard-wraps it
 // across several screen lines, and anything scraping the rendered
 // screen then gets a truncated, broken URL. Sizing the terminal past
@@ -41,7 +41,7 @@ type Session interface {
 // extend rather than replace it) attached to a new pseudo-terminal, in
 // the working directory dir.
 //
-// dir matters more than it looks: started by launchd at login, ccam's
+// dir matters more than it looks: started by launchd at login, clawdh's
 // own working directory is "/", and `claude` inherits it and treats the
 // filesystem root as the project directory — prompting for trust and
 // scanning far too much. Pass the user's home directory.

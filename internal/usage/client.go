@@ -18,7 +18,7 @@ import (
 //
 // It is not a documented, versioned API, so everything here degrades
 // rather than breaks: a changed shape or an error means the page says
-// usage is unavailable, and nothing else in ccam is affected.
+// usage is unavailable, and nothing else in clawdh is affected.
 const DefaultEndpoint = "https://api.anthropic.com/api/oauth/usage"
 
 // Limit is one usage window: the five-hour session allowance, the
@@ -33,7 +33,7 @@ type Limit struct {
 	Active   bool       `json:"active"`
 }
 
-// Report is everything ccam knows about one account's plan usage.
+// Report is everything clawdh knows about one account's plan usage.
 type Report struct {
 	Limits     []Limit   `json:"limits"`
 	FetchedAt  time.Time `json:"fetchedAt"`

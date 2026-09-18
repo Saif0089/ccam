@@ -13,7 +13,7 @@ import (
 // developer who breaks this contract will be renaming a struct field in
 // model.go, nowhere near this file, and nothing else will complain.
 const whyThisTestExists = `
-WHY THIS TEST EXISTS: ~/.ccam/accounts.json is not private to ccam. External
+WHY THIS TEST EXISTS: ~/.clawdh/accounts.json is not private to clawdh. External
 tools read it to discover every Claude account on the machine — the Claude
 usage monitor (~/Documents/GitHub/claude-usage-monitor) parses this exact
 file to attribute usage per account, keying off "slug" and reading each
@@ -41,7 +41,7 @@ const zeroTimeJSON = `"0001-01-01T00:00:00Z"`
 // newContractStore builds a manager over a temp dir and hands back the
 // path of the file it writes, so the assertions can read the real bytes
 // the store produced rather than re-marshalling a struct — the point is to
-// catch a change in how ccam writes, which a hand-built struct would miss.
+// catch a change in how clawdh writes, which a hand-built struct would miss.
 func newContractStore(t *testing.T) (*Manager, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -201,7 +201,7 @@ func TestAccountsJSONKeepsTheFieldNamesExternalUsageToolsRead(t *testing.T) {
 // TestAccountsJSONWritesTheDefaultAccountWithAnEmptyConfigDir pins the one
 // value with a meaning attached: "" is how a reader tells that this row is
 // the account plain `claude` uses, whose transcripts live in ~/.claude
-// rather than under ~/.ccam/accounts.
+// rather than under ~/.clawdh/accounts.
 func TestAccountsJSONWritesTheDefaultAccountWithAnEmptyConfigDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

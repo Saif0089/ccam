@@ -69,7 +69,7 @@ func (p *Prober) Status(ctx context.Context, configDir string) (authStatus, erro
 	// An empty configDir means the default account, which is reached by
 	// *removing* the variable — see EnvForConfigDir.
 	cmd.Env = EnvForConfigDir(configDir)
-	// Never inherit ccam's working directory: started by launchd at
+	// Never inherit clawdh's working directory: started by launchd at
 	// login that is "/", and claude treats its working directory as the
 	// project directory.
 	if home, err := os.UserHomeDir(); err == nil {

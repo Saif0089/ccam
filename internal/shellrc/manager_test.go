@@ -12,8 +12,8 @@ func TestSyncerWritesAliasesToAllRcFiles(t *testing.T) {
 	s := NewSyncer(home)
 
 	entries := []AliasEntry{
-		{Alias: "claude-work", ConfigDir: filepath.Join(home, ".ccam/accounts/work")},
-		{Alias: "claude-personal", ConfigDir: filepath.Join(home, ".ccam/accounts/personal")},
+		{Alias: "claude-work", ConfigDir: filepath.Join(home, ".clawdh/accounts/work")},
+		{Alias: "claude-personal", ConfigDir: filepath.Join(home, ".clawdh/accounts/personal")},
 	}
 	if err := s.Sync(entries); err != nil {
 		t.Fatalf("Sync: %v", err)
@@ -106,16 +106,16 @@ func indexOf(s, sub string) int {
 }
 
 func TestRenderBodyEscapesForEachShell(t *testing.T) {
-	entries := []AliasEntry{{Alias: "claude-work", ConfigDir: "/home/me/.ccam/accounts/work", Account: "work"}}
+	entries := []AliasEntry{{Alias: "claude-work", ConfigDir: "/home/me/.clawdh/accounts/work", Account: "work"}}
 
-	// Each entry point routes through ccam so the session it starts can be
+	// Each entry point routes through clawdh so the session it starts can be
 	// switched from inside, and keeps a direct-launch fallback with the
 	// credential store scoped and the config dir unset.
 	cases := map[Shell][]string{
-		Bash:       {`command ccam work "$@"`, `CLAUDE_SECURESTORAGE_CONFIG_DIR="/home/me/.ccam/accounts/work" command claude "$@"`},
-		Zsh:        {`command ccam work "$@"`, `CLAUDE_SECURESTORAGE_CONFIG_DIR="/home/me/.ccam/accounts/work" command claude "$@"`},
-		Fish:       {`command ccam work $argv`, `CLAUDE_SECURESTORAGE_CONFIG_DIR="/home/me/.ccam/accounts/work" claude $argv`},
-		PowerShell: {`ccam 'work' @args`, `$env:CLAUDE_SECURESTORAGE_CONFIG_DIR = '/home/me/.ccam/accounts/work'`},
+		Bash:       {`command clawdh work "$@"`, `CLAUDE_SECURESTORAGE_CONFIG_DIR="/home/me/.clawdh/accounts/work" command claude "$@"`},
+		Zsh:        {`command clawdh work "$@"`, `CLAUDE_SECURESTORAGE_CONFIG_DIR="/home/me/.clawdh/accounts/work" command claude "$@"`},
+		Fish:       {`command clawdh work $argv`, `CLAUDE_SECURESTORAGE_CONFIG_DIR="/home/me/.clawdh/accounts/work" claude $argv`},
+		PowerShell: {`clawdh 'work' @args`, `$env:CLAUDE_SECURESTORAGE_CONFIG_DIR = '/home/me/.clawdh/accounts/work'`},
 	}
 	for shell, wants := range cases {
 		body := RenderBody(shell, entries)
@@ -127,16 +127,16 @@ func TestRenderBodyEscapesForEachShell(t *testing.T) {
 	}
 }
 
-// An account with no name cannot be handed to ccam, so the entry point falls
-// back to the plain launch rather than rendering `ccam` with no argument.
+// An account with no name cannot be handed to clawdh, so the entry point falls
+// back to the plain launch rather than rendering `clawdh` with no argument.
 func TestRenderBodyWithoutAnAccountFallsBackToADirectLaunch(t *testing.T) {
-	entries := []AliasEntry{{Alias: "claude-work", ConfigDir: "/home/me/.ccam/accounts/work"}}
+	entries := []AliasEntry{{Alias: "claude-work", ConfigDir: "/home/me/.clawdh/accounts/work"}}
 	for _, shell := range []Shell{Bash, Zsh, Fish, PowerShell} {
 		body := RenderBody(shell, entries)
-		if contains(body, "ccam  ") || contains(body, "ccam ''") || contains(body, `ccam ""`) {
-			t.Errorf("%s: rendered ccam with an empty account: %q", shell, body)
+		if contains(body, "clawdh  ") || contains(body, "clawdh ''") || contains(body, `clawdh ""`) {
+			t.Errorf("%s: rendered clawdh with an empty account: %q", shell, body)
 		}
-		if !contains(body, "/home/me/.ccam/accounts/work") {
+		if !contains(body, "/home/me/.clawdh/accounts/work") {
 			t.Errorf("%s: the direct fallback lost the config dir: %q", shell, body)
 		}
 	}
@@ -147,7 +147,7 @@ func TestRenderBodyWithoutAnAccountFallsBackToADirectLaunch(t *testing.T) {
 // directory, which is precisely what sharing ~/.claude is meant to stop.
 // Only the unset (`env -u` / Remove-Item) mention of that name is allowed.
 func TestRenderBodyNeverEmitsTheConfigDirVariable(t *testing.T) {
-	entries := []AliasEntry{{Alias: "claude-work", ConfigDir: "/home/me/.ccam/accounts/work"}}
+	entries := []AliasEntry{{Alias: "claude-work", ConfigDir: "/home/me/.clawdh/accounts/work"}}
 
 	for _, shell := range []Shell{Bash, BashLogin, Zsh, Fish, PowerShell, PowerShellDesktop} {
 		body := RenderBody(shell, entries)

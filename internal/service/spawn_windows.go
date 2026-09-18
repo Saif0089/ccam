@@ -13,7 +13,7 @@ import (
 )
 
 // spawnDetached starts binaryPath with its console window hidden (so it
-// doesn't flash on screen at login) and output redirected to ccam's log
+// doesn't flash on screen at login) and output redirected to clawdh's log
 // file, and returns its PID.
 func spawnDetached(binaryPath string, args []string) (int, error) {
 	logPath, err := config.LogFile()

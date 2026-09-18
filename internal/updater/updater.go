@@ -1,6 +1,6 @@
-// Package updater keeps the installed ccam current on its own.
+// Package updater keeps the installed clawdh current on its own.
 //
-// ccam is a background service someone installs once and then forgets,
+// clawdh is a background service someone installs once and then forgets,
 // which is exactly the shape of software that quietly rots: the fix is
 // released, the page keeps showing the old bug, and nobody thinks to
 // re-run the installer. So the running server checks the published
@@ -38,7 +38,7 @@ import (
 
 // DefaultRepo is where releases come from — the same repository
 // install.sh downloads from.
-const DefaultRepo = "Saif0089/ccam"
+const DefaultRepo = "Saif0089/clawdh"
 
 // DefaultAPIBase is GitHub's API root. Overridable so tests can serve a
 // release of their own without touching the network.
@@ -60,7 +60,7 @@ const (
 	maxDownloadBytes = 200 << 20
 )
 
-// Release is the published build ccam might move to.
+// Release is the published build clawdh might move to.
 type Release struct {
 	// Name is what the release is called: "v0.2.0", or
 	// "latest (main@ab12cd3)" for the rolling one. It is what the
@@ -77,7 +77,7 @@ type Updater struct {
 	Repo       string
 	APIBase    string
 	HTTPClient *http.Client
-	// BinaryPath is the executable to replace: ccam's own.
+	// BinaryPath is the executable to replace: clawdh's own.
 	BinaryPath string
 	Now        func() time.Time
 
@@ -143,7 +143,7 @@ func Enabled() bool {
 // AssetName is the release asset for the platform this binary runs on,
 // named exactly as the release pipeline names it.
 func AssetName() string {
-	name := "ccam_" + runtime.GOOS + "_" + runtime.GOARCH
+	name := "clawdh_" + runtime.GOOS + "_" + runtime.GOARCH
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
@@ -221,7 +221,7 @@ func (u *Updater) CheckAndApply(ctx context.Context) (*Release, error) {
 		return nil, fmt.Errorf("release %s has no publish time, so it cannot be compared with what is installed", release.Name)
 	}
 	// A binary dated in the future — a machine whose clock was wrong
-	// when ccam was installed — carries a date that cannot order
+	// when clawdh was installed — carries a date that cannot order
 	// anything. Left as a gate it would refuse every release from then
 	// on, silently and permanently, so in that one case the age check
 	// steps aside and the checksum below decides on its own. Stamping
@@ -335,7 +335,7 @@ func (u *Updater) apply(ctx context.Context, release *Release, expected string) 
 	// atomic within one filesystem, and the system temp directory is
 	// routinely on another.
 	dir := filepath.Dir(u.BinaryPath)
-	// A download killed halfway (sleep, power loss, `ccam stop`) leaves
+	// A download killed halfway (sleep, power loss, `clawdh stop`) leaves
 	// its temporary file behind, and nothing else would ever remove it.
 	sweepStaleDownloads(dir, u.now())
 
@@ -356,7 +356,7 @@ func (u *Updater) apply(ctx context.Context, release *Release, expected string) 
 	body.Close()
 	// Flushed to the disk before the rename: a crash in the seconds
 	// after an update would otherwise leave the *name* pointing at a
-	// file whose contents never made it, and ccam would not start at
+	// file whose contents never made it, and clawdh would not start at
 	// all.
 	syncErr := tmp.Sync()
 	closeErr := tmp.Close()
@@ -405,7 +405,7 @@ func (u *Updater) get(ctx context.Context, url string) (io.ReadCloser, error) {
 	}
 	// GitHub answers unauthenticated API calls, and asks for this.
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "ccam-updater")
+	req.Header.Set("User-Agent", "clawdh-updater")
 
 	client := u.HTTPClient
 	if client == nil {
@@ -438,7 +438,7 @@ func (u *Updater) repo() string {
 
 // tempPrefix names an in-progress download, so a leftover can be told
 // from anything else living beside the binary.
-const tempPrefix = ".ccam-update-"
+const tempPrefix = ".clawdh-update-"
 
 // staleDownloadAge is how long a temporary file has to have sat there
 // before it is assumed to be the wreckage of an interrupted download

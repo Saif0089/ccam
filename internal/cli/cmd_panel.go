@@ -47,22 +47,22 @@ func cmdPanel(args []string) int {
 		panelUsage(os.Stdout)
 		return 0
 	default:
-		fmt.Fprintf(os.Stderr, "ccam panel: unknown command %q\n\n", args[0])
+		fmt.Fprintf(os.Stderr, "clawdh panel: unknown command %q\n\n", args[0])
 		panelUsage(os.Stderr)
 		return 1
 	}
 }
 
 func panelUsage(w *os.File) {
-	fmt.Fprint(w, `ccam panel — share Claude logins with other people, through a gateway
+	fmt.Fprint(w, `clawdh panel — share Claude logins with other people, through a gateway
 
-  ccam panel serve [--addr host:port]   run the panel (default `+defaultPanelAddr+`)
-  ccam panel join <url> <code>          connect this machine to a panel (or: ccam join <invite-link>)
-  ccam panel check                      ask the panel what is shared with this machine, now
-  ccam panel push <account> <url>       add an account's login to the panel so it can be shared
-  ccam panel genkey                     print a new sealing key for a hosted panel
+  clawdh panel serve [--addr host:port]   run the panel (default `+defaultPanelAddr+`)
+  clawdh panel join <url> <code>          connect this machine to a panel (or: clawdh join <invite-link>)
+  clawdh panel check                      ask the panel what is shared with this machine, now
+  clawdh panel push <account> <url>       add an account's login to the panel so it can be shared
+  clawdh panel genkey                     print a new sealing key for a hosted panel
 
-Most of this lives in the ccam web page now — connecting, and adding a login to
+Most of this lives in the clawdh web page now — connecting, and adding a login to
 the panel — so a person who does not use the terminal never has to. These are
 the same actions for anyone who prefers the command line.
 
@@ -95,27 +95,27 @@ func panelServe(args []string) int {
 	}
 	storePath, keyPath, _, err := panelPaths()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	secret, err := panel.LoadSecret(keyPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	srv := panel.NewServer(panel.NewStore(storePath), secret)
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ccam: cannot listen on %s: %v\n", addr, err)
+		fmt.Fprintf(os.Stderr, "clawdh: cannot listen on %s: %v\n", addr, err)
 		return 1
 	}
-	fmt.Printf("ccam panel on http://%s\n", ln.Addr())
+	fmt.Printf("clawdh panel on http://%s\n", ln.Addr())
 	if !strings.HasPrefix(addr, "127.0.0.1") && !strings.HasPrefix(addr, "localhost") {
 		fmt.Println("This panel is reachable from the network. Put it behind TLS before anyone signs in over it.")
 	}
 	if err := http.Serve(ln, srv.Handler()); err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	return 0
@@ -123,29 +123,29 @@ func panelServe(args []string) int {
 
 func panelJoin(args []string) int {
 	if len(args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: ccam panel join <url> <code>")
+		fmt.Fprintln(os.Stderr, "usage: clawdh panel join <url> <code>")
 		return 1
 	}
 	return enrollMachine(strings.TrimRight(args[0], "/"), args[1])
 }
 
 // cmdJoin is the friendly front door for connecting a machine: one invite link,
-// no sub-command to remember. `ccam join https://panel/i/<code>` pulls the panel
-// address and code out of the link; `ccam join <url> <code>` still works for
+// no sub-command to remember. `clawdh join https://panel/i/<code>` pulls the panel
+// address and code out of the link; `clawdh join <url> <code>` still works for
 // anyone who has them separately.
 func cmdJoin(args []string) int {
 	switch len(args) {
 	case 1:
 		server, code, ok := parseInvite(args[0])
 		if !ok {
-			fmt.Fprintln(os.Stderr, "ccam: that does not look like an invite link. Paste the whole link, or use `ccam join <url> <code>`.")
+			fmt.Fprintln(os.Stderr, "clawdh: that does not look like an invite link. Paste the whole link, or use `clawdh join <url> <code>`.")
 			return 1
 		}
 		return enrollMachine(server, code)
 	case 2:
 		return enrollMachine(strings.TrimRight(args[0], "/"), args[1])
 	default:
-		fmt.Fprintln(os.Stderr, "usage: ccam join <invite-link>   (or: ccam join <url> <code>)")
+		fmt.Fprintln(os.Stderr, "usage: clawdh join <invite-link>   (or: clawdh join <url> <code>)")
 		return 1
 	}
 }
@@ -177,7 +177,7 @@ func parseInvite(link string) (server, code string, ok bool) {
 func enrollMachine(server, code string) int {
 	_, _, clientPath, err := panelPaths()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	name, _ := os.Hostname()
@@ -189,11 +189,11 @@ func enrollMachine(server, code string) int {
 
 	cfg, err := panel.Enroll(ctx, server, code, name)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	if err := panel.SaveClientConfig(clientPath, cfg); err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	who := cfg.PersonName
@@ -233,7 +233,7 @@ func panelClient() (*panel.Client, error) {
 		SharesPath: sharesPath,
 		AfterChange: func() {
 			// Nothing per-account is written to shell rc files any more — every
-			// account runs as `ccam <name>` / `ccam shared <name>` — but the
+			// account runs as `clawdh <name>` / `clawdh shared <name>` — but the
 			// managed block is re-synced so aliases from earlier versions go.
 			home, err := os.UserHomeDir()
 			if err != nil {
@@ -272,11 +272,11 @@ func slugifyName(name string) string {
 func panelCheck(_ []string) int {
 	c, err := panelClient()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	if !c.Config.Configured() {
-		fmt.Fprintln(os.Stderr, "ccam: this machine is not enrolled with a panel. Run `ccam panel join <url> <code>`.")
+		fmt.Fprintln(os.Stderr, "clawdh: this machine is not enrolled with a panel. Run `clawdh panel join <url> <code>`.")
 		return 1
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -284,17 +284,17 @@ func panelCheck(_ []string) int {
 
 	change, err := c.CheckIn(ctx)
 	for _, name := range change.Gained {
-		fmt.Printf("You can now use %s — run it with `ccam shared %s`.\n", name, slugifyName(name))
+		fmt.Printf("You can now use %s — run it with `clawdh shared %s`.\n", name, slugifyName(name))
 	}
 	for _, name := range change.Lost {
 		fmt.Printf("%s is no longer shared with you.\n", name)
 	}
 	if errors.Is(err, panel.ErrNotEnrolled) {
-		fmt.Fprintln(os.Stderr, "ccam: this machine is no longer enrolled with the panel.")
+		fmt.Fprintln(os.Stderr, "clawdh: this machine is no longer enrolled with the panel.")
 		return 1
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	if change.Empty() {
@@ -308,14 +308,14 @@ func panelCheck(_ []string) int {
 // is how an account gets something to lend.
 func panelPush(args []string) int {
 	if len(args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: ccam panel push <account> <url>")
+		fmt.Fprintln(os.Stderr, "usage: clawdh panel push <account> <url>")
 		return 1
 	}
 	name, server := args[0], strings.TrimRight(args[1], "/")
 
 	list, err := loadAccounts()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	var acct accounts.Account
@@ -325,12 +325,12 @@ func panelPush(args []string) int {
 		}
 	}
 	if acct.ID == "" {
-		fmt.Fprintf(os.Stderr, "ccam: no account called %q on this machine.\n", name)
+		fmt.Fprintf(os.Stderr, "clawdh: no account called %q on this machine.\n", name)
 		return 1
 	}
 	raw, err := accounts.CaptureLogin(acct.ConfigDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ccam: %s is not signed in on this machine, so there is no login to hand to the panel.\n", acct.Name)
+		fmt.Fprintf(os.Stderr, "clawdh: %s is not signed in on this machine, so there is no login to hand to the panel.\n", acct.Name)
 		fmt.Fprintf(os.Stderr, "      Open http://127.0.0.1:%d, connect %s, finish the browser login, then run this again.\n", config.DefaultPort, acct.Slug)
 		return 1
 	}
@@ -339,7 +339,7 @@ func panelPush(args []string) int {
 	fmt.Fprint(os.Stderr, "Panel password: ")
 	pw, err := reader.ReadString('\n')
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 
@@ -358,7 +358,7 @@ func panelPush(args []string) int {
 	defer cancel()
 
 	if err := panel.AdminLogin(ctx, httpc, server, strings.TrimSpace(pw)); err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	// Create the account on the panel if it is not there yet, then push — the
@@ -366,11 +366,11 @@ func panelPush(args []string) int {
 	// it there first".
 	id, err := panel.CreateAccount(ctx, httpc, server, acct.Name, "", "")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	if err := panel.PushLogin(ctx, httpc, server, id, base64.StdEncoding.EncodeToString(raw), member); err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	fmt.Printf("%s is on the panel and ready to share.\n", acct.Name)
@@ -392,14 +392,14 @@ func (j *oneHostJar) Cookies(_ *neturl.URL) []*http.Cookie       { return j.cook
 const checkInEvery = 30 * time.Second
 
 // watchPanel keeps this machine in step with the panel it is enrolled with, for
-// as long as ccam is running. It is silent when nothing changes, which is
+// as long as clawdh is running. It is silent when nothing changes, which is
 // almost always, and gives up quietly when this machine answers to no panel.
 func watchPanel(ctx context.Context) {
 	t := time.NewTicker(checkInEvery)
 	defer t.Stop()
 	for {
 		// Reload the config each tick rather than once at startup, so a machine
-		// enrolled from the web page (or by `ccam panel join`) after the service
+		// enrolled from the web page (or by `clawdh panel join`) after the service
 		// was already running is picked up without a restart.
 		c, err := panelClient()
 		if err != nil || !c.Config.Configured() {
@@ -412,13 +412,13 @@ func watchPanel(ctx context.Context) {
 		}
 		change, err := c.CheckIn(ctx)
 		for _, name := range change.Gained {
-			fmt.Printf("ccam: %s is now shared with this machine — run it with `ccam shared %s`.\n", name, slugifyName(name))
+			fmt.Printf("clawdh: %s is now shared with this machine — run it with `clawdh shared %s`.\n", name, slugifyName(name))
 		}
 		for _, name := range change.Lost {
-			fmt.Printf("ccam: %s is no longer shared with this machine.\n", name)
+			fmt.Printf("clawdh: %s is no longer shared with this machine.\n", name)
 		}
 		if errors.Is(err, panel.ErrNotEnrolled) {
-			fmt.Fprintln(os.Stderr, "ccam: this machine is no longer connected to the panel; its shared accounts have been removed.")
+			fmt.Fprintln(os.Stderr, "clawdh: this machine is no longer connected to the panel; its shared accounts have been removed.")
 			return
 		}
 		// Any other failure is the panel being unreachable, which is not an
@@ -436,11 +436,11 @@ func watchPanel(ctx context.Context) {
 // panelGenkey prints a fresh sealing key for a panel that runs somewhere with no
 // disk of its own — a serverless deployment. The value goes in that host's
 // environment as CCAM_PANEL_KEY, and is the only thing that can open the logins
-// the panel holds, so it is printed once and never kept by ccam.
+// the panel holds, so it is printed once and never kept by clawdh.
 func panelGenkey() int {
 	key, err := panel.GenerateKeyBase64()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	fmt.Println(key)
@@ -455,22 +455,22 @@ func panelGenkey() int {
 func panelStatusCmd() int {
 	_, _, clientPath, err := panelPaths()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	cfg, err := panel.LoadClientConfig(clientPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 
 	if !cfg.Configured() {
 		fmt.Println("This machine is not connected to a panel.")
 		fmt.Println()
-		fmt.Println("Connect it from the ccam page:")
+		fmt.Println("Connect it from the clawdh page:")
 		fmt.Printf("    http://127.0.0.1:%d\n", config.DefaultPort)
 		fmt.Println("or paste your invite link:")
-		fmt.Println("    ccam join <invite-link>")
+		fmt.Println("    clawdh join <invite-link>")
 		return 0
 	}
 
@@ -489,7 +489,7 @@ func panelStatusCmd() int {
 	} else {
 		fmt.Println("Shared with you:")
 		for _, sh := range shares {
-			fmt.Printf("    %-24s ccam shared %s\n", sh.Account, sh.Slug)
+			fmt.Printf("    %-24s clawdh shared %s\n", sh.Account, sh.Slug)
 		}
 	}
 	return 0

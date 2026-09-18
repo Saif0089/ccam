@@ -13,34 +13,34 @@ import (
 	"clawdh/internal/switching"
 )
 
-// cmdEditor points VS Code and its relatives at a ccam account.
+// cmdEditor points VS Code and its relatives at a clawdh account.
 //
 // The Claude Code extension never sees the user's shell — it spawns Claude
-// itself — so aliases and ccam's `claude` function do nothing for it. What it
+// itself — so aliases and clawdh's `claude` function do nothing for it. What it
 // does read is its own `claudeCode.environmentVariables` setting, applied over
-// the environment of every Claude process it starts. ccam puts one entry there,
+// the environment of every Claude process it starts. clawdh puts one entry there,
 // pointing at a credential store it owns, and from then on switching that
 // editor's account is a write to that store: conversations already open pick it
 // up the same way a terminal session does, because it is the same mechanism.
 func cmdEditor(args []string) int {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	accountsFile, err := config.AccountsFile()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	accountsDir, err := config.AccountsDir()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	list, err := accounts.NewStore(accountsFile).Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 
@@ -67,20 +67,20 @@ func cmdEditor(args []string) int {
 
 	acct, ok := switching.ResolveAccount(list, args[0])
 	if !ok {
-		fmt.Fprintf(os.Stderr, "ccam: no account %q\n", args[0])
+		fmt.Fprintf(os.Stderr, "clawdh: no account %q\n", args[0])
 		return 1
 	}
 	self, err := service.SelfPath()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam: cannot find my own binary:", err)
+		fmt.Fprintln(os.Stderr, "clawdh: cannot find my own binary:", err)
 		return 1
 	}
 
 	// The account every new conversation starts as. The wrapper reads this when
-	// the editor launches Claude; from there, `ccam <name>` typed in one chat
+	// the editor launches Claude; from there, `clawdh <name>` typed in one chat
 	// moves that chat alone.
 	if err := writeEditorDefault(accountsDir, acct); err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 
@@ -101,7 +101,7 @@ func cmdEditor(args []string) int {
 	if failed {
 		return 1
 	}
-	fmt.Println("\nNew conversations start on this account. In any of them, type `ccam <name>`")
+	fmt.Println("\nNew conversations start on this account. In any of them, type `clawdh <name>`")
 	fmt.Println("to move that conversation — and only that one — to another account.")
 	fmt.Println("Conversations already open keep the account they started with.")
 	return 0
@@ -138,7 +138,7 @@ func reportEditors(installed []editors.Editor, list []accounts.Account, accounts
 		case !ed.HasExtension:
 			fmt.Printf("  %-18s no Claude Code extension installed\n", ed.Name)
 		case editors.WrapperPath(ed.Settings) == "":
-			fmt.Printf("  %-18s not managed by ccam (uses your default login)\n", ed.Name)
+			fmt.Printf("  %-18s not managed by clawdh (uses your default login)\n", ed.Name)
 		default:
 			fmt.Printf("  %-18s new conversations start as %s\n", ed.Name, def)
 		}
@@ -146,7 +146,7 @@ func reportEditors(installed []editors.Editor, list []accounts.Account, accounts
 }
 
 // storeOwner records which account a store was last filled from, for the
-// benefit of anything that finds the directory later — ccam's own reporting,
+// benefit of anything that finds the directory later — clawdh's own reporting,
 // and the usage monitor, which otherwise sees a directory it cannot place.
 type storeOwner struct {
 	AccountID string `json:"accountId"`

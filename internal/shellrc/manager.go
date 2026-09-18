@@ -6,7 +6,7 @@ import (
 	"runtime"
 )
 
-// RcPaths returns every rc file ccam keeps in sync, given the user's
+// RcPaths returns every rc file clawdh keeps in sync, given the user's
 // home directory. Writing to a shell's rc file even when that shell
 // isn't installed is harmless (it's just an unused file); the goal is
 // that whichever shell the user opens next already has every account's
@@ -17,7 +17,7 @@ func RcPaths(homeDir string) map[Shell]string {
 	case "windows":
 		// Both PowerShells, because they read different profiles and the
 		// one shipped with Windows is 5.1 — which is what `powershell`
-		// resolves to, including from ccam's own "Open terminal". An
+		// resolves to, including from clawdh's own "Open terminal". An
 		// alias written only to the 7+ profile does not exist in the
 		// shell a stock Windows user actually opens.
 		docs := documentsDir(homeDir)
@@ -94,7 +94,7 @@ func (s *Syncer) sync(shell Shell, path string, entries []AliasEntry) error {
 }
 
 // RemoveAll strips the managed block from every rc file, used by
-// `ccam uninstall` so no generated content is left behind.
+// `clawdh uninstall` so no generated content is left behind.
 func (s *Syncer) RemoveAll() error {
 	for _, paths := range []map[Shell]string{RcPaths(s.HomeDir), OptionalRcPaths(s.HomeDir)} {
 		for _, path := range paths {

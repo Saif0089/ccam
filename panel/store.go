@@ -19,7 +19,7 @@ const maxActivity = 2000
 // Data is the whole panel, as it sits on disk.
 //
 // It is one JSON file rather than a database on purpose. This holds tens of
-// rows, is written by exactly one process, and ccam already keeps its accounts
+// rows, is written by exactly one process, and clawdh already keeps its accounts
 // this way (internal/accounts/store.go); a SQL engine would be a megabytes-long
 // dependency and a second way of doing the same thing. The invariants a
 // database would enforce with a unique index are enforced here by holding the
@@ -55,14 +55,14 @@ type Store struct {
 // not moved, reporting whether it won. A brand-new store loads as (nil, 0).
 //
 // It is exported so a Postgres implementation can live in its own package,
-// keeping that driver out of the ccam client binary that ships to every machine.
+// keeping that driver out of the clawdh client binary that ships to every machine.
 type Backend interface {
 	Load() (raw []byte, version int64, err error)
 	Save(raw []byte, expected int64) (ok bool, err error)
 }
 
 // NewStore returns a Store kept in one JSON file, which need not exist yet.
-// This is what `ccam panel serve` uses: one machine, one writer.
+// This is what `clawdh panel serve` uses: one machine, one writer.
 func NewStore(path string) *Store {
 	return &Store{backend: &fileBackend{path: path}, now: time.Now}
 }

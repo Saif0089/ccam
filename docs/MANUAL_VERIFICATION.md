@@ -9,7 +9,7 @@ release.
 For each of macOS, Linux, and Windows:
 
 1. Install via the real one-liner from the README (not a local build) on a
-   clean machine/VM/container that has never had ccam on it.
+   clean machine/VM/container that has never had clawdh on it.
 2. Confirm the install command finished with no admin/sudo/UAC prompt at
    any point, and printed a `http://127.0.0.1:...` URL.
 3. Open that URL. Click **+ Add account**, name it anything, and open the
@@ -23,14 +23,14 @@ For each of macOS, Linux, and Windows:
 6. Repeat steps 3–5 for a second account with a second real login. Confirm
    the two accounts' `claude` sessions are independent (check `claude
    /status` or equivalent in each — different account).
-7. Reboot the machine (or just log out and back in). Confirm the ccam
+7. Reboot the machine (or just log out and back in). Confirm the clawdh
    service is running again automatically with no manual step, by opening
    its URL.
-8. Run `ccam uninstall`. Confirm: the autostart entry is gone (check
-   `~/Library/LaunchAgents` / `systemctl --user status ccam` or
+8. Run `clawdh uninstall`. Confirm: the autostart entry is gone (check
+   `~/Library/LaunchAgents` / `systemctl --user status clawdh` or
    `~/.config/autostart` / the Startup folder, per OS), the shell aliases
-   are gone from a **new** terminal, and the ccam binary itself is gone.
-9. Confirm `~/.ccam/accounts` (the actual account credentials) is still
+   are gone from a **new** terminal, and the clawdh binary itself is gone.
+9. Confirm `~/.clawdh/accounts` (the actual account credentials) is still
    present after uninstall — it should not be silently deleted.
 
 ## Probing the real `claude` CLI
@@ -46,7 +46,7 @@ CCAM_REAL_CLAUDE=1 CCAM_CLAUDE_ARGS="auth login --claudeai" \
 ```
 
 Run it whenever a Claude Code release might have changed the login flow.
-Every assumption ccam makes about that flow — which subcommand prints a URL,
+Every assumption clawdh makes about that flow — which subcommand prints a URL,
 how wide the terminal must be for the URL not to wrap, whether a code has to
 be pasted back — came from this probe, and `testdata/fakeclaude` is written
 to match what it shows. If the two ever disagree, the fake is wrong.

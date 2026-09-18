@@ -26,7 +26,7 @@ var orgScopedCacheKeys = []string{
 //
 // A managed account keeps its oauthAccount in its own <configDir>/.claude.json,
 // but the default account's identity lives in the shared ~/.claude.json — the
-// very field a switch to another account overwrites. So ccam snapshots it into
+// very field a switch to another account overwrites. So clawdh snapshots it into
 // a stub of its own (stubDir/.claude.json, stubDir being ~/.clawdh/accounts/default)
 // the first time, while ~/.claude.json still cleanly names the default account.
 // That first time is safe by construction: before this feature every managed
@@ -38,11 +38,11 @@ var orgScopedCacheKeys = []string{
 //
 // That retry is the hazard this guards against. A user who is not signed in to
 // the plain `claude` login leaves ~/.claude.json without an oauthAccount, so
-// the first boot captures nothing; the first `ccam ehti` then writes ehti's
+// the first boot captures nothing; the first `clawdh ehti` then writes ehti's
 // identity there, and the next boot would have captured THAT as "the default
 // account" — permanently, since the stub is written once. The dashboard would
 // report the default profile's usage under ehti's UUID and /status would name
-// ehti as default. So an identity that matches an account ccam manages is
+// ehti as default. So an identity that matches an account clawdh manages is
 // refused, and the snapshot waits for a genuine default login instead:
 // managedDirs are those accounts' config directories.
 func SnapshotDefaultIdentity(claudeJSONPath, stubDir string, managedDirs []string) error {
@@ -75,7 +75,7 @@ func SnapshotDefaultIdentity(claudeJSONPath, stubDir string, managedDirs []strin
 	if err != nil {
 		return err
 	}
-	tmp := stub + ".ccam-tmp"
+	tmp := stub + ".clawdh-tmp"
 	if err := os.WriteFile(tmp, out, 0o600); err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func SnapshotDefaultIdentity(claudeJSONPath, stubDir string, managedDirs []strin
 
 // ReadOAuthAccount returns the oauthAccount object from an account's own
 // identity stub (<configDir>/.claude.json), or nil if the file or the field
-// is absent. This is the identity ccam keeps writing there on login, so it is
+// is absent. This is the identity clawdh keeps writing there on login, so it is
 // always the correct account for that credential namespace.
 func ReadOAuthAccount(configDir string) (map[string]any, error) {
 	data, err := os.ReadFile(filepath.Join(configDir, ".claude.json"))
@@ -109,7 +109,7 @@ func ReadOAuthAccount(configDir string) (map[string]any, error) {
 // With every credentials-only account sharing one ~/.claude.json, its single
 // oauthAccount field would otherwise keep naming whichever account logged in
 // last, so /status, the statusline and org-scoped requests would show the
-// wrong identity for the session actually running. On a switch ccam writes the
+// wrong identity for the session actually running. On a switch clawdh writes the
 // new account's oauthAccount here and clears the org-scoped caches. Everything
 // else in the file — the user's projects, mcpServers, skillUsage — is
 // preserved untouched.
@@ -121,7 +121,7 @@ func ReadOAuthAccount(configDir string) (map[string]any, error) {
 // It is a no-op when oauth is nil (nothing to assert) or when the file already
 // names this account (so relaunching the same account does not churn the file
 // or drop caches needlessly). A missing or unparseable shared file is returned
-// as an error for the caller to decide on — ccam must never clobber the user's
+// as an error for the caller to decide on — clawdh must never clobber the user's
 // real config with a fresh one.
 func SetActiveIdentity(claudeJSONPath string, oauth map[string]any) error {
 	if oauth == nil {
@@ -153,7 +153,7 @@ func SetActiveIdentity(claudeJSONPath string, oauth map[string]any) error {
 	if err != nil {
 		return err
 	}
-	tmp := claudeJSONPath + ".ccam-tmp"
+	tmp := claudeJSONPath + ".clawdh-tmp"
 	if err := os.WriteFile(tmp, out, 0o600); err != nil {
 		return err
 	}
@@ -161,7 +161,7 @@ func SetActiveIdentity(claudeJSONPath string, oauth map[string]any) error {
 }
 
 // belongsToManagedAccount reports whether an oauthAccount read from the shared
-// ~/.claude.json is one ccam itself wrote there when a session started, rather
+// ~/.claude.json is one clawdh itself wrote there when a session started, rather
 // than the user's own default login. Matching is by accountUuid, the field
 // Claude Code keys the login on.
 func belongsToManagedAccount(oa map[string]any, managedDirs []string) bool {

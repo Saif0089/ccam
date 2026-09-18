@@ -10,7 +10,7 @@ import (
 	"clawdh/internal/switching"
 )
 
-// supervisorAlive reports whether the `ccam run` supervisor that exported
+// supervisorAlive reports whether the `clawdh run` supervisor that exported
 // CCAM_SUPERVISOR is still running. Signal 0 asks the kernel about the process
 // without touching it: no such process means the session that would have
 // consumed a handoff is long gone. EPERM means it exists under another user,

@@ -65,7 +65,7 @@ func TestSameOriginRequestsAreAllowed(t *testing.T) {
 }
 
 // A local CLI (curl, a script) sends no Origin and is already as
-// privileged as ccam itself, so it must keep working.
+// privileged as clawdh itself, so it must keep working.
 func TestRequestsWithoutAnOriginAreAllowed(t *testing.T) {
 	srv, _ := newTestServer(t)
 	handler := srv.Handler()
@@ -90,8 +90,8 @@ func TestNonLoopbackHostIsRefused(t *testing.T) {
 	srv, _ := newTestServer(t)
 	handler := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodGet, "http://ccam.evil.example.com:47932/api/accounts", nil)
-	req.Host = "ccam.evil.example.com:47932"
+	req := httptest.NewRequest(http.MethodGet, "http://clawdh.evil.example.com:47932/api/accounts", nil)
+	req.Host = "clawdh.evil.example.com:47932"
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)

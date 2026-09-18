@@ -26,25 +26,25 @@ func cmdPrune(args []string) int {
 
 	accountsFile, err := config.AccountsFile()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	accountsDir, err := config.AccountsDir()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	manager := accounts.NewManager(accounts.NewStore(accountsFile), accountsDir)
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 
 	report, err := manager.Prune(filepath.Join(home, ".claude"), ids, !*yes)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 

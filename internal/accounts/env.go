@@ -12,7 +12,7 @@ const ConfigDirEnvVar = "CLAUDE_CONFIG_DIR"
 
 // SecureStorageEnvVar is the variable Claude Code reads to decide where
 // the *credentials* live, independently of the config directory. It is
-// what lets ccam swap identity without swapping everything else.
+// what lets clawdh swap identity without swapping everything else.
 //
 // Claude Code derives both the macOS Keychain item name and the
 // file-based store's path from it:
@@ -23,14 +23,14 @@ const ConfigDirEnvVar = "CLAUDE_CONFIG_DIR"
 //
 // with the Keychain service name being
 // "Claude Code-credentials-<first 8 hex of sha256(that path)>". The
-// hash input is the same path string ccam already exports as
+// hash input is the same path string clawdh already exports as
 // CLAUDE_CONFIG_DIR, so switching an account from one variable to the
 // other keeps its existing credentials: no re-login, on any OS.
 const SecureStorageEnvVar = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
 
 // EnvForConfigDir builds the environment for running `claude` against
 // one account with that account's directory as the *config* directory —
-// the isolation ccam has always used. Both variables are set, to the
+// the isolation clawdh has always used. Both variables are set, to the
 // same path.
 //
 // Two things it must get right, both learned the hard way:
@@ -49,7 +49,7 @@ const SecureStorageEnvVar = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
 // resolves duplicate keys to the last one, but the ConPTY path on
 // Windows builds its environment block verbatim and Windows resolves
 // to the *first* match — so a user who already has CLAUDE_CONFIG_DIR
-// set globally (exactly the manual workflow ccam replaces) would have
+// set globally (exactly the manual workflow clawdh replaces) would have
 // every login silently run against their own global config.
 //
 // Why both, rather than just CLAUDE_CONFIG_DIR as this used to do: the

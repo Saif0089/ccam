@@ -13,19 +13,19 @@ import (
 	"clawdh/internal/switching"
 )
 
-// cmdHook runs one of the hooks ccam installs into Claude Code. Today the only
+// cmdHook runs one of the hooks clawdh installs into Claude Code. Today the only
 // one is the UserPromptSubmit switch trigger.
 func cmdHook(args []string) int {
 	if len(args) == 0 || args[0] != "user-prompt-submit" {
-		fmt.Fprintln(os.Stderr, "usage: ccam hook user-prompt-submit")
+		fmt.Fprintln(os.Stderr, "usage: clawdh hook user-prompt-submit")
 		return 2
 	}
 	return hookUserPromptSubmit()
 }
 
 // hookUserPromptSubmit is Claude Code's UserPromptSubmit hook. It reads the
-// hook payload on stdin and, when the prompt is a `ccam <name>` switch command
-// inside a `ccam run` supervisor, records the switch and tells Claude Code to
+// hook payload on stdin and, when the prompt is a `clawdh <name>` switch command
+// inside a `clawdh run` supervisor, records the switch and tells Claude Code to
 // drop the prompt. Every other prompt passes through untouched.
 //
 // It must be cheap: it runs before EVERY prompt in every session that shares
@@ -49,10 +49,10 @@ func hookUserPromptSubmit() int {
 
 	// A shared (gateway) session runs on a key, not a local login, so there is
 	// nothing to switch in place. Say that, by name, rather than the misleading
-	// "this session was not started by ccam".
+	// "this session was not started by clawdh".
 	if shared := os.Getenv(sharedSessionEnvVar); shared != "" {
 		return block("This is a shared session (" + shared + "), and a shared session can't change accounts in place. " +
-			"Exit it, then run `ccam " + name + "` for an account on this machine or `ccam shared <name>` for a shared one. `ccam list` shows both.")
+			"Exit it, then run `clawdh " + name + "` for an account on this machine or `clawdh shared <name>` for a shared one. `clawdh list` shows both.")
 	}
 
 	list, err := loadAccounts()
@@ -62,11 +62,11 @@ func hookUserPromptSubmit() int {
 	acct, ok := switching.ResolveAccount(list, name)
 	if !ok {
 		// A name that is not an account used to pass through to the model,
-		// which answered `ccam saif` as though it were a question and left the
-		// user with no sign that ccam had seen it at all. Someone who types
-		// `ccam <word>` meant ccam, so say what went wrong and what the
+		// which answered `clawdh saif` as though it were a question and left the
+		// user with no sign that clawdh had seen it at all. Someone who types
+		// `clawdh <word>` meant clawdh, so say what went wrong and what the
 		// accounts actually are.
-		return block(fmt.Sprintf("There is no ccam account called %q. Accounts on this machine: %s.\nIf you meant to ask me something, put it in a sentence — `ccam <name>` on its own is the switch command.",
+		return block(fmt.Sprintf("There is no clawdh account called %q. Accounts on this machine: %s.\nIf you meant to ask me something, put it in a sentence — `clawdh <name>` on its own is the switch command.",
 			name, accountNames(list)))
 	}
 
@@ -94,8 +94,8 @@ func hookUserPromptSubmit() int {
 	// credential store this session was reading — that write path is gone, and
 	// with it the class of bug that destroyed two real logins. Say plainly that
 	// this session cannot be switched rather than failing silently.
-	return block("This session was not started by ccam, so it cannot be switched to " +
-		displayName(acct) + ". Start sessions with `ccam <account>` and the same command switches them.")
+	return block("This session was not started by clawdh, so it cannot be switched to " +
+		displayName(acct) + ". Start sessions with `clawdh <account>` and the same command switches them.")
 }
 
 // switchReportTimeout is how long the hook waits for the supervisor to report

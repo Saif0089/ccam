@@ -12,7 +12,7 @@ import (
 	"runtime"
 )
 
-// errNoLogin means the account has no Claude login anywhere ccam can read —
+// errNoLogin means the account has no Claude login anywhere clawdh can read —
 // neither a credentials file nor the macOS Keychain. Usually it just was never
 // signed in.
 var errNoLogin = errors.New("no Claude login is stored for this account")
@@ -21,7 +21,7 @@ var errNoLogin = errors.New("no Claude login is stored for this account")
 //
 // This READS a credential; it never writes one. That distinction is the whole
 // lesson of this project: writing a credential store is what destroyed real
-// logins (the 4 KB truncation), and ccam does not do it. Reading one — the same
+// logins (the 4 KB truncation), and clawdh does not do it. Reading one — the same
 // thing `security find-generic-password` or a plain `cat` does — is safe, and it
 // is the only way to get a login off a machine and into the panel, because on
 // macOS Claude Code keeps it in the Keychain, not a file.
@@ -72,7 +72,7 @@ func keychainItemName(configDir string) string {
 // readKeychainItem shells out to /usr/bin/security to READ one item. It is a
 // read: find-generic-password with -w prints the secret. Nothing here writes.
 // Going through the same tool a person would use by hand inherits that tool's
-// access to an item Claude Code created, rather than prompting under ccam's own
+// access to an item Claude Code created, rather than prompting under clawdh's own
 // unfamiliar name.
 func readKeychainItem(service string) ([]byte, error) {
 	out, err := exec.Command("/usr/bin/security", "find-generic-password", "-s", service, "-w").Output()
@@ -99,7 +99,7 @@ func hasClaudeLogin(raw []byte) bool {
 // the real credential behind after the member had used the account once.
 //
 // The Keychain delete is targeted at the one item for this account, by the name
-// Claude Code derives. It is a delete of a specific credential ccam is giving
+// Claude Code derives. It is a delete of a specific credential clawdh is giving
 // back, not a write of credential data — the write path is what corrupted real
 // logins, and it stays gone. Best-effort: a missing item is success.
 func RemoveLogin(configDir string) {

@@ -1,6 +1,6 @@
 // Command fakeclaude stands in for the real `claude` CLI in tests and
 // CI, where a real Anthropic OAuth login isn't possible headlessly. It
-// mirrors the parts of claude's observable behaviour that ccam depends
+// mirrors the parts of claude's observable behaviour that clawdh depends
 // on, as verified against the real CLI (v2.1.x) by
 // internal/ptyauth/realclaude_test.go:
 //
@@ -44,7 +44,7 @@ func main() {
 	default:
 		// Bare `claude` in a fresh config dir is the interactive
 		// first-run flow, which just sits at a theme picker waiting for
-		// keystrokes. Emulating that keeps ccam honest: if it ever goes
+		// keystrokes. Emulating that keeps clawdh honest: if it ever goes
 		// back to spawning bare `claude` for a login, the tests hang
 		// exactly the way a real machine did.
 		fmt.Println("Welcome to fakeclaude!")
@@ -140,7 +140,7 @@ func loginDelay() time.Duration {
 }
 
 // writeCredentials mirrors the record the real CLI stores, down to the
-// field names: ccam reads it back to report the plan and how long the
+// field names: clawdh reads it back to report the plan and how long the
 // login lasts, so a placeholder blob here would make the page show a
 // signed-out account right after a successful login.
 func writeCredentials(configDir string) {

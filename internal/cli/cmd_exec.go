@@ -15,25 +15,25 @@ import (
 //
 // The Claude Code extension can be told to launch Claude through another
 // executable — `claudeCode.claudeProcessWrapper` — which it then runs with the
-// real binary as the first argument. ccam puts itself there so every
+// real binary as the first argument. clawdh puts itself there so every
 // conversation the editor starts is scoped to the account that editor is set
 // to, rather than to whatever the extension's machine-wide environment setting
 // happened to hold.
 //
 // Each conversation used to get a credential store of its own, seeded from the
-// account, so `ccam <name>` typed in one chat could move that chat alone. That
-// needed ccam to write credential stores, which is exactly the thing that
+// account, so `clawdh <name>` typed in one chat could move that chat alone. That
+// needed clawdh to write credential stores, which is exactly the thing that
 // destroyed two real logins, so it is gone: every conversation in an editor now
 // runs as the account the editor is set to, and changing account is a setting
 // for the whole editor again.
 //
 // It is deliberately hard to break. Anything unexpected — no account, no
 // config directory — falls through to running the real binary exactly as the
-// editor would have. A user's editor must not stop working because ccam had an
+// editor would have. A user's editor must not stop working because clawdh had an
 // opinion.
 func cmdExec(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: ccam exec <claude-binary> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: clawdh exec <claude-binary> [args...]")
 		return 2
 	}
 	bin, passthrough := args[0], args[1:]
@@ -50,7 +50,7 @@ func cmdExec(args []string) int {
 	cmd.Env = accounts.EnvForSharedConfig(acct.ConfigDir)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 
-	// The editor talks to this process over its stdio, so ccam must be a plain
+	// The editor talks to this process over its stdio, so clawdh must be a plain
 	// conduit: no extra output, and the child's exit code passed straight back.
 	if err := cmd.Start(); err != nil {
 		return runPlainClaude(bin, passthrough)
@@ -60,7 +60,7 @@ func cmdExec(args []string) int {
 }
 
 // editorAccount is the account this editor's conversations start as: whichever
-// one `ccam editor <account>` last recorded. Absent, ccam stays out of the way.
+// one `clawdh editor <account>` last recorded. Absent, clawdh stays out of the way.
 func editorAccount() (accounts.Account, bool) {
 	accountsFile, err := config.AccountsFile()
 	if err != nil {

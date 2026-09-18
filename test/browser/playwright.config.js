@@ -1,4 +1,4 @@
-// Browser-level tests for ccam's web UI.
+// Browser-level tests for clawdh's web UI.
 //
 // These exist because the Go end-to-end tests drive the HTTP API
 // directly and never load the page — so a UI that was completely broken

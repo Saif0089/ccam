@@ -16,15 +16,15 @@ func TestParseTrigger(t *testing.T) {
 		wantName string
 		wantOK   bool
 	}{
-		{"ccam ehti", "ehti", true},
-		{"  ccam   ehti  ", "ehti", true},
-		{"ccam switch ehti", "ehti", true},
-		{"ccam claude-ehti", "claude-ehti", true},
-		{"/ccam ehti", "", false},           // slash never reaches the hook as this shape
-		{"ccam", "", false},                 // no name
-		{"ccam ehti now", "", false},        // extra words → a real prompt
-		{"please run ccam ehti", "", false}, // sentence
-		{"what does ccam do", "", false},
+		{"clawdh ehti", "ehti", true},
+		{"  clawdh   ehti  ", "ehti", true},
+		{"clawdh switch ehti", "ehti", true},
+		{"clawdh claude-ehti", "claude-ehti", true},
+		{"/clawdh ehti", "", false},           // slash never reaches the hook as this shape
+		{"clawdh", "", false},                 // no name
+		{"clawdh ehti now", "", false},        // extra words → a real prompt
+		{"please run clawdh ehti", "", false}, // sentence
+		{"what does clawdh do", "", false},
 		{"", "", false},
 	} {
 		name, ok := ParseTrigger(tc.prompt)

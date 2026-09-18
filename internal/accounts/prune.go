@@ -166,7 +166,7 @@ func shareProjects(src, dst string, apply bool) (needed, failed int, err error) 
 	// nothing had copied. Refuse to touch it instead.
 	info, statErr := os.Lstat(src)
 	if statErr == nil && info.Mode()&os.ModeSymlink != 0 {
-		return 0, 0, fmt.Errorf("%s is a symlink; ccam will not migrate or delete a linked transcript tree", src)
+		return 0, 0, fmt.Errorf("%s is a symlink; clawdh will not migrate or delete a linked transcript tree", src)
 	}
 	if statErr != nil {
 		if os.IsNotExist(statErr) {

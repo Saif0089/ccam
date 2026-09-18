@@ -10,7 +10,7 @@ import (
 func TestPruneRemovesTranscriptsButKeepsWhatWasNeverCopied(t *testing.T) {
 	home := t.TempDir()
 	claudeDir := filepath.Join(home, ".claude")
-	work := filepath.Join(home, ".ccam", "accounts", "work")
+	work := filepath.Join(home, ".clawdh", "accounts", "work")
 	writeTranscript(t, work, "-repo", "s.jsonl", "big transcript body")
 	// The migration copies projects/ and nothing else, so everything below is
 	// this account's only copy. Deleting any of it loses it for good.
@@ -64,7 +64,7 @@ func TestPruneRemovesTranscriptsButKeepsWhatWasNeverCopied(t *testing.T) {
 func TestPruneSharesTranscriptsThatOnlyExistInTheAccountDir(t *testing.T) {
 	home := t.TempDir()
 	claudeDir := filepath.Join(home, ".claude")
-	work := filepath.Join(home, ".ccam", "accounts", "work")
+	work := filepath.Join(home, ".clawdh", "accounts", "work")
 	writeTranscript(t, work, "-repo", "after-the-flip.jsonl", "a whole day of work")
 
 	mgr, _ := seedStore(t, []Account{
@@ -91,7 +91,7 @@ func TestPruneSharesTranscriptsThatOnlyExistInTheAccountDir(t *testing.T) {
 func TestPruneReplacesAShortSharedCopy(t *testing.T) {
 	home := t.TempDir()
 	claudeDir := filepath.Join(home, ".claude")
-	work := filepath.Join(home, ".ccam", "accounts", "work")
+	work := filepath.Join(home, ".clawdh", "accounts", "work")
 	writeTranscript(t, work, "-repo", "s.jsonl", "first half plus the second half")
 	mustFile(t, filepath.Join(claudeDir, "projects", "-repo", "s.jsonl"), "first half")
 
@@ -112,7 +112,7 @@ func TestPruneReplacesAShortSharedCopy(t *testing.T) {
 func TestPruneNeverOverwritesANewerSharedCopy(t *testing.T) {
 	home := t.TempDir()
 	claudeDir := filepath.Join(home, ".claude")
-	work := filepath.Join(home, ".ccam", "accounts", "work")
+	work := filepath.Join(home, ".clawdh", "accounts", "work")
 	writeTranscript(t, work, "-repo", "s.jsonl", "the old, shorter copy")
 	mustFile(t, filepath.Join(claudeDir, "projects", "-repo", "s.jsonl"), "the old, shorter copy plus everything since")
 
@@ -136,7 +136,7 @@ func TestPruneDeletesNothingWhenATranscriptCannotBeShared(t *testing.T) {
 	}
 	home := t.TempDir()
 	claudeDir := filepath.Join(home, ".claude")
-	work := filepath.Join(home, ".ccam", "accounts", "work")
+	work := filepath.Join(home, ".clawdh", "accounts", "work")
 	writeTranscript(t, work, "-repo", "only-here.jsonl", "irreplaceable")
 	mustDir(t, filepath.Join(claudeDir, "projects"))
 	if err := os.Chmod(filepath.Join(claudeDir, "projects"), 0o500); err != nil {
@@ -161,7 +161,7 @@ func TestPruneDeletesNothingWhenATranscriptCannotBeShared(t *testing.T) {
 
 func TestPruneSkipsUnmigratedAndDefaultAccounts(t *testing.T) {
 	home := t.TempDir()
-	legacy := filepath.Join(home, ".ccam", "accounts", "legacy")
+	legacy := filepath.Join(home, ".clawdh", "accounts", "legacy")
 	writeTranscript(t, legacy, "-repo", "s.jsonl", "x")
 
 	mgr, _ := seedStore(t, []Account{
@@ -185,8 +185,8 @@ func TestPruneSkipsUnmigratedAndDefaultAccounts(t *testing.T) {
 
 func TestPruneByID(t *testing.T) {
 	home := t.TempDir()
-	a := filepath.Join(home, ".ccam", "accounts", "a")
-	b := filepath.Join(home, ".ccam", "accounts", "b")
+	a := filepath.Join(home, ".clawdh", "accounts", "a")
+	b := filepath.Join(home, ".clawdh", "accounts", "b")
 	writeTranscript(t, a, "-r", "s.jsonl", "x")
 	writeTranscript(t, b, "-r", "s.jsonl", "x")
 	mgr, _ := seedStore(t, []Account{
@@ -233,7 +233,7 @@ func TestSymlinkedProjectsIsNeitherMigratedNorPruned(t *testing.T) {
 	}
 	home := t.TempDir()
 	claudeDir := filepath.Join(home, ".claude")
-	work := filepath.Join(home, ".ccam", "accounts", "work")
+	work := filepath.Join(home, ".clawdh", "accounts", "work")
 	elsewhere := filepath.Join(home, "elsewhere", "projects")
 	mustFile(t, filepath.Join(elsewhere, "-repo", "s.jsonl"), "the real transcripts")
 	mustDir(t, work)

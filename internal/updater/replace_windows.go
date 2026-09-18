@@ -35,7 +35,7 @@ var elevatedReplace = replaceBinaryElevated
 // and put the old one back if that second step fails, so a failed
 // update can never leave the service with no binary at all.
 //
-// ccam installs per-user and needs no elevation for any of that — see
+// clawdh installs per-user and needs no elevation for any of that — see
 // install.ps1, which writes to %LOCALAPPDATA%. But it can also be put
 // somewhere the user cannot write: an administrator deploying it to
 // Program Files, or an enterprise image. There the renames fail with
@@ -54,7 +54,7 @@ func replaceBinary(from, to string) error {
 	}
 	if elevErr := elevatedReplace(from, to); elevErr != nil {
 		return fmt.Errorf("installing the update over %s needs administrator rights "+
-			"(ccam is installed somewhere this account cannot write) and the elevated "+
+			"(clawdh is installed somewhere this account cannot write) and the elevated "+
 			"retry did not complete: %w", to, elevErr)
 	}
 	return nil

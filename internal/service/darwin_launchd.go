@@ -12,7 +12,7 @@ import (
 	"clawdh/internal/config"
 )
 
-const launchAgentLabel = "com.ccam.agent"
+const launchAgentLabel = "com.clawdh.agent"
 
 type darwinService struct{ generic }
 
@@ -45,10 +45,10 @@ func (d *darwinService) Install(binaryPath string, port int) (string, error) {
 	}
 
 	// launchd starts login agents with a bare PATH (roughly
-	// /usr/bin:/bin:/usr/sbin:/sbin), but ccam has to run `claude`,
+	// /usr/bin:/bin:/usr/sbin:/sbin), but clawdh has to run `claude`,
 	// which normally lives under the user's home and is itself a Node
 	// program needing more of the user's PATH. Bake in the PATH of the
-	// shell that ran `ccam install`, which is exactly the environment
+	// shell that ran `clawdh install`, which is exactly the environment
 	// where the user's `claude` works.
 	plist := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -98,7 +98,7 @@ func (d *darwinService) Install(binaryPath string, port int) (string, error) {
 
 	// Deliberately not `launchctl bootstrap`-ing it here: with
 	// RunAtLoad=true, bootstrapping loads *and* immediately starts it,
-	// racing with the Start() call every caller (ccam install, and our
+	// racing with the Start() call every caller (clawdh install, and our
 	// own tests) makes right after Install() — whichever of the two
 	// wins the race to bind the port leaves the other logging a
 	// harmless-looking "address already in use" error, and on a loaded

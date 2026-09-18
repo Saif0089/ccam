@@ -22,20 +22,20 @@ mkdir -p "$HOME/.local/bin"
 # -buildvcs=false: the repo is bind-mounted and owned by another uid,
 # so git refuses to report status ("dubious ownership") and Go turns
 # that into a build failure. The version stamp is irrelevant here.
-go build -buildvcs=false -o "$HOME/.local/bin/ccam" ./cmd/ccam
+go build -buildvcs=false -o "$HOME/.local/bin/clawdh" ./cmd/clawdh
 go build -buildvcs=false -o "$HOME/.local/bin/claude" ./testdata/fakeclaude
-ok "built ccam and the fake claude into ~/.local/bin"
+ok "built clawdh and the fake claude into ~/.local/bin"
 
 PORT=47955
 
 # --- install, as a plain user with no root ---
-ccam install --port "$PORT" > /tmp/install.log 2>&1 || { cat /tmp/install.log; fail "ccam install"; }
+clawdh install --port "$PORT" > /tmp/install.log 2>&1 || { cat /tmp/install.log; fail "clawdh install"; }
 cat /tmp/install.log
-grep -q "ccam is running" /tmp/install.log || fail "install did not report a running service"
+grep -q "clawdh is running" /tmp/install.log || fail "install did not report a running service"
 ok "installed without root"
 
 # --- the autostart entry: no systemd user bus here, so it must be XDG ---
-DESKTOP="$HOME/.config/autostart/ccam.desktop"
+DESKTOP="$HOME/.config/autostart/clawdh.desktop"
 [ -f "$DESKTOP" ] || fail "no XDG autostart entry at $DESKTOP"
 grep -q "^Exec=" "$DESKTOP" || fail "autostart entry has no Exec"
 ok "XDG autostart entry written (no systemd user bus available)"
@@ -45,7 +45,7 @@ grep -q "^Path=" "$DESKTOP" || fail "autostart entry has no Path (working direct
 ok "autostart entry carries a working directory"
 
 # --- the service answers, and identifies itself ---
-curl -fsS "http://127.0.0.1:$PORT/api/status" | grep -q '"service":"ccam"' || fail "status does not identify as ccam"
+curl -fsS "http://127.0.0.1:$PORT/api/status" | grep -q '"service":"clawdh"' || fail "status does not identify as clawdh"
 ok "service answers on 127.0.0.1:$PORT"
 
 # --- full account lifecycle over the API ---
@@ -111,7 +111,7 @@ curl -fsS "http://127.0.0.1:$PORT/api/accounts" | grep -q '"status":"linked"' ||
 ok "account reported linked"
 
 # --- starting from the autostart entry's own command line ---
-ccam stop >/dev/null
+clawdh stop >/dev/null
 EXEC_LINE=$(grep "^Exec=" "$DESKTOP" | cut -d= -f2-)
 echo "autostart Exec: $EXEC_LINE"
 # Strip the quotes the Desktop Entry spec requires, then run it as the
@@ -121,23 +121,23 @@ for _ in $(seq 1 40); do
   curl -fsS "http://127.0.0.1:$PORT/api/status" >/dev/null 2>&1 && break
   sleep 0.5
 done
-curl -fsS "http://127.0.0.1:$PORT/api/status" | grep -q '"service":"ccam"' \
-  || { cat /tmp/autostart.log; cat "$HOME/.clawdh/ccam.log" 2>/dev/null; fail "autostart command line did not bring up the service"; }
+curl -fsS "http://127.0.0.1:$PORT/api/status" | grep -q '"service":"clawdh"' \
+  || { cat /tmp/autostart.log; cat "$HOME/.clawdh/clawdh.log" 2>/dev/null; fail "autostart command line did not bring up the service"; }
 ok "service starts from the autostart entry with a bare login PATH"
 
 # And with that bare PATH it must still find claude, which is the whole
 # point of baking PATH into the entry.
 curl -fsS -X POST "http://127.0.0.1:$PORT/api/accounts/work/login" -o /dev/null
 timeout 60 curl -sN "http://127.0.0.1:$PORT/api/accounts/work/login/events" > /tmp/sse2.txt || true
-grep -q '"type":"url"' /tmp/sse2.txt || { cat /tmp/sse2.txt; cat "$HOME/.clawdh/ccam.log"; fail "login failed under the autostart environment (claude not found?)"; }
+grep -q '"type":"url"' /tmp/sse2.txt || { cat /tmp/sse2.txt; cat "$HOME/.clawdh/clawdh.log"; fail "login failed under the autostart environment (claude not found?)"; }
 ok "claude still resolves under the autostart environment"
 
 # --- uninstall leaves nothing behind ---
-ccam uninstall > /tmp/uninstall.log 2>&1 || { cat /tmp/uninstall.log; fail "ccam uninstall"; }
+clawdh uninstall > /tmp/uninstall.log 2>&1 || { cat /tmp/uninstall.log; fail "clawdh uninstall"; }
 cat /tmp/uninstall.log
 [ -f "$DESKTOP" ] && fail "autostart entry survived uninstall"
 grep -q "claude-work" "$HOME/.bashrc" 2>/dev/null && fail "alias survived uninstall"
-[ -f "$HOME/.local/bin/ccam" ] && fail "binary survived uninstall"
+[ -f "$HOME/.local/bin/clawdh" ] && fail "binary survived uninstall"
 [ -d "$HOME/.clawdh/accounts/work" ] || fail "account data was deleted (it should be kept)"
 ok "uninstall removed the autostart entry, aliases and binary, and kept account data"
 

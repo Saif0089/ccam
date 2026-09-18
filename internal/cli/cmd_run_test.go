@@ -48,7 +48,7 @@ func seedRunEnv(t *testing.T) string {
 	// Give "work" an identity stub so the switch also exercises applyIdentity.
 	mustWrite(t, filepath.Join(workDir, ".claude.json"), `{"oauthAccount":{"accountUuid":"work-uuid"}}`)
 
-	// A ccam-supervised shell would export a handoff path; clear it so these
+	// A clawdh-supervised shell would export a handoff path; clear it so these
 	// tests exercise the supervisor rather than the switch-staging path.
 	t.Setenv(switching.HandoffEnvVar, "")
 
@@ -247,8 +247,8 @@ func TestRunClaudeOnceReturnsChildExitCode(t *testing.T) {
 	}
 }
 
-// TestRunStagesSwitchInsideSupervisedSession is `!ccam work` typed in a session
-// ccam is supervising: a shell command, so no tty and no hook payload, but the
+// TestRunStagesSwitchInsideSupervisedSession is `!clawdh work` typed in a session
+// clawdh is supervising: a shell command, so no tty and no hook payload, but the
 // handoff path and session id are inherited from the session. It must stage the
 // switch for the supervisor instead of starting a second session.
 func TestRunStagesSwitchInsideSupervisedSession(t *testing.T) {
@@ -303,7 +303,7 @@ func TestRunRefusesToStageForADeadSupervisor(t *testing.T) {
 	}
 }
 
-// `ccam ehti -p "..."` inside a supervised session is a deliberate one-shot on
+// `clawdh ehti -p "..."` inside a supervised session is a deliberate one-shot on
 // another account, not a request to switch the session and throw the arguments
 // away.
 func TestRunWithArgsInsideASessionDoesNotStageASwitch(t *testing.T) {
@@ -332,9 +332,9 @@ func TestRunWithArgsInsideASessionDoesNotStageASwitch(t *testing.T) {
 	}
 }
 
-// `ccam run --auto` is how the shell wrapper starts a plain `claude`: no
+// `clawdh run --auto` is how the shell wrapper starts a plain `claude`: no
 // account was named, so it supervises the one that shell was already pointed
-// at — here, an account directory exported by ccam's own alias.
+// at — here, an account directory exported by clawdh's own alias.
 func TestRunAutoFollowsTheAccountTheShellPointsAt(t *testing.T) {
 	home := seedRunEnv(t)
 	workDir := filepath.Join(home, ".clawdh", "accounts", "work")
@@ -401,8 +401,8 @@ func TestRunAutoNeverStagesASwitch(t *testing.T) {
 	}
 }
 
-// TestRunRefusesWithoutATerminal covers `!ccam ehti` from inside a Claude Code
-// session: no tty, no passthrough args, so ccam must explain itself rather than
+// TestRunRefusesWithoutATerminal covers `!clawdh ehti` from inside a Claude Code
+// session: no tty, no passthrough args, so clawdh must explain itself rather than
 // launch a Claude Code that dies on "Input must be provided...".
 func TestRunRefusesWithoutATerminal(t *testing.T) {
 	seedRunEnv(t)
@@ -425,7 +425,7 @@ func TestRunRefusesWithoutATerminal(t *testing.T) {
 }
 
 // A caller who passes Claude Code arguments is driving it deliberately
-// (`ccam ehti -p "..."`), so the guard stays out of the way.
+// (`clawdh ehti -p "..."`), so the guard stays out of the way.
 func TestRunWithArgsSkipsTheTerminalGuard(t *testing.T) {
 	seedRunEnv(t)
 	stdinIsTTY = func() bool { return false }
@@ -447,7 +447,7 @@ func TestRunWithArgsSkipsTheTerminalGuard(t *testing.T) {
 	}
 }
 
-// withoutMintedID drops the --session-id ccam mints for every fresh launch, so
+// withoutMintedID drops the --session-id clawdh mints for every fresh launch, so
 // a test can assert on the arguments it is actually about.
 func withoutMintedID(args []string) []string {
 	for i := 0; i+1 < len(args); i++ {
@@ -471,7 +471,7 @@ func readJSONFile(t *testing.T, path string) map[string]any {
 	return m
 }
 
-// Switching a live session relaunches it. ccam does not write credential stores
+// Switching a live session relaunches it. clawdh does not write credential stores
 // any more, so the login a running Claude Code reads cannot be changed
 // underneath it: the conversation is carried across, and anything running
 // inside the old process ends with it.
@@ -514,7 +514,7 @@ func TestSwitchRelaunchesOntoTheOtherAccount(t *testing.T) {
 		t.Fatalf("want one relaunch, got %d launch(es)", len(launches))
 	}
 	if !slices.Contains(launches[0], "--session-id") {
-		t.Error("ccam should mint the session id so usage is attributed from the first token")
+		t.Error("clawdh should mint the session id so usage is attributed from the first token")
 	}
 	// The minted id must not survive into the relaunch: --session-id names a
 	// new conversation and --resume reopens an existing one.
@@ -523,7 +523,7 @@ func TestSwitchRelaunchesOntoTheOtherAccount(t *testing.T) {
 		t.Errorf("relaunch args = %v, want %v", launches[1], want)
 	}
 
-	// The conversation keeps its id, so ccam can record who owns it from the
+	// The conversation keeps its id, so clawdh can record who owns it from the
 	// switch onward. The monitor reads ownership by interval, so the work done
 	// before the switch stays with the account that did it.
 	work := filepath.Join(home, ".clawdh", "accounts", "work")

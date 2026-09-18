@@ -9,7 +9,7 @@ import (
 
 // An editor calls its wrapper as `<wrapper> <real-claude-binary> [args...]` —
 // the setting holds one executable path, so there is nowhere to put a
-// subcommand. Without recognising that shape ccam printed its usage and exited
+// subcommand. Without recognising that shape clawdh printed its usage and exited
 // 1, and the Claude Code extension showed "Claude Code process exited with
 // code 1" and no chat at all.
 func TestAnExecutablePathIsTheEditorWrapperInvocation(t *testing.T) {

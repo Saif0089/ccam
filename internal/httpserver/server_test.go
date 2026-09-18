@@ -82,10 +82,10 @@ func TestAccountsCRUDLifecycle(t *testing.T) {
 		t.Errorf("alias = %q, want claude-work", created.Alias)
 	}
 
-	// Accounts no longer get a shell alias — they run as `ccam <name>` — so
+	// Accounts no longer get a shell alias — they run as `clawdh <name>` — so
 	// creating one writes no managed rc block.
 	rcPath := anyRcPath(home)
-	if data, _ := os.ReadFile(rcPath); strings.Contains(string(data), "Managed by ccam") {
+	if data, _ := os.ReadFile(rcPath); strings.Contains(string(data), "Managed by clawdh") {
 		t.Errorf("creating an account wrote a shell alias block, want none: %q", data)
 	}
 
@@ -112,7 +112,7 @@ func TestAccountsCRUDLifecycle(t *testing.T) {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 	resp.Body.Close()
-	if data, _ := os.ReadFile(rcPath); strings.Contains(string(data), "Managed by ccam") {
+	if data, _ := os.ReadFile(rcPath); strings.Contains(string(data), "Managed by clawdh") {
 		t.Errorf("renaming an account wrote a shell alias block, want none: %q", data)
 	}
 
@@ -288,7 +288,7 @@ func TestWebUIServedAtRoot(t *testing.T) {
 	}
 	body := new(bytes.Buffer)
 	body.ReadFrom(resp.Body)
-	if !strings.Contains(body.String(), "ccam") {
-		t.Errorf("expected the embedded UI to mention ccam, got %d bytes", body.Len())
+	if !strings.Contains(body.String(), "clawdh") {
+		t.Errorf("expected the embedded UI to mention clawdh, got %d bytes", body.Len())
 	}
 }

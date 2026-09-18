@@ -16,7 +16,7 @@ import (
 // The client page shows the Claude logins already on this machine, by email, so
 // the admin adds the right one to the panel by picking it — never by typing a
 // name that has to match. This is the discover-and-add flow that replaces
-// `ccam panel push <name>`.
+// `clawdh panel push <name>`.
 
 func (s *Server) handleListLogins(w http.ResponseWriter, r *http.Request) {
 	list, _ := s.manager.List()

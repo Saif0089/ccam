@@ -46,7 +46,7 @@ func TestEnsureHookPreservesExistingHooks(t *testing.T) {
       }
     }`), 0o600)
 
-	if err := EnsureUserPromptSubmitHook(path, "/usr/local/bin/ccam"); err != nil {
+	if err := EnsureUserPromptSubmitHook(path, "/usr/local/bin/clawdh"); err != nil {
 		t.Fatal(err)
 	}
 	cfg := loadSettings(t, path)
@@ -55,19 +55,19 @@ func TestEnsureHookPreservesExistingHooks(t *testing.T) {
 	}
 	cmds := upsCommands(t, cfg)
 	if len(cmds) != 2 {
-		t.Fatalf("want 2 UserPromptSubmit hooks (theirs + ccam), got %d: %v", len(cmds), cmds)
+		t.Fatalf("want 2 UserPromptSubmit hooks (theirs + clawdh), got %d: %v", len(cmds), cmds)
 	}
 	foundFable, foundCcam := false, false
 	for _, c := range cmds {
 		if c == "/Users/me/.claude/hooks/fable-nudge.sh" {
 			foundFable = true
 		}
-		if c == HookCommand("/usr/local/bin/ccam") {
+		if c == HookCommand("/usr/local/bin/clawdh") {
 			foundCcam = true
 		}
 	}
 	if !foundFable || !foundCcam {
-		t.Errorf("both hooks must be present: fable=%v ccam=%v", foundFable, foundCcam)
+		t.Errorf("both hooks must be present: fable=%v clawdh=%v", foundFable, foundCcam)
 	}
 }
 
@@ -75,13 +75,13 @@ func TestEnsureHookIsIdempotentAndDoesNotRewrite(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	os.WriteFile(path, []byte(`{"model":"opus"}`), 0o600)
 
-	if err := EnsureUserPromptSubmitHook(path, "/bin/ccam"); err != nil {
+	if err := EnsureUserPromptSubmitHook(path, "/bin/clawdh"); err != nil {
 		t.Fatal(err)
 	}
 	first, _ := os.ReadFile(path)
 
 	// Second call must be a pure no-op — byte-identical, no reformat/churn.
-	if err := EnsureUserPromptSubmitHook(path, "/bin/ccam"); err != nil {
+	if err := EnsureUserPromptSubmitHook(path, "/bin/clawdh"); err != nil {
 		t.Fatal(err)
 	}
 	second, _ := os.ReadFile(path)
@@ -93,15 +93,15 @@ func TestEnsureHookIsIdempotentAndDoesNotRewrite(t *testing.T) {
 func TestEnsureHookRefreshesStalePath(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	os.WriteFile(path, []byte(`{}`), 0o600)
-	if err := EnsureUserPromptSubmitHook(path, "/old/path/ccam"); err != nil {
+	if err := EnsureUserPromptSubmitHook(path, "/old/path/clawdh"); err != nil {
 		t.Fatal(err)
 	}
-	if err := EnsureUserPromptSubmitHook(path, "/new/path/ccam"); err != nil {
+	if err := EnsureUserPromptSubmitHook(path, "/new/path/clawdh"); err != nil {
 		t.Fatal(err)
 	}
 	cmds := upsCommands(t, loadSettings(t, path))
-	if len(cmds) != 1 || cmds[0] != HookCommand("/new/path/ccam") {
-		t.Errorf("stale ccam hook should be refreshed to one entry with the new path, got %v", cmds)
+	if len(cmds) != 1 || cmds[0] != HookCommand("/new/path/clawdh") {
+		t.Errorf("stale clawdh hook should be refreshed to one entry with the new path, got %v", cmds)
 	}
 }
 
@@ -112,13 +112,13 @@ func TestRemoveHookLeavesOthers(t *testing.T) {
         {"hooks":[{"type":"command","command":"/Users/me/.claude/hooks/fable-nudge.sh","timeout":5}]}
       ]}
     }`), 0o600)
-	EnsureUserPromptSubmitHook(path, "/bin/ccam")
+	EnsureUserPromptSubmitHook(path, "/bin/clawdh")
 
 	if err := RemoveUserPromptSubmitHook(path); err != nil {
 		t.Fatal(err)
 	}
 	cmds := upsCommands(t, loadSettings(t, path))
 	if len(cmds) != 1 || cmds[0] != "/Users/me/.claude/hooks/fable-nudge.sh" {
-		t.Errorf("remove must delete only ccam's hook, got %v", cmds)
+		t.Errorf("remove must delete only clawdh's hook, got %v", cmds)
 	}
 }

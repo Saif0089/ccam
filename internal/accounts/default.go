@@ -15,11 +15,11 @@ const DefaultAccountID = "default"
 const DefaultAccountAlias = "claude"
 
 // EnsureDefault adopts the account plain `claude` is signed in as, so
-// it shows up alongside the ones ccam created.
+// it shows up alongside the ones clawdh created.
 //
 // It is deliberately not automatic-forever: once the user removes it,
 // the store remembers that and this stops re-adding it. Removing it
-// only makes ccam forget the account — the directory is the user's main
+// only makes clawdh forget the account — the directory is the user's main
 // Claude Code login and is never touched.
 //
 // Detection asks `claude auth status` with no CLAUDE_CONFIG_DIR at all,

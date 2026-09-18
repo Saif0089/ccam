@@ -42,7 +42,7 @@ func (m *Manager) List() ([]Account, error) {
 // looked at again — so an account whose credentials have since gone stays
 // "linked" for ever, and every reader believes it. That is not academic: both
 // managed accounts on the author's machine had their stored logins destroyed by
-// a bug elsewhere in ccam and went on being reported as linked, right up to the
+// a bug elsewhere in clawdh and went on being reported as linked, right up to the
 // point a session failed to authenticate.
 //
 // Only the downgrade is done here. Saying "linked" because a store happens to
@@ -194,7 +194,7 @@ func (m *Manager) SetStatus(id string, status Status) (Account, error) {
 	return updated, nil
 }
 
-// SetPanelID records that this account was lent by a ccam panel, so a later
+// SetPanelID records that this account was lent by a clawdh panel, so a later
 // check-in can tell it apart from one the user made themselves — which the
 // panel must never take away.
 func (m *Manager) SetPanelID(id, panelID string) (Account, error) {
@@ -245,7 +245,7 @@ func (m *Manager) Remove(id string) (Account, error) {
 		return Account{}, fmt.Errorf("no account with id %q", id)
 	}
 	if removed.IsDefault() {
-		// Removing the adopted default account only makes ccam forget
+		// Removing the adopted default account only makes clawdh forget
 		// it. Its directory is the user's main Claude Code login.
 		if err := m.store.SetDefaultDismissed(true); err != nil {
 			return removed, err

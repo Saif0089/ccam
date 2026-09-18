@@ -7,7 +7,7 @@ func TestDiscoverLoginsLive(t *testing.T) {
 		t.Skip("live")
 	}
 	for _, l := range DiscoverLogins(nil) {
-		src := "ccam:" + l.ConfigDir
+		src := "clawdh:" + l.ConfigDir
 		if l.IsDefault {
 			src = "default (~/.claude)"
 		}

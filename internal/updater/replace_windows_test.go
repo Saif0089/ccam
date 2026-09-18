@@ -30,15 +30,15 @@ func stubElevation(t *testing.T, err error) *bool {
 }
 
 // TestReplaceBinaryNeverElevatesOnAnOrdinaryInstall is the property that
-// keeps every normal machine — and CI — prompt-free. ccam installs under
+// keeps every normal machine — and CI — prompt-free. clawdh installs under
 // %LOCALAPPDATA%, which the user owns, so the unprivileged rename works
 // and the elevated path must not be reached at all.
 func TestReplaceBinaryNeverElevatesOnAnOrdinaryInstall(t *testing.T) {
 	called := stubElevation(t, errors.New("must not be called"))
 
 	dir := t.TempDir()
-	to := filepath.Join(dir, "ccam.exe")
-	from := filepath.Join(dir, "ccam.exe.new")
+	to := filepath.Join(dir, "clawdh.exe")
+	from := filepath.Join(dir, "clawdh.exe.new")
 	if err := os.WriteFile(to, []byte("old"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestReplaceBinaryNeverElevatesOnAnOrdinaryInstall(t *testing.T) {
 // prompting for them would be noise the user has to dismiss.
 func TestReplaceBinaryElevatesOnlyOnAccessDenied(t *testing.T) {
 	dir := t.TempDir()
-	from := filepath.Join(dir, "ccam.exe.new")
+	from := filepath.Join(dir, "clawdh.exe.new")
 	if err := os.WriteFile(from, []byte("new"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -127,8 +127,8 @@ func TestEncodePowerShellCommand(t *testing.T) {
 // in a Windows user name is legal.
 func TestPsQuoteEscapesPathsWithQuotes(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
-		{`C:\Users\John Smith\ccam.exe`, `'C:\Users\John Smith\ccam.exe'`},
-		{`C:\Users\O'Brien\ccam.exe`, `'C:\Users\O''Brien\ccam.exe'`},
+		{`C:\Users\John Smith\clawdh.exe`, `'C:\Users\John Smith\clawdh.exe'`},
+		{`C:\Users\O'Brien\clawdh.exe`, `'C:\Users\O''Brien\clawdh.exe'`},
 	} {
 		if got := psQuote(tc.in); got != tc.want {
 			t.Errorf("psQuote(%q) = %q, want %q", tc.in, got, tc.want)

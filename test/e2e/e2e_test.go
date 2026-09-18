@@ -1,4 +1,4 @@
-// Package e2e drives the actual built ccam binary through its full
+// Package e2e drives the actual built clawdh binary through its full
 // lifecycle — install, serve, add an account, log it in, uninstall —
 // exactly as a real user would, with no admin/elevation available (CI
 // runners execute as an ordinary per-user account, so any step that
@@ -24,7 +24,7 @@ import (
 
 type harness struct {
 	t         *testing.T
-	ccamBin   string
+	clawdhBin string
 	claudeDir string // holds the fake "claude" binary, prepended to PATH
 	home      string
 	port      int
@@ -38,20 +38,20 @@ func newHarness(t *testing.T) *harness {
 	home := t.TempDir()
 
 	// Build into the per-user install directory the real installers use
-	// (~/.local/bin, %LOCALAPPDATA%\ccam\bin), so this exercises the
-	// same paths a real install does — including `ccam uninstall`
+	// (~/.local/bin, %LOCALAPPDATA%\clawdh\bin), so this exercises the
+	// same paths a real install does — including `clawdh uninstall`
 	// removing its own binary, which it deliberately refuses to do for
 	// a binary sitting outside that directory.
 	binDir := filepath.Join(home, ".local", "bin")
 	if runtime.GOOS == "windows" {
-		binDir = filepath.Join(home, "AppData", "Local", "ccam", "bin")
+		binDir = filepath.Join(home, "AppData", "Local", "clawdh", "bin")
 	}
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatalf("creating install dir: %v", err)
 	}
 
-	ccamBin := filepath.Join(binDir, exeName("ccam"))
-	build(t, filepath.Join(repoRoot, "cmd", "ccam"), ccamBin)
+	clawdhBin := filepath.Join(binDir, exeName("clawdh"))
+	build(t, filepath.Join(repoRoot, "cmd", "clawdh"), clawdhBin)
 
 	claudeDir := t.TempDir()
 	fakeClaudeBin := filepath.Join(claudeDir, exeName("claude"))
@@ -72,12 +72,12 @@ func newHarness(t *testing.T) *harness {
 		env = setEnv(env, "LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))
 	}
 
-	return &harness{t: t, ccamBin: ccamBin, claudeDir: claudeDir, home: home, port: port, env: env}
+	return &harness{t: t, clawdhBin: clawdhBin, claudeDir: claudeDir, home: home, port: port, env: env}
 }
 
 func (h *harness) run(args ...string) (stdout string, err error) {
 	h.t.Helper()
-	cmd := exec.Command(h.ccamBin, args...)
+	cmd := exec.Command(h.clawdhBin, args...)
 	cmd.Env = h.env
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
@@ -113,7 +113,7 @@ func TestFullLifecycle(t *testing.T) {
 	// to require it. ---
 	out, err := h.run("install", "--port", fmt.Sprint(h.port))
 	if err != nil {
-		t.Fatalf("ccam install failed: %v\n%s", err, out)
+		t.Fatalf("clawdh install failed: %v\n%s", err, out)
 	}
 	t.Logf("install output:\n%s", out)
 
@@ -126,14 +126,14 @@ func TestFullLifecycle(t *testing.T) {
 	// --- reinstalling must be idempotent: no duplicated autostart
 	// artifacts, no duplicated rc blocks. ---
 	if out, err := h.run("install", "--port", fmt.Sprint(h.port)); err != nil {
-		t.Fatalf("second ccam install failed: %v\n%s", err, out)
+		t.Fatalf("second clawdh install failed: %v\n%s", err, out)
 	}
 
 	// --- full account lifecycle over the real HTTP API. ---
 	account := h.createAccount("Work")
-	// Accounts no longer get a shell alias — they run as `ccam <name>` on every
+	// Accounts no longer get a shell alias — they run as `clawdh <name>` on every
 	// OS — so creating one writes no managed rc block.
-	if data, err := os.ReadFile(h.anyRcPath()); err == nil && strings.Contains(string(data), "Managed by ccam") {
+	if data, err := os.ReadFile(h.anyRcPath()); err == nil && strings.Contains(string(data), "Managed by clawdh") {
 		t.Errorf("creating an account wrote a shell alias block, want none:\n%s", data)
 	}
 
@@ -157,7 +157,7 @@ func TestFullLifecycle(t *testing.T) {
 	// itself. ---
 	out, err = h.run("uninstall", "--port", fmt.Sprint(h.port))
 	if err != nil {
-		t.Fatalf("ccam uninstall failed: %v\n%s", err, out)
+		t.Fatalf("clawdh uninstall failed: %v\n%s", err, out)
 	}
 	t.Logf("uninstall output:\n%s", out)
 
@@ -177,10 +177,10 @@ func TestFullLifecycle(t *testing.T) {
 	// runners. Give it a generous window rather than tightening the
 	// mechanism around CI's worst case.
 	if !waitUntilNot(30*time.Second, func() bool {
-		_, err := os.Stat(h.ccamBin)
+		_, err := os.Stat(h.clawdhBin)
 		return err == nil
 	}) {
-		t.Errorf("binary %s still present after uninstall", h.ccamBin)
+		t.Errorf("binary %s still present after uninstall", h.clawdhBin)
 	}
 
 	assertAutostartArtifactsGone(t, h.home)
@@ -300,7 +300,7 @@ func (h *harness) driveLoginToLinked(accountID string) {
 	case <-time.After(60 * time.Second):
 		resp.Body.Close()
 		<-done
-		h.t.Errorf("timed out waiting for SSE events; frames seen: %v\nccam log:\n%s", seen, readLog(h))
+		h.t.Errorf("timed out waiting for SSE events; frames seen: %v\nclawdh log:\n%s", seen, readLog(h))
 	}
 
 	if !sawURL {
@@ -328,7 +328,7 @@ func (h *harness) readAnyRcFile() string {
 }
 
 func readLog(h *harness) string {
-	data, _ := os.ReadFile(filepath.Join(h.home, ".clawdh", "ccam.log"))
+	data, _ := os.ReadFile(filepath.Join(h.home, ".clawdh", "clawdh.log"))
 	return string(data)
 }
 
@@ -348,10 +348,10 @@ func assertNoSystemPaths(t *testing.T, home string) {
 func assertAutostartArtifactsGone(t *testing.T, home string) {
 	t.Helper()
 	candidates := []string{
-		filepath.Join(home, "Library", "LaunchAgents", "com.ccam.agent.plist"),
-		filepath.Join(home, ".config", "systemd", "user", "ccam.service"),
-		filepath.Join(home, ".config", "autostart", "ccam.desktop"),
-		filepath.Join(home, "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "ccam-autostart.cmd"),
+		filepath.Join(home, "Library", "LaunchAgents", "com.clawdh.agent.plist"),
+		filepath.Join(home, ".config", "systemd", "user", "clawdh.service"),
+		filepath.Join(home, ".config", "autostart", "clawdh.desktop"),
+		filepath.Join(home, "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "clawdh-autostart.cmd"),
 	}
 	for _, c := range candidates {
 		if _, err := os.Stat(c); err == nil {
@@ -404,10 +404,10 @@ func setEnv(env []string, key, value string) []string {
 
 func freePort(t *testing.T) int {
 	t.Helper()
-	// Deliberately not net.Listen(":0") here: ccam's own "port 0 means
+	// Deliberately not net.Listen(":0") here: clawdh's own "port 0 means
 	// pick one" behavior is exercised elsewhere; this test wants a
-	// fixed, known port so the same value can be passed to `ccam
-	// install`/`ccam uninstall` as a real user would via --port.
+	// fixed, known port so the same value can be passed to `clawdh
+	// install`/`clawdh uninstall` as a real user would via --port.
 	base := 47800 + (int(time.Now().UnixNano()) % 500)
 	return base
 }

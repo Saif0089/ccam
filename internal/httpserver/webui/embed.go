@@ -1,4 +1,4 @@
-// Package webui embeds ccam's static web UI directly into the binary,
+// Package webui embeds clawdh's static web UI directly into the binary,
 // so the whole tool ships as one file with no separate assets to
 // install or go missing.
 package webui

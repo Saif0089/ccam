@@ -17,7 +17,7 @@ type envEntry struct {
 }
 
 // ReadStoreDir returns the credential store an editor is currently pointed at,
-// or "" if ccam has not configured it.
+// or "" if clawdh has not configured it.
 func ReadStoreDir(settingsPath, varName string) string {
 	raw, err := os.ReadFile(settingsPath)
 	if err != nil {
@@ -42,7 +42,7 @@ func ReadStoreDir(settingsPath, varName string) string {
 // PointAt makes the editor launch Claude with varName set to storeDir, leaving
 // every other setting — and every comment, and the file's formatting —
 // untouched. Any other variables the user has set there are preserved; only
-// ccam's own entry is replaced.
+// clawdh's own entry is replaced.
 func PointAt(settingsPath, varName, storeDir string) error {
 	raw, err := os.ReadFile(settingsPath)
 	if err != nil && !os.IsNotExist(err) {
@@ -52,7 +52,7 @@ func PointAt(settingsPath, varName, storeDir string) error {
 
 	entries := []envEntry{}
 	if value, ok := findValue(text, EnvSetting); ok {
-		// Keep whatever else is in there; drop any earlier ccam entry.
+		// Keep whatever else is in there; drop any earlier clawdh entry.
 		var existing []envEntry
 		if err := json.Unmarshal([]byte(value), &existing); err == nil {
 			for _, e := range existing {
@@ -236,20 +236,20 @@ func upsert(text, key, value string) (string, error) {
 	return text[:open+1] + "\n  \"" + key + "\": " + value + sep + text[open+1:], nil
 }
 
-// PointAtWrapper makes the editor launch Claude through ccam, so each
+// PointAtWrapper makes the editor launch Claude through clawdh, so each
 // conversation gets its own credential store.
 //
 // It also takes away the entry the older, per-editor scheme left in
 // claudeCode.environmentVariables. The two cannot coexist: the extension
-// applies that setting LAST, over the environment ccam's wrapper just built, so
+// applies that setting LAST, over the environment clawdh's wrapper just built, so
 // a leftover entry silently puts every conversation back on one shared store
 // and per-conversation switching stops working with nothing to show for it.
-func PointAtWrapper(settingsPath, ccamBinary string) error {
+func PointAtWrapper(settingsPath, clawdhBinary string) error {
 	raw, err := os.ReadFile(settingsPath)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	encoded, err := json.Marshal(ccamBinary)
+	encoded, err := json.Marshal(clawdhBinary)
 	if err != nil {
 		return err
 	}
@@ -313,11 +313,11 @@ func WrapperPath(settingsPath string) string {
 	return path
 }
 
-// UnsetWrapper takes ccam back out of an editor's launch path, leaving the
-// Claude Code extension to run its own binary exactly as it did before ccam.
+// UnsetWrapper takes clawdh back out of an editor's launch path, leaving the
+// Claude Code extension to run its own binary exactly as it did before clawdh.
 //
 // Uninstalling has to do this. The setting names an executable by absolute
-// path, so a ccam that has been removed leaves the extension launching a file
+// path, so a clawdh that has been removed leaves the extension launching a file
 // that is not there: every conversation fails with "Claude Code process exited
 // with code 1", and the thing that could explain why is gone. Removing the key
 // rather than blanking it also gives the extension its own update check back,

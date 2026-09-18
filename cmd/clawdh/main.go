@@ -1,4 +1,4 @@
-// Command ccam is the Claude Code Account Manager: a local web UI and
+// Command clawdh is the Claude Code Account Manager: a local web UI and
 // background service for managing multiple `claude` CLI logins on one
 // machine. See internal/cli for its subcommands.
 package main

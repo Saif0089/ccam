@@ -6,22 +6,22 @@ import (
 	"strings"
 )
 
-// hookSignature identifies ccam's own UserPromptSubmit hook among any others
+// hookSignature identifies clawdh's own UserPromptSubmit hook among any others
 // the user has. It is the tail of the command line the hook runs, so it
-// matches regardless of where the ccam binary lives.
+// matches regardless of where the clawdh binary lives.
 const hookSignature = "hook user-prompt-submit"
 
 // HookCommand is the command string Claude Code runs for the switch hook,
-// with the ccam binary path double-quoted so a path with spaces survives.
-func HookCommand(ccamBinary string) string {
-	return `"` + ccamBinary + `" ` + hookSignature
+// with the clawdh binary path double-quoted so a path with spaces survives.
+func HookCommand(clawdhBinary string) string {
+	return `"` + clawdhBinary + `" ` + hookSignature
 }
 
 // EnsureUserPromptSubmitHook makes sure the user's shared settings.json runs
-// ccam's switch hook on every submitted prompt, WITHOUT disturbing any other
+// clawdh's switch hook on every submitted prompt, WITHOUT disturbing any other
 // hooks they have (the usage-monitor and rule-reminder hooks live under the
 // same event). It is idempotent and, in the steady state, writes nothing:
-//   - if ccam's hook is already present with the right command, it returns
+//   - if clawdh's hook is already present with the right command, it returns
 //     without touching the file, so it never reformats or churns settings.json
 //     on a normal launch;
 //   - if it is missing or points at an old binary path, it is added or
@@ -29,8 +29,8 @@ func HookCommand(ccamBinary string) string {
 //
 // A missing settings.json is created; an unparseable one is left alone (an
 // error is returned) rather than clobbered.
-func EnsureUserPromptSubmitHook(settingsPath, ccamBinary string) error {
-	command := HookCommand(ccamBinary)
+func EnsureUserPromptSubmitHook(settingsPath, clawdhBinary string) error {
+	command := HookCommand(clawdhBinary)
 
 	cfg := map[string]any{}
 	if data, err := os.ReadFile(settingsPath); err == nil {
@@ -62,8 +62,8 @@ func EnsureUserPromptSubmitHook(settingsPath, ccamBinary string) error {
 		}},
 	}
 
-	// Replace a stale ccam entry (binary moved) or append a new one, leaving
-	// every non-ccam hook exactly where it was.
+	// Replace a stale clawdh entry (binary moved) or append a new one, leaving
+	// every non-clawdh hook exactly where it was.
 	replaced := false
 	for i, e := range ups {
 		if cmd, ok := entryCommand(e); ok && strings.Contains(cmd, hookSignature) {
@@ -82,15 +82,15 @@ func EnsureUserPromptSubmitHook(settingsPath, ccamBinary string) error {
 	if err != nil {
 		return err
 	}
-	tmp := settingsPath + ".ccam-tmp"
+	tmp := settingsPath + ".clawdh-tmp"
 	if err := os.WriteFile(tmp, out, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, settingsPath)
 }
 
-// RemoveUserPromptSubmitHook deletes ccam's switch hook from settings.json,
-// leaving every other hook untouched. Used by `ccam uninstall`. A missing or
+// RemoveUserPromptSubmitHook deletes clawdh's switch hook from settings.json,
+// leaving every other hook untouched. Used by `clawdh uninstall`. A missing or
 // unparseable file, or an absent hook, is a no-op.
 func RemoveUserPromptSubmitHook(settingsPath string) error {
 	data, err := os.ReadFile(settingsPath)
@@ -131,7 +131,7 @@ func RemoveUserPromptSubmitHook(settingsPath string) error {
 	if err != nil {
 		return err
 	}
-	tmp := settingsPath + ".ccam-tmp"
+	tmp := settingsPath + ".clawdh-tmp"
 	if err := os.WriteFile(tmp, out, 0o600); err != nil {
 		return err
 	}

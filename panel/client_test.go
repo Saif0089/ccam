@@ -153,7 +153,7 @@ func TestACutOffMachineForgetsEverything(t *testing.T) {
 	}
 }
 
-// ccam without a panel is ccam as it always was.
+// clawdh without a panel is clawdh as it always was.
 func TestAMachineWithNoPanelDoesNothing(t *testing.T) {
 	mgr := newTestManager(t)
 	if _, err := mgr.Add("Personal"); err != nil {

@@ -25,9 +25,9 @@ func LedgerPath(home string) string {
 // AppendOwnership records that a session now belongs to an account, in the
 // monitor's own ledger format: session id, owner directory, epoch seconds.
 //
-// ccam has to write this itself because an in-place switch has no restart, and
+// clawdh has to write this itself because an in-place switch has no restart, and
 // therefore no SessionStart hook: the only record of the change would otherwise
-// be ccam's own memory, and the session's tokens would keep being attributed to
+// be clawdh's own memory, and the session's tokens would keep being attributed to
 // the account it started as. The monitor resolves ownership by interval — the
 // last entry at or before a line's timestamp — so appending is enough, and the
 // account's earlier work stays with the account that did it.

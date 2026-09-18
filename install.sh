@@ -1,18 +1,18 @@
 #!/usr/bin/env sh
-# Installs ccam for the current user only: no sudo, no /usr/local, no
+# Installs clawdh for the current user only: no sudo, no /usr/local, no
 # system paths anywhere. Safe to pipe straight into sh:
 #
-#   curl -fsSL https://raw.githubusercontent.com/Saif0089/ccam/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/Saif0089/clawdh/main/install.sh | sh
 set -eu
 
-REPO="Saif0089/ccam"
+REPO="Saif0089/clawdh"
 
 os_name="$(uname -s)"
 case "$os_name" in
   Darwin) os=darwin ;;
   Linux) os=linux ;;
   *)
-    echo "ccam: unsupported OS: $os_name (this script supports macOS and Linux; see install.ps1 for Windows)" >&2
+    echo "clawdh: unsupported OS: $os_name (this script supports macOS and Linux; see install.ps1 for Windows)" >&2
     exit 1
     ;;
 esac
@@ -22,13 +22,13 @@ case "$arch_name" in
   x86_64|amd64) arch=amd64 ;;
   arm64|aarch64) arch=arm64 ;;
   *)
-    echo "ccam: unsupported architecture: $arch_name" >&2
+    echo "clawdh: unsupported architecture: $arch_name" >&2
     exit 1
     ;;
 esac
 
 version="${CCAM_VERSION:-latest}"
-asset="ccam_${os}_${arch}"
+asset="clawdh_${os}_${arch}"
 if [ "$version" = "latest" ]; then
   url="https://github.com/${REPO}/releases/latest/download/${asset}"
 else
@@ -42,7 +42,7 @@ tmp="$(mktemp)"
 sums="$(mktemp)"
 trap 'rm -f "$tmp" "$sums"' EXIT
 
-echo "Downloading ccam ($os/$arch)..."
+echo "Downloading clawdh ($os/$arch)..."
 # --retry rides out a transient hiccup from GitHub's release CDN (a 502/504 or a
 # dropped connection) rather than failing the whole install on the first blip.
 curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused "$url" -o "$tmp"
@@ -58,7 +58,7 @@ if curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused "$(dirname "$url")/c
       actual="$(shasum -a 256 "$tmp" | awk '{print $1}')"
     fi
     if [ -n "${actual:-}" ] && [ "$actual" != "$expected" ]; then
-      echo "ccam: checksum mismatch for ${asset}" >&2
+      echo "clawdh: checksum mismatch for ${asset}" >&2
       echo "  expected $expected" >&2
       echo "  actual   $actual" >&2
       exit 1
@@ -66,19 +66,19 @@ if curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused "$(dirname "$url")/c
   fi
 fi
 
-# Stop any running ccam before replacing the binary. Without this an
+# Stop any running clawdh before replacing the binary. Without this an
 # upgrade silently keeps serving the old build: mv swaps the file, but
 # the running process holds the old inode until something restarts it.
-if [ -x "$install_dir/ccam" ]; then
-  "$install_dir/ccam" stop >/dev/null 2>&1 || true
+if [ -x "$install_dir/clawdh" ]; then
+  "$install_dir/clawdh" stop >/dev/null 2>&1 || true
 fi
 
 chmod +x "$tmp"
-mv "$tmp" "$install_dir/ccam"
+mv "$tmp" "$install_dir/clawdh"
 rm -f "$sums"
 trap - EXIT
 
-echo "Installed $install_dir/ccam"
+echo "Installed $install_dir/clawdh"
 
 case ":$PATH:" in
   *":$install_dir:"*) ;;
@@ -90,4 +90,4 @@ case ":$PATH:" in
 esac
 
 echo ""
-"$install_dir/ccam" install
+"$install_dir/clawdh" install

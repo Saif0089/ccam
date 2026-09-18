@@ -12,7 +12,7 @@ import (
 )
 
 // spawnDetached starts binaryPath as a new session leader (so it
-// survives the parent exiting) with its output redirected to ccam's log
+// survives the parent exiting) with its output redirected to clawdh's log
 // file, and returns its PID.
 func spawnDetached(binaryPath string, args []string) (int, error) {
 	logPath, err := config.LogFile()

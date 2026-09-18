@@ -50,7 +50,7 @@ func isolationOf(t *testing.T, store *Store, id string) Isolation {
 func TestMigrateCopiesTranscriptsAndFlipsIsolation(t *testing.T) {
 	home := t.TempDir()
 	claudeDir := filepath.Join(home, ".claude")
-	workDir := filepath.Join(home, ".ccam", "accounts", "work")
+	workDir := filepath.Join(home, ".clawdh", "accounts", "work")
 
 	// A managed account still on the old isolated scheme, with one transcript
 	// and a nested subagent transcript, plus the two files that must NOT move.
@@ -102,7 +102,7 @@ func TestMigrateCopiesTranscriptsAndFlipsIsolation(t *testing.T) {
 	}
 	// No temp files left behind in the shared tree.
 	_ = filepath.WalkDir(filepath.Join(claudeDir, "projects"), func(p string, d os.DirEntry, _ error) error {
-		if d != nil && !d.IsDir() && strings.HasPrefix(filepath.Base(p), ".ccam-migrating") {
+		if d != nil && !d.IsDir() && strings.HasPrefix(filepath.Base(p), ".clawdh-migrating") {
 			t.Errorf("leftover temp file: %s", p)
 		}
 		return nil
@@ -178,7 +178,7 @@ func TestCopyProjectsTreeContinuesPastUnreadableEntry(t *testing.T) {
 func TestMigrateSkipsNonRegularFiles(t *testing.T) {
 	home := t.TempDir()
 	claudeDir := filepath.Join(home, ".claude")
-	workDir := filepath.Join(home, ".ccam", "accounts", "work")
+	workDir := filepath.Join(home, ".clawdh", "accounts", "work")
 	writeTranscript(t, workDir, "-repo", "real.jsonl", "R")
 	if err := os.Symlink("/nonexistent", filepath.Join(workDir, "projects", "-repo", "link.jsonl")); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
@@ -203,7 +203,7 @@ func TestMigrateSkipsNonRegularFiles(t *testing.T) {
 func TestMigrateIsIdempotent(t *testing.T) {
 	home := t.TempDir()
 	claudeDir := filepath.Join(home, ".claude")
-	workDir := filepath.Join(home, ".ccam", "accounts", "work")
+	workDir := filepath.Join(home, ".clawdh", "accounts", "work")
 	writeTranscript(t, workDir, "-repo", "sess-1.jsonl", `{"sessionId":"sess-1"}`)
 
 	mgr, _ := seedStore(t, []Account{{ID: "work", Kind: KindManaged, ConfigDir: workDir}})
@@ -230,7 +230,7 @@ func TestMigrateIsIdempotent(t *testing.T) {
 func TestMigrateNeverOverwritesAnExistingTranscript(t *testing.T) {
 	home := t.TempDir()
 	claudeDir := filepath.Join(home, ".claude")
-	workDir := filepath.Join(home, ".ccam", "accounts", "work")
+	workDir := filepath.Join(home, ".clawdh", "accounts", "work")
 	writeTranscript(t, workDir, "-repo", "sess-1.jsonl", "SOURCE")
 
 	// A file with the same name already exists in the shared tree (same
@@ -262,7 +262,7 @@ func TestMigrateAccountNeverUsedIsSafe(t *testing.T) {
 	claudeDir := filepath.Join(home, ".claude")
 	// A managed account whose directory exists but has no projects/ (created,
 	// never used). Migration should flip it without error and copy nothing.
-	workDir := filepath.Join(home, ".ccam", "accounts", "work")
+	workDir := filepath.Join(home, ".clawdh", "accounts", "work")
 	if err := os.MkdirAll(workDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func TestMigrateAccountNeverUsedIsSafe(t *testing.T) {
 func TestMigrateDoesNotFlipAnAccountWhoseTranscriptGrewMidCopy(t *testing.T) {
 	home := t.TempDir()
 	claudeDir := filepath.Join(home, ".claude")
-	work := filepath.Join(home, ".ccam", "accounts", "work")
+	work := filepath.Join(home, ".clawdh", "accounts", "work")
 	src := filepath.Join(work, "projects", "-repo")
 	mustDir(t, src)
 	path := filepath.Join(src, "live.jsonl")

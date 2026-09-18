@@ -10,14 +10,14 @@ import (
 	"syscall"
 )
 
-// Respawn hands this process's port to a fresh ccam server started from
+// Respawn hands this process's port to a fresh clawdh server started from
 // binaryPath — after an update has replaced that file.
 //
 // It does it by *becoming* the new binary rather than starting one
 // alongside: execve replaces the process image and keeps the pid, the
 // process group, the open log file and — the part that matters — the
 // cgroup. A systemd --user unit is Type=simple with the default
-// KillMode=control-group, so a ccam that spawned a child and then
+// KillMode=control-group, so a clawdh that spawned a child and then
 // exited would have systemd tear down the cgroup and kill the successor
 // it just started, leaving nothing running until the next login. Same
 // pid, no exit, no teardown.
@@ -36,7 +36,7 @@ func Respawn(binaryPath string, port int) error {
 
 	pid, err := spawnDetached(binaryPath, args[1:])
 	if err != nil {
-		return fmt.Errorf("restarting ccam: %w", err)
+		return fmt.Errorf("restarting clawdh: %w", err)
 	}
 	// The successor is already running; a pid file that could not be
 	// written is worth a log line, not an error that would make the

@@ -10,7 +10,7 @@ import (
 	"syscall"
 )
 
-// deleteSelfBinary removes path, ccam's own currently-running
+// deleteSelfBinary removes path, clawdh's own currently-running
 // executable. A direct delete of a running exe's own file sometimes
 // just works (the loader can open the main image with
 // FILE_SHARE_DELETE), so try that first; if it doesn't, fall back to a

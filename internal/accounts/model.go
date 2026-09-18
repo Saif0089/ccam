@@ -16,21 +16,21 @@ const (
 	StatusLinked Status = "linked"
 )
 
-// Kind distinguishes accounts ccam created from the one it merely found.
+// Kind distinguishes accounts clawdh created from the one it merely found.
 type Kind string
 
 const (
-	// KindManaged is an account ccam created: it owns the directory,
+	// KindManaged is an account clawdh created: it owns the directory,
 	// generates an alias for it, and deletes the directory on removal.
 	KindManaged Kind = "managed"
 	// KindDefault is the account plain `claude` already uses — the one
-	// with no CLAUDE_CONFIG_DIR override at all. ccam did not create it,
+	// with no CLAUDE_CONFIG_DIR override at all. clawdh did not create it,
 	// never writes an alias for it (typing `claude` is the alias), and
 	// must never delete its directory: that is the user's main login.
 	KindDefault Kind = "default"
 )
 
-// Isolation says which of Claude Code's two directory variables ccam
+// Isolation says which of Claude Code's two directory variables clawdh
 // exports for an account, and therefore how much of that account is
 // separate from the rest.
 type Isolation string
@@ -40,7 +40,7 @@ const (
 	// points at the account's own directory, so its login, sessions,
 	// MCP servers, skills, plugins, hooks and projects/ transcripts are
 	// all separate. It is also what an absent value means, so an
-	// accounts.json written by an older ccam reads correctly.
+	// accounts.json written by an older clawdh reads correctly.
 	IsolationConfigDir Isolation = "config-dir"
 	// IsolationCredentialsOnly exports CLAUDE_SECURESTORAGE_CONFIG_DIR
 	// instead and leaves CLAUDE_CONFIG_DIR unset: only the credentials
@@ -77,7 +77,7 @@ type Account struct {
 	Status     Status    `json:"status"`
 	CreatedAt  time.Time `json:"createdAt"`
 	LastUsedAt time.Time `json:"lastUsedAt,omitempty"`
-	// PanelID is set on an account this machine was lent by a ccam panel, and
+	// PanelID is set on an account this machine was lent by a clawdh panel, and
 	// holds that panel's id for it. It is how a check-in tells an account the
 	// panel may take back from one the user made themselves, which it must
 	// never touch. Absent on every locally-made account, which is what an
@@ -107,7 +107,7 @@ func (a Account) SharesUserConfigDir() bool {
 func (a Account) IsDefault() bool { return a.Kind == KindDefault }
 
 // OwnsConfigDir reports whether removing this account should delete its
-// directory. Only ever true for a directory ccam created itself.
+// directory. Only ever true for a directory clawdh created itself.
 func (a Account) OwnsConfigDir() bool {
 	return a.Kind != KindDefault && a.ConfigDir != ""
 }

@@ -28,7 +28,7 @@ type ClientConfig struct {
 	PersonName string `json:"personName,omitempty"`
 }
 
-// Configured reports whether this machine answers to a panel at all. ccam
+// Configured reports whether this machine answers to a panel at all. clawdh
 // without one behaves exactly as it always has.
 func (c ClientConfig) Configured() bool {
 	return strings.TrimSpace(c.Server) != "" && strings.TrimSpace(c.Token) != ""
@@ -107,7 +107,7 @@ type Client struct {
 	// can re-sync shell aliases. Optional.
 	AfterChange func()
 	// SharesPath, when set, is where the gateway shares this machine was granted
-	// are cached (0600), so `ccam shared <slug>` and the shell aliases can run a
+	// are cached (0600), so `clawdh shared <slug>` and the shell aliases can run a
 	// shared account without the key ever touching a dotfile. Empty on a machine
 	// that only ever runs its own accounts.
 	SharesPath string
@@ -159,7 +159,7 @@ type Change struct {
 func (c Change) Empty() bool { return len(c.Gained) == 0 && len(c.Lost) == 0 }
 
 // CheckIn asks the panel which accounts are shared with this machine and makes
-// that true: it caches the gateway keys (so `ccam shared <slug>` and the shell
+// that true: it caches the gateway keys (so `clawdh shared <slug>` and the shell
 // aliases can run them) and re-syncs aliases when the set changed.
 //
 // Nothing here writes a Claude credential. That is the point of the gateway:

@@ -7,22 +7,22 @@ import (
 
 // Install one-liners, shown on the invite page so a new person has real steps
 // rather than "ask your admin". Kept here (not just the README) because the
-// invite page is the first thing someone who has never seen ccam will read.
+// invite page is the first thing someone who has never seen clawdh will read.
 const (
-	installRepo    = "https://github.com/Saif0089/ccam"
+	installRepo    = "https://github.com/Saif0089/clawdh"
 	claudeCodeURL  = "https://claude.com/claude-code"
-	installUnixCmd = "curl -fsSL https://raw.githubusercontent.com/Saif0089/ccam/main/install.sh | sh"
-	installWinCmd  = "irm https://raw.githubusercontent.com/Saif0089/ccam/main/install.ps1 | iex"
+	installUnixCmd = "curl -fsSL https://raw.githubusercontent.com/Saif0089/clawdh/main/install.sh | sh"
+	installWinCmd  = "irm https://raw.githubusercontent.com/Saif0089/clawdh/main/install.ps1 | iex"
 )
 
 // invitePageHTML is the page an invite link opens in a browser. It is a single
 // self-contained document: an invite is often opened by someone who has never
-// seen ccam, so it explains itself, gives real install commands, and stands on
+// seen clawdh, so it explains itself, gives real install commands, and stands on
 // its own. It shares the panel's colour tokens and type so the whole product
 // looks like one thing.
 func invitePageHTML(link, state string) string {
 	esc := html.EscapeString(link)
-	joinCmd := html.EscapeString("ccam join " + link)
+	joinCmd := html.EscapeString("clawdh join " + link)
 
 	var body string
 	switch state {
@@ -47,8 +47,8 @@ func invitePageHTML(link, state string) string {
         <li>
           <span class="n">1</span>
           <div class="step-body">
-            <b>Install ccam</b>
-            <span class="det">Once per computer. Paste this into a terminal — it installs, starts in the background, and opens the ccam page.</span>
+            <b>Install clawdh</b>
+            <span class="det">Once per computer. Paste this into a terminal — it installs, starts in the background, and opens the clawdh page.</span>
             <div class="os-tabs" role="tablist">
               <button type="button" class="os-tab is-on" data-os="unix">macOS / Linux</button>
               <button type="button" class="os-tab" data-os="win">Windows</button>
@@ -65,7 +65,7 @@ func invitePageHTML(link, state string) string {
           <span class="n">2</span>
           <div class="step-body">
             <b>Paste your link</b>
-            <span class="det">Open the ccam page the installer opened, find <b>Got an invite?</b>, and paste the link below. Done — shared accounts appear on their own.</span>
+            <span class="det">Open the clawdh page the installer opened, find <b>Got an invite?</b>, and paste the link below. Done — shared accounts appear on their own.</span>
             <label class="fieldlabel">Your invite link</label>
             <div class="copybox big" data-copy-for="link">
               <code id="invite-link">` + esc + `</code>
@@ -90,7 +90,7 @@ func invitePageHTML(link, state string) string {
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ccam invite</title>
+<title>clawdh invite</title>
 <style>` + unifiedTokens + `
   body { display:flex; min-height:100vh; align-items:center; justify-content:center; padding:28px 20px; }
   .card { width:100%; max-width:560px; background:var(--raised); border:1px solid var(--line);

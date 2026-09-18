@@ -112,7 +112,7 @@ jobs:
   # gets written), and the service then started from that entry's own
   # command line with the bare PATH a login-started process actually
   # gets. The hosted runner exercises none of that — it has the full
-  # runner PATH and starts ccam directly.
+  # runner PATH and starts clawdh directly.
   linux-install:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -215,7 +215,7 @@ jobs:
             [System.Management.Automation.ErrorCategory]::WriteError, $null)
           if (Test-AccessDenied $other) { throw "a disk-full error must NOT trigger an elevation prompt" }
 
-          if ((ps1Quote "C:\Users\O'Brien\ccam.exe") -ne "'C:\Users\O''Brien\ccam.exe'") { throw "ps1Quote escaping wrong" }
+          if ((ps1Quote "C:\Users\O'Brien\clawdh.exe") -ne "'C:\Users\O''Brien\clawdh.exe'") { throw "ps1Quote escaping wrong" }
           Write-Host "elevation trigger + quoting: OK"
 
       - name: "Default install completes with no elevation prompt"
@@ -227,8 +227,8 @@ jobs:
           # administrator rights on a default per-user install, there is
           # nobody here to answer and this step times out.
           ./install.ps1
-          $dest = Join-Path $env:LOCALAPPDATA "ccam\bin\ccam.exe"
-          if (-not (Test-Path $dest)) { throw "ccam.exe not installed at $dest" }
+          $dest = Join-Path $env:LOCALAPPDATA "clawdh\bin\clawdh.exe"
+          if (-not (Test-Path $dest)) { throw "clawdh.exe not installed at $dest" }
           & $dest version
           & $dest uninstall
           Write-Host "per-user install with no elevation: OK"
@@ -267,10 +267,10 @@ jobs:
         run: |
           ext=""
           if [ "${{ matrix.goos }}" = "windows" ]; then ext=".exe"; fi
-          name="ccam_${{ matrix.goos }}_${{ matrix.goarch }}${ext}"
+          name="clawdh_${{ matrix.goos }}_${{ matrix.goarch }}${ext}"
           mkdir -p dist
-          go build -trimpath -ldflags "-s -w -X ccam/internal/buildinfo.Version=${{ github.ref_name }} -X ccam/internal/buildinfo.Commit=${{ github.sha }}" \
-            -o "dist/${name}" ./cmd/ccam
+          go build -trimpath -ldflags "-s -w -X clawdh/internal/buildinfo.Version=${{ github.ref_name }} -X clawdh/internal/buildinfo.Commit=${{ github.sha }}" \
+            -o "dist/${name}" ./cmd/clawdh
           echo "ASSET_NAME=${name}" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
@@ -293,7 +293,7 @@ jobs:
           # Only the build binaries — never the browser job's playwright-report
           # (a directory tree uploaded on a flaky failure), which would otherwise
           # land in dist and break the checksum and the release upload.
-          pattern: ccam_*
+          pattern: clawdh_*
           merge-multiple: true
 
       - name: Checksums

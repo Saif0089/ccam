@@ -1,10 +1,10 @@
-// Package editors points VS Code and its relatives at a ccam account.
+// Package editors points VS Code and its relatives at a clawdh account.
 //
 // The Claude Code extension does not go through the user's shell — it spawns
 // Claude itself, taking the environment from the extension host and then
 // applying its own `claudeCode.environmentVariables` setting LAST, so that
 // setting is the one thing that reliably decides which account an extension
-// conversation runs as. ccam writes a single entry there, pointing at a
+// conversation runs as. clawdh writes a single entry there, pointing at a
 // credential store of its own; switching afterwards is a write to that store,
 // which a running conversation picks up exactly as a terminal session does.
 //
@@ -33,7 +33,7 @@ type Editor struct {
 }
 
 // WrapperSetting names an executable the extension runs instead of the Claude
-// binary, handing it the real binary as the first argument. ccam puts itself
+// binary, handing it the real binary as the first argument. clawdh puts itself
 // there so each conversation gets a credential store of its own — which is what
 // makes switching one chat leave the others alone.
 const WrapperSetting = "claudeCode.claudeProcessWrapper"
@@ -54,7 +54,7 @@ const extensionID = "anthropic.claude-code"
 
 // Installed lists the editors that actually exist on this machine, judged by
 // whether their user-data directory is there. An editor that has never been
-// run has nothing for ccam to configure and is skipped.
+// run has nothing for clawdh to configure and is skipped.
 func Installed(home string) []Editor {
 	root := userDataRoot(home)
 	if root == "" {
@@ -94,8 +94,8 @@ func userDataRoot(home string) string {
 }
 
 // hasClaudeExtension reports whether the Claude Code extension is installed in
-// an editor. Without it there is nothing for ccam to configure there, and
-// writing to that editor's settings would be noise in a file ccam does not own.
+// an editor. Without it there is nothing for clawdh to configure there, and
+// writing to that editor's settings would be noise in a file clawdh does not own.
 func hasClaudeExtension(extensionsDir string) bool {
 	entries, err := os.ReadDir(extensionsDir)
 	if err != nil {

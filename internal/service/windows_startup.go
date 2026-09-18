@@ -12,7 +12,7 @@ import (
 	"clawdh/internal/config"
 )
 
-const startupScriptName = "ccam-autostart.cmd"
+const startupScriptName = "clawdh-autostart.cmd"
 
 type windowsService struct{ generic }
 
@@ -50,8 +50,8 @@ func (w *windowsService) Install(binaryPath string, port int) (string, error) {
 
 	// Clear a Scheduled Task left by an earlier install that had to
 	// fall back to one; otherwise both it and the Startup script fire
-	// at logon and one of the two ccams loses the port.
-	_ = exec.Command("schtasks", "/Delete", "/TN", "ccam", "/F").Run()
+	// at logon and one of the two clawdhs loses the port.
+	_ = exec.Command("schtasks", "/Delete", "/TN", "clawdh", "/F").Run()
 
 	script := autostartScript(binaryPath, port)
 
@@ -64,12 +64,12 @@ func (w *windowsService) Install(binaryPath string, port int) (string, error) {
 	return path, nil
 }
 
-// autostartScript is the batch file that starts ccam at logon.
+// autostartScript is the batch file that starts clawdh at logon.
 //
 // `start "" /min ...` opens the process in its own minimized window
 // rather than tying it to the .cmd's own (already hidden) console, so
 // it keeps running after the launching script exits. PATH is set first
-// so ccam can find `claude` (and the node it needs), which a
+// so clawdh can find `claude` (and the node it needs), which a
 // logon-launched process would not otherwise have — and cmd.exe expands
 // %VAR% as it parses the line, so a PATH containing a literal
 // %SOMETHING% (common on Windows) would be silently mangled unless the
@@ -79,7 +79,7 @@ func autostartScript(binaryPath string, port int) string {
 	// the home directory and the install path both sit under
 	// C:\Users\<account name>, and % is a legal character in a Windows
 	// account name. Left bare, cmd.exe would eat it at parse time and
-	// silently start ccam from the wrong directory — or not at all.
+	// silently start clawdh from the wrong directory — or not at all.
 	return fmt.Sprintf("@echo off\r\nset \"PATH=%s\"\r\ncd /d \"%s\"\r\nstart \"\" /min \"%s\" serve --port %d\r\n",
 		batchEscape(servicePATH()), batchEscape(serviceWorkingDir()), batchEscape(binaryPath), port)
 }
@@ -94,7 +94,7 @@ func (w *windowsService) installScheduledTaskFallback(binaryPath string, port in
 	// /TR, which schtasks truncates at 261 characters — so on the very
 	// managed profiles this fallback exists for, registration failed.
 	// It also needs the same PATH and working directory, or this path
-	// reproduces the bug where ccam cannot find claude at all.
+	// reproduces the bug where clawdh cannot find claude at all.
 	scriptPath, err := fallbackScriptPath()
 	if err != nil {
 		return "", err
@@ -109,18 +109,18 @@ func (w *windowsService) installScheduledTaskFallback(binaryPath string, port in
 	cmd := exec.Command("schtasks", "/Create", "/F",
 		"/SC", "ONLOGON",
 		"/RL", "LIMITED",
-		"/TN", "ccam",
+		"/TN", "clawdh",
 		"/TR", `"`+scriptPath+`"`,
 	)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("installing autostart (Startup folder and Scheduled Task both failed): %w: %s",
 			err, strings.TrimSpace(string(out)))
 	}
-	return "schtasks:ccam", nil
+	return "schtasks:clawdh", nil
 }
 
 // fallbackScriptPath is where the Scheduled Task's script lives, in
-// ccam's own per-user directory rather than the Startup folder that was
+// clawdh's own per-user directory rather than the Startup folder that was
 // unwritable.
 func fallbackScriptPath() (string, error) {
 	base, err := config.HomeDir()
@@ -146,7 +146,7 @@ func (w *windowsService) Uninstall() error {
 		}
 	}
 	// Removing a task that doesn't exist is a no-op error we can ignore.
-	_ = exec.Command("schtasks", "/Delete", "/TN", "ccam", "/F").Run()
+	_ = exec.Command("schtasks", "/Delete", "/TN", "clawdh", "/F").Run()
 	if scriptPath, err := fallbackScriptPath(); err == nil {
 		_ = os.Remove(scriptPath)
 	}
@@ -161,5 +161,5 @@ func (w *windowsService) IsInstalled() (bool, error) {
 	if _, statErr := os.Stat(path); statErr == nil {
 		return true, nil
 	}
-	return exec.Command("schtasks", "/Query", "/TN", "ccam").Run() == nil, nil
+	return exec.Command("schtasks", "/Query", "/TN", "clawdh").Run() == nil, nil
 }

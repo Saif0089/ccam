@@ -86,7 +86,7 @@ func TestAccountUsage(t *testing.T) {
 	}
 
 	// A plain reload is served from cache, and so is a leftover ?refresh=1:
-	// a GET must never be a way to make ccam ask Anthropic sooner.
+	// a GET must never be a way to make clawdh ask Anthropic sooner.
 	get("/api/accounts/" + account.ID + "/usage")
 	get("/api/accounts/" + account.ID + "/usage?refresh=1")
 	if calls != 1 {

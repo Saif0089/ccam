@@ -9,7 +9,7 @@ import (
 
 // notifyCommand uses osascript, which is part of macOS itself. The
 // alternative everyone reaches for, terminal-notifier, is a Homebrew
-// install ccam has no business requiring.
+// install clawdh has no business requiring.
 func notifyCommand(body string) (string, []string, error) {
 	script := "display notification " + appleScriptString(body) +
 		" with title " + appleScriptString(title)

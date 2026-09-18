@@ -14,7 +14,7 @@ import (
 //
 // It exists because the obvious destination is the wrong one. The supervisor
 // launches Claude Code with stdio inherited, so Claude Code owns the terminal;
-// anything ccam prints from that point lands inside the screen the TUI is
+// anything clawdh prints from that point lands inside the screen the TUI is
 // drawing and leaves it corrupted until a full repaint. Whatever the user needs
 // to see goes back through the hook, which Claude Code renders itself.
 // Everything else — a mirror that declined to copy, an attribution line that
@@ -33,5 +33,5 @@ func logLive(format string, args ...any) {
 		return
 	}
 	defer f.Close()
-	fmt.Fprintf(f, "%s ccam: %s\n", time.Now().UTC().Format(time.RFC3339), fmt.Sprintf(format, args...))
+	fmt.Fprintf(f, "%s clawdh: %s\n", time.Now().UTC().Format(time.RFC3339), fmt.Sprintf(format, args...))
 }

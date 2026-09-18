@@ -23,7 +23,7 @@ const sessionLife = 12 * time.Hour
 // sessionCookie is deliberately not prefixed __Host-: the panel is often run
 // over plain http on a private network, and a cookie the browser refuses to
 // set there would lock the admin out of their own panel.
-const sessionCookie = "ccam_panel"
+const sessionCookie = "clawdh_panel"
 
 // Server is the panel's HTTP surface: an admin UI and API behind a password,
 // and a much smaller API that enrolled machines speak.

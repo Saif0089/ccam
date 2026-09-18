@@ -91,7 +91,7 @@ func SecretFromBase64(encoded string) (*Secret, error) {
 }
 
 // GenerateKeyBase64 mints a fresh panel key, ready to paste into a hosting
-// provider's environment. It is printed once and never stored by ccam: whoever
+// provider's environment. It is printed once and never stored by clawdh: whoever
 // runs the panel keeps it, because it is the only thing that can open the
 // logins the panel holds.
 func GenerateKeyBase64() (string, error) {

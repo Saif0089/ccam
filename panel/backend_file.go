@@ -6,7 +6,7 @@ import (
 )
 
 // fileBackend keeps the panel in one JSON file. There is one writer — the
-// `ccam panel serve` process — so the Store's mutex is the whole of the
+// `clawdh panel serve` process — so the Store's mutex is the whole of the
 // concurrency story and the version is unused: every save wins.
 //
 // The write is atomic (a temp file renamed over the target) so a crash mid-write

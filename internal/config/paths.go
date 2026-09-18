@@ -1,4 +1,4 @@
-// Package config resolves the per-user, per-OS filesystem locations ccam
+// Package config resolves the per-user, per-OS filesystem locations clawdh
 // uses. Everything lives under the user's home directory — no path here
 // ever requires elevated permissions to create or write.
 package config
@@ -22,7 +22,7 @@ func Env(suffix string) string {
 	return os.Getenv("CCAM_" + suffix)
 }
 
-// DefaultPort is the port ccam listens on unless overridden. Chosen to
+// DefaultPort is the port clawdh listens on unless overridden. Chosen to
 // be memorable-ish and unlikely to collide with anything else already
 // running on a dev machine.
 const DefaultPort = 47932
@@ -145,7 +145,7 @@ func AccountsFile() (string, error) {
 // kept at, per account.
 //
 // It holds numbers, never credentials: percentages and reset times, the
-// same things the page shows. Its whole job is that a restart — and ccam
+// same things the page shows. Its whole job is that a restart — and clawdh
 // restarts itself whenever it updates — does not leave a card blank
 // while Anthropic is refusing to answer.
 func UsageCacheFile() (string, error) {
@@ -169,7 +169,7 @@ func PanelClientFile() (string, error) {
 
 // SharesFile is where this machine caches the gateway shares it was granted:
 // for each shared account, the gateway URL and this person's key. It holds
-// keys, so it is written 0600. `ccam shared <slug>` reads it to run a shared
+// keys, so it is written 0600. `clawdh shared <slug>` reads it to run a shared
 // account, and the shell aliases point here rather than baking a key into a
 // dotfile.
 func SharesFile() (string, error) {
@@ -180,17 +180,17 @@ func SharesFile() (string, error) {
 	return filepath.Join(base, "shares.json"), nil
 }
 
-// LogFile returns the path ccam's background service writes its own
+// LogFile returns the path clawdh's background service writes its own
 // stdout/stderr to, so install issues are debuggable without a terminal.
 func LogFile() (string, error) {
 	base, err := HomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(base, "ccam.log"), nil
+	return filepath.Join(base, "clawdh.log"), nil
 }
 
-// PortFile returns the path ccam writes its listening port to, so the CLI
+// PortFile returns the path clawdh writes its listening port to, so the CLI
 // (and the installer's health check) can find a running instance without
 // hardcoding a port.
 func PortFile() (string, error) {
@@ -202,7 +202,7 @@ func PortFile() (string, error) {
 }
 
 // InstallDir returns the default per-user directory the install script
-// copies the ccam binary into. Never a system location (no /usr/local, no
+// copies the clawdh binary into. Never a system location (no /usr/local, no
 // Program Files) — nothing under here ever needs admin/root to write.
 func InstallDir() (string, error) {
 	home, err := os.UserHomeDir()
@@ -215,7 +215,7 @@ func InstallDir() (string, error) {
 		if local == "" {
 			local = filepath.Join(home, "AppData", "Local")
 		}
-		return filepath.Join(local, "ccam", "bin"), nil
+		return filepath.Join(local, "clawdh", "bin"), nil
 	default:
 		return filepath.Join(home, ".local", "bin"), nil
 	}

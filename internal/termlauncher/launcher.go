@@ -50,13 +50,13 @@ func launchDarwin(configDir, label string) error {
 // denied by macOS's automation permissions, or a terminal emulator with
 // no DISPLAY to open on, both exit non-zero a moment later, and
 // reporting success for those told the user a window had opened when
-// none had. It also reaps the child either way: ccam is long-lived, so
+// none had. It also reaps the child either way: clawdh is long-lived, so
 // an un-waited child would linger as a zombie for the life of the
 // service.
 func startAndReap(cmd *exec.Cmd) error {
 	// Capped: cmd.Wait() keeps draining stderr for as long as the
 	// terminal window is open (hours), and an uncapped buffer would
-	// accumulate everything it ever printed in ccam's heap.
+	// accumulate everything it ever printed in clawdh's heap.
 	stderr := &cappedBuffer{limit: 4 << 10}
 	cmd.Stderr = stderr
 

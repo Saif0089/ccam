@@ -40,7 +40,7 @@ func writeStubClaude(t *testing.T, dir string) string {
 
 // TestResolveFindsClaudeWithoutItBeingOnPATH is the regression guard for
 // the bug that broke logins after every reboot: started by launchd (or
-// systemd, or a Windows Startup entry) at login, ccam gets a bare PATH
+// systemd, or a Windows Startup entry) at login, clawdh gets a bare PATH
 // that does not include ~/.local/bin, where claude actually lives, and
 // a plain exec.LookPath("claude") fails.
 func TestResolveFindsClaudeWithoutItBeingOnPATH(t *testing.T) {

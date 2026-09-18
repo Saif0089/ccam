@@ -103,7 +103,7 @@ func TestSetActiveIdentityNeverCreatesAMissingFile(t *testing.T) {
 		t.Error("a missing shared config must return an error, not be created from scratch")
 	}
 	if _, err := os.Stat(missing); err == nil {
-		t.Error("ccam must not create ~/.claude.json itself")
+		t.Error("clawdh must not create ~/.claude.json itself")
 	}
 }
 
@@ -116,7 +116,7 @@ func TestSetActiveIdentityNilIsNoOp(t *testing.T) {
 func TestSnapshotDefaultIdentityCapturesARealDefaultLogin(t *testing.T) {
 	home := t.TempDir()
 	claudeJSON := filepath.Join(home, ".claude.json")
-	stubDir := filepath.Join(home, ".ccam", "accounts", "default")
+	stubDir := filepath.Join(home, ".clawdh", "accounts", "default")
 	mustFile(t, claudeJSON, `{"oauthAccount":{"accountUuid":"real-default","emailAddress":"me@example.com"}}`)
 
 	if err := SnapshotDefaultIdentity(claudeJSON, stubDir, nil); err != nil {
@@ -132,14 +132,14 @@ func TestSnapshotDefaultIdentityCapturesARealDefaultLogin(t *testing.T) {
 }
 
 // The retry path is the dangerous one: with no default login signed in, the
-// first boot captures nothing, `ccam ehti` then writes ehti's identity into
+// first boot captures nothing, `clawdh ehti` then writes ehti's identity into
 // ~/.claude.json, and capturing that would freeze a managed account as "the
 // default account" — for the dashboard as well as for /status.
 func TestSnapshotDefaultIdentityRefusesAManagedAccountsIdentity(t *testing.T) {
 	home := t.TempDir()
 	claudeJSON := filepath.Join(home, ".claude.json")
-	stubDir := filepath.Join(home, ".ccam", "accounts", "default")
-	ehti := filepath.Join(home, ".ccam", "accounts", "ehti")
+	stubDir := filepath.Join(home, ".clawdh", "accounts", "default")
+	ehti := filepath.Join(home, ".clawdh", "accounts", "ehti")
 	mustFile(t, filepath.Join(ehti, ".claude.json"), `{"oauthAccount":{"accountUuid":"ehti-uuid"}}`)
 	// What a switch to ehti leaves behind in the shared config.
 	mustFile(t, claudeJSON, `{"oauthAccount":{"accountUuid":"ehti-uuid"}}`)
@@ -165,7 +165,7 @@ func TestSnapshotDefaultIdentityRefusesAManagedAccountsIdentity(t *testing.T) {
 func TestSnapshotDefaultIdentityNeverOverwritesAnExistingStub(t *testing.T) {
 	home := t.TempDir()
 	claudeJSON := filepath.Join(home, ".claude.json")
-	stubDir := filepath.Join(home, ".ccam", "accounts", "default")
+	stubDir := filepath.Join(home, ".clawdh", "accounts", "default")
 	mustFile(t, filepath.Join(stubDir, ".claude.json"), `{"oauthAccount":{"accountUuid":"captured-earlier"}}`)
 	mustFile(t, claudeJSON, `{"oauthAccount":{"accountUuid":"whatever-is-there-now"}}`)
 

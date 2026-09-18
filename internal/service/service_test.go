@@ -11,15 +11,15 @@ import (
 	"time"
 )
 
-// buildCcam compiles cmd/ccam once for this test process.
+// buildCcam compiles cmd/clawdh once for this test process.
 func buildCcam(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("Getwd: %v", err)
 	}
-	src := filepath.Join(wd, "..", "..", "cmd", "ccam")
-	name := "ccam"
+	src := filepath.Join(wd, "..", "..", "cmd", "clawdh")
+	name := "clawdh"
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
@@ -27,7 +27,7 @@ func buildCcam(t *testing.T) string {
 
 	cmd := exec.Command("go", "build", "-o", out, src)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("building ccam: %v\n%s", err, output)
+		t.Fatalf("building clawdh: %v\n%s", err, output)
 	}
 	return out
 }
@@ -116,7 +116,7 @@ func TestInstallStartStopUninstallLifecycle(t *testing.T) {
 	}
 }
 
-// diagnostics dumps ccam's own log/pid/port files for a failed test's
+// diagnostics dumps clawdh's own log/pid/port files for a failed test's
 // error message, since the failure otherwise gives no clue whether the
 // process never started, started and crashed, or started but never
 // bound/answered.
@@ -130,8 +130,8 @@ func diagnostics(home string) string {
 		}
 		fmt.Fprintf(&b, "--- %s (%s) ---\n%s\n", label, path, data)
 	}
-	dump("ccam.log", filepath.Join(home, ".clawdh", "ccam.log"))
-	dump("pidfile", filepath.Join(home, ".clawdh", "ccam.pid"))
+	dump("clawdh.log", filepath.Join(home, ".clawdh", "clawdh.log"))
+	dump("pidfile", filepath.Join(home, ".clawdh", "clawdh.pid"))
 	dump("port file", filepath.Join(home, ".clawdh", "port"))
 	return b.String()
 }

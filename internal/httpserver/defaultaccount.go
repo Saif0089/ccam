@@ -12,7 +12,7 @@ import (
 // re-detected. Each check costs a `claude auth status` subprocess, so
 // this is not something to do on every page load — but it does need to
 // happen more than once, since the user may sign in to their default
-// account after ccam has already started.
+// account after clawdh has already started.
 const defaultCheckInterval = 60 * time.Second
 
 // ensureDefaultAccount adopts the account plain `claude` is signed in

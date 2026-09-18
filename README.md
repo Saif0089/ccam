@@ -1,4 +1,4 @@
-# ccam — Claude Code Account Manager
+# clawdh — Claude Code Account Manager
 
 Manage and use multiple [Claude Code](https://claude.com/claude-code) (`claude`
 CLI) accounts on one machine, from a local web UI backed by a small
@@ -16,30 +16,30 @@ This started as an automation of the technique from
 ["Setting Up Multiple Claude Code Accounts on Your Local Machine"](https://medium.com/@buwanekasumanasekara/setting-up-multiple-claude-code-accounts-on-your-local-machine-f8769a36d1b1),
 which gave each account its own `CLAUDE_CONFIG_DIR` and isolated everything with
 it. Claude Code derives its credential store from either variable by the same
-hash, so moving to the narrower one keeps every existing login working. ccam:
+hash, so moving to the narrower one keeps every existing login working. clawdh:
 
 - lets you add a new account by logging in right from the browser (no manual
   `CLAUDE_CONFIG_DIR=... claude` typing),
-- runs any account with one command — `ccam <name>` — on every OS, with no shell
-  aliases to install, keep in sync, or get wrong (`ccam list` shows them all),
-- switches the account a running session is on: type `ccam <name>` at the
-  prompt, or run `!ccam <name>` as a shell command, and the session comes back
+- runs any account with one command — `clawdh <name>` — on every OS, with no shell
+  aliases to install, keep in sync, or get wrong (`clawdh list` shows them all),
+- switches the account a running session is on: type `clawdh <name>` at the
+  prompt, or run `!clawdh <name>` as a shell command, and the session comes back
   on the other account **with the conversation resumed**. It is a genuine
   relaunch, so the conversation survives but anything running inside the old
   process — subagents, workflows, background tasks — does not.
 
-  This used to happen in place, with nothing restarted: ccam gave each session a
+  This used to happen in place, with nothing restarted: clawdh gave each session a
   private copy of the login and a switch rewrote it. Keeping those copies meant
-  ccam had to *write* Claude Code's credential store, and that is what destroyed
+  clawdh had to *write* Claude Code's credential store, and that is what destroyed
   two real logins — a store over 4 KB was truncated into a valid-looking
-  fragment and copied over the account's own. ccam now reads logins and never
+  fragment and copied over the account's own. clawdh now reads logins and never
   writes them, and pays for it with the restart.
 
-  Switching works in a session you started with `ccam <account>` *and* in one you
-  started by just typing `claude`: ccam puts a small `claude` function in your
+  Switching works in a session you started with `clawdh <account>` *and* in one you
+  started by just typing `claude`: clawdh puts a small `claude` function in your
   shell rc that runs the same supervisor. It steps aside — running Claude Code
   directly — inside an existing session, with no terminal (scripts, pipes, CI),
-  when ccam is not on PATH, or with `CCAM_WRAP=0` set.
+  when clawdh is not on PATH, or with `CCAM_WRAP=0` set.
 - runs as a per-user background service that starts at login and serves the
   UI at `http://127.0.0.1:47932`.
 
@@ -52,22 +52,22 @@ side by side.
 **macOS / Linux:**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Saif0089/ccam/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Saif0089/clawdh/main/install.sh | sh
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm https://raw.githubusercontent.com/Saif0089/ccam/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/Saif0089/clawdh/main/install.ps1 | iex
 ```
 
 Both scripts install a single binary to a per-user directory (`~/.local/bin`
-or `%LOCALAPPDATA%\ccam\bin`), register it to start at login, start it, and
+or `%LOCALAPPDATA%\clawdh\bin`), register it to start at login, start it, and
 print the URL to open. Nothing is written outside your own user profile —
 no `sudo`, no `/usr/local`, no `Program Files`, no `HKLM`.
 
 Prerequisite: the [`claude` CLI](https://claude.com/claude-code) itself must
-already be installed and on `PATH` — ccam manages *accounts* for it, it
+already be installed and on `PATH` — clawdh manages *accounts* for it, it
 doesn't install Claude Code.
 
 ## Using it
@@ -75,9 +75,9 @@ doesn't install Claude Code.
 Open `http://127.0.0.1:47932`. Click **Sign in another account**, give it a
 name, and open the URL it shows you to finish logging in — the account flips to
 "linked" automatically once you do. Each account's card shows the command that
-runs it (`ccam <name>`); type it in any terminal, or copy it from the card.
+runs it (`clawdh <name>`); type it in any terminal, or copy it from the card.
 
-Accounts are no longer isolated from each other beyond their login, and ccam
+Accounts are no longer isolated from each other beyond their login, and clawdh
 never writes a credential store — it reads `<account dir>/.credentials.json`
 and otherwise asks `claude auth status` what it thinks. On a machine where
 Claude Code keeps its credentials in the macOS Keychain there is no file to
@@ -92,9 +92,9 @@ The dot beside the name is checked live rather than remembered: `linked`,
 
 The page keeps itself current — it re-reads every few seconds, so there is
 no refresh button to press and nothing to reload. Those reads are answered
-by ccam itself; it asks Anthropic for fresh numbers at most once a minute
+by clawdh itself; it asks Anthropic for fresh numbers at most once a minute
 per account. That endpoint is not a documented API and publishes no rate
-limit, so when it does refuse, ccam waits — a minute, then two, four,
+limit, so when it does refuse, clawdh waits — a minute, then two, four,
 eight, up to fifteen — and keeps showing the last numbers it read rather
 than emptying the card. Those numbers are kept in `~/.clawdh/usage.json`
 (percentages and reset times, never a credential), so a restart in the
@@ -106,8 +106,8 @@ that shipped from a fix that is actually running.
 
 ## Sharing accounts with other people
 
-ccam on its own is a single-machine tool. To let *other* people use one of your
-accounts, ccam has two more pieces: a small self-hosted **panel** where you add
+clawdh on its own is a single-machine tool. To let *other* people use one of your
+accounts, clawdh has two more pieces: a small self-hosted **panel** where you add
 logins and give people access, and a **gateway** that holds the subscription and
 serves everyone through it. One login can serve many people at once — the point
 the whole design turns on — because the gateway refreshes the token centrally, so
@@ -115,11 +115,11 @@ no one else ever holds the login and two machines never invalidate each other.
 
 The everyday flow lives in the web page, no terminal required:
 
-- On the machine where an account is signed in, open ccam and choose **Add to
+- On the machine where an account is signed in, open clawdh and choose **Add to
   panel** on that account. Its login is sealed and stored on the panel.
 - On the panel, **Invite someone** — they get a link that expires in about an
   hour. They open it, connect in a click, and whatever you share appears on their
-  machine, ready to run as `ccam shared <name>`.
+  machine, ready to run as `clawdh shared <name>`.
 - **Give access** shares an account with a person; the ⨯ next to their name takes
   it back. Access stops within seconds — the gateway simply stops honouring their
   key.
@@ -127,16 +127,16 @@ The everyday flow lives in the web page, no terminal required:
 The same actions exist on the command line for anyone who prefers it:
 
 ```sh
-ccam panel serve                          # run the panel (or host it — see below)
-ccam panel push work http://host:47933    # add an account's login to the panel
-ccam join <invite-link>                   # connect a machine from an invite link
-ccam shared work                          # run an account shared with you
+clawdh panel serve                          # run the panel (or host it — see below)
+clawdh panel push work http://host:47933    # add an account's login to the panel
+clawdh join <invite-link>                   # connect a machine from an invite link
+clawdh shared work                          # run an account shared with you
 ```
 
 The panel deploys to Vercel as one serverless function with its state in
 Postgres, and the gateway runs on a small VPS — see
 [docs/DEPLOY_VERCEL.md](docs/DEPLOY_VERCEL.md) and [deploy/](deploy/). Every
-machine runs the ordinary ccam client, which self-updates on each release.
+machine runs the ordinary clawdh client, which self-updates on each release.
 
 What this does and does not do, plainly. Members never hold the Claude login —
 it stays sealed on the panel and is only ever used by the gateway — so there is
@@ -148,16 +148,16 @@ should be behind TLS.
 
 ## VS Code, Cursor, and the rest
 
-Nothing to run. If an editor has the Claude Code extension installed, ccam
+Nothing to run. If an editor has the Claude Code extension installed, clawdh
 configures it by setting the extension's `claudeCode.claudeProcessWrapper` to
-ccam, so ccam launches Claude on the extension's behalf. You open the editor as
+clawdh, so clawdh launches Claude on the extension's behalf. You open the editor as
 usual and start a chat as usual.
 
 What that buys is the same thing the terminal gets: **each conversation has a
-credential store of its own**, so typing `ccam <name>` in one chat moves that
+credential store of its own**, so typing `clawdh <name>` in one chat moves that
 chat to another account and leaves every other chat — and every terminal —
 where it was. Conversations already open keep the account they started with; new
-ones start on the account `ccam editor <account>` last set, or your default
+ones start on the account `clawdh editor <account>` last set, or your default
 login if it was never set.
 
 Editors without the extension are left alone, `settings.json` keeps its comments
@@ -174,10 +174,10 @@ passed through and unaffected.
 
 Claude Code keeps an account's login in the macOS Keychain, in the Windows
 Credential Manager where one is available, and in a `.credentials.json` file
-otherwise — and ccam reads whichever it finds. The stores ccam writes for
+otherwise — and clawdh reads whichever it finds. The stores clawdh writes for
 sessions and editors follow the same rule, with one addition: a keychain it
 cannot write falls back to the file, which is what Claude Code itself does with
-the same pair. After writing, ccam reads the store back; if the write did not
+the same pair. After writing, clawdh reads the store back; if the write did not
 land where Claude Code will look for it, the switch is reported as failed and
 the session is relaunched instead.
 
@@ -185,9 +185,9 @@ How quickly a switch shows up depends on which of those the session is reading,
 and the difference is worth knowing: Claude Code re-reads the credentials *file*
 on every request, so a switch lands on the next one, but it caches Keychain
 reads for thirty seconds, so on macOS the session may answer once or twice more
-as the old account before it flips. ccam says so when it switches.
+as the old account before it flips. clawdh says so when it switches.
 
-Set `CCAM_CREDENTIALS_FILE=1` to keep ccam out of the Keychain entirely and use
+Set `CCAM_CREDENTIALS_FILE=1` to keep clawdh out of the Keychain entirely and use
 the file store everywhere — which also makes switches immediate. Claude Code reads it when its keychain item is
 absent, so nothing breaks — the trade is that a copy of the token sits in a
 `0600` file for as long as that session or editor exists.
@@ -195,7 +195,7 @@ absent, so nothing breaks — the trade is that a copy of the token sits in a
 ## Token usage, per account
 
 If the machine also runs the Claude usage monitor, its agent reports every
-ccam account separately: each login is its own account on the dashboard,
+clawdh account separately: each login is its own account on the dashboard,
 under the one device, rather than every account's tokens piling up in a
 single number for the machine. There is nothing to configure per account
 and nothing to re-run after adding one. The agent re-reads
@@ -212,12 +212,12 @@ whichever account happens to be signed in.
 
 That is the reason `accounts.json` is treated as a contract rather than an
 internal file (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)): renaming
-one of its fields still compiles and still passes ccam's own tests, but it
+one of its fields still compiles and still passes clawdh's own tests, but it
 quietly sends another tool's numbers to the wrong account.
 
 ## Staying up to date
 
-ccam updates itself. The running service checks the published release every
+clawdh updates itself. The running service checks the published release every
 five minutes, verifies the download against the checksums published beside
 it, replaces its own binary and restarts into it — then says so with a
 desktop notification, on macOS, Windows and Linux alike. A fix pushed to
@@ -239,7 +239,7 @@ time, re-run the install command above.
 ## Uninstalling
 
 ```sh
-ccam uninstall
+clawdh uninstall
 ```
 
 Stops the service, removes the autostart registration, strips every

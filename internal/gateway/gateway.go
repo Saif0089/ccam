@@ -1,4 +1,4 @@
-// Package gateway is ccam's data plane: a reverse proxy that lets many people
+// Package gateway is clawdh's data plane: a reverse proxy that lets many people
 // share one Claude subscription at once, without any of them ever holding its
 // credential.
 //
@@ -85,14 +85,14 @@ func New(up Upstream) http.Handler {
 		key := memberKey(r)
 		if key == "" {
 			deny(w, http.StatusUnauthorized, "authentication_error",
-				"No gateway key was sent. Run this account through ccam (`ccam shared <name>`), which supplies your key.")
+				"No gateway key was sent. Run this account through clawdh (`clawdh shared <name>`), which supplies your key.")
 			return
 		}
 		token, _, err := up.Resolve(key)
 		switch {
 		case errors.Is(err, ErrUnknownKey):
 			deny(w, http.StatusUnauthorized, "authentication_error",
-				"Your access to this shared account was removed, or this key is not one the gateway knows. Ask whoever shared it to give you access again; `ccam list` shows what you can run.")
+				"Your access to this shared account was removed, or this key is not one the gateway knows. Ask whoever shared it to give you access again; `clawdh list` shows what you can run.")
 			return
 		case err != nil:
 			// The share is real but its shared login can't be used right now —

@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	beginMarker = "# >>> ccam accounts >>>"
-	endMarker   = "# <<< ccam accounts <<<"
+	beginMarker = "# >>> clawdh accounts >>>"
+	endMarker   = "# <<< clawdh accounts <<<"
 )
 
 // UpsertBlock ensures path contains exactly one managed block with the
@@ -69,7 +69,7 @@ func RemoveBlock(path string) error {
 
 	if updated == "" {
 		// The file held nothing but our block (the common case for an rc
-		// file ccam itself created) — remove it entirely rather than
+		// file clawdh itself created) — remove it entirely rather than
 		// leaving a stray empty file behind.
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return err
@@ -150,7 +150,7 @@ func writeFile(path, content string, existed bool) error {
 			mode = info.Mode()
 		}
 	}
-	tmp := path + ".ccam-tmp"
+	tmp := path + ".clawdh-tmp"
 	if err := os.WriteFile(tmp, []byte(content), mode); err != nil {
 		return err
 	}

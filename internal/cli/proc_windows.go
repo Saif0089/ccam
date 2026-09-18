@@ -9,7 +9,7 @@ import (
 	"clawdh/internal/switching"
 )
 
-// supervisorAlive reports whether the `ccam run` supervisor that exported
+// supervisorAlive reports whether the `clawdh run` supervisor that exported
 // CCAM_SUPERVISOR is still running. Windows has no signal 0, so the handle is
 // opened for query only and its exit code inspected: STILL_ACTIVE means the
 // process is there, anything else (or a handle that cannot be opened) means

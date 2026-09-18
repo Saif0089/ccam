@@ -49,7 +49,7 @@ type Event struct {
 	Message string    `json:"message"`
 }
 
-// loginArgs is how ccam asks `claude` to log in.
+// loginArgs is how clawdh asks `claude` to log in.
 //
 // Not a bare `claude`: on a fresh CLAUDE_CONFIG_DIR that opens the
 // interactive first-run flow (a theme picker, then a login-method
@@ -83,7 +83,7 @@ type Config struct {
 	// nil, a default one is built around ClaudeBinary.
 	Prober *accounts.Prober
 	// WorkingDir is the directory `claude` runs in. Left empty it
-	// defaults to the user's home — never inherit ccam's own working
+	// defaults to the user's home — never inherit clawdh's own working
 	// directory, which is "/" when launchd started it at login.
 	WorkingDir string
 }

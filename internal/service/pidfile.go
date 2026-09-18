@@ -14,7 +14,7 @@ func pidFilePath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(base, "ccam.pid"), nil
+	return filepath.Join(base, "clawdh.pid"), nil
 }
 
 func writePID(pid int) error {

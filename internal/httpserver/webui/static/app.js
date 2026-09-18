@@ -1,4 +1,4 @@
-// ccam web UI — plain JS, no build step. Small enough that a framework
+// clawdh web UI — plain JS, no build step. Small enough that a framework
 // would cost more than it saves.
 "use strict";
 
@@ -20,7 +20,7 @@ const connectedNote = document.getElementById("connected-note");
 // press a button and wonder whether they had to.
 const POLL_MS = 5000;
 
-// Every account runs through `ccam` — no shell aliases to install, keep in
+// Every account runs through `clawdh` — no shell aliases to install, keep in
 // sync, or get wrong on Windows. One command shape, the same everywhere.
 
 async function api(path, opts) {
@@ -44,10 +44,10 @@ async function api(path, opts) {
 // always matches what their shell actually has.
 function runCommand(account) {
   if (account.kind === "default") return "claude";
-  return `ccam ${account.slug}`;
+  return `clawdh ${account.slug}`;
 }
 function sharedRunCommand(slug) {
-  return `ccam shared ${slug}`;
+  return `clawdh shared ${slug}`;
 }
 
 // --- time formatting --------------------------------------------------
@@ -363,7 +363,7 @@ async function copyToClipboard(text, button) {
 
 async function removeAccount(account, isDefault) {
   const question = isDefault
-    ? `Stop showing "${account.name}" here? Your main ~/.claude login is left untouched — ccam just forgets it.`
+    ? `Stop showing "${account.name}" here? Your main ~/.claude login is left untouched — clawdh just forgets it.`
     : `Remove "${account.name}"? This deletes its local login on this machine.`;
   if (!confirm(question)) return;
   try { await api(`/api/accounts/${account.id}`, { method: "DELETE" }); }
@@ -627,7 +627,7 @@ function openLoginStream(accountId) {
   });
   es.addEventListener("error", () => {
     if (es.readyState === EventSource.CLOSED && !loginFinished) {
-      loginStatus.textContent = "Lost the connection to ccam. Close this and try again.";
+      loginStatus.textContent = "Lost the connection to clawdh. Close this and try again.";
     }
   });
 }

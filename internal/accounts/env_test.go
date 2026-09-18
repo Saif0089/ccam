@@ -24,7 +24,7 @@ func valueOf(env []string, name string) (string, bool) {
 }
 
 func TestEnvForConfigDirSetsBothVariablesToTheSamePath(t *testing.T) {
-	dir := "/home/me/.ccam/accounts/work"
+	dir := "/home/me/.clawdh/accounts/work"
 	env := EnvForConfigDir(dir)
 
 	for _, name := range []string{ConfigDirEnvVar, SecureStorageEnvVar} {
@@ -42,7 +42,7 @@ func TestEnvForConfigDirSetsBothVariablesToTheSamePath(t *testing.T) {
 // swap: the credential store moves, the config directory does not, so the
 // session keeps the user's sessions, MCP servers, skills and hooks.
 func TestEnvForSharedConfigLeavesTheConfigDirUnset(t *testing.T) {
-	dir := "/home/me/.ccam/accounts/work"
+	dir := "/home/me/.clawdh/accounts/work"
 	env := EnvForSharedConfig(dir)
 
 	got, ok := valueOf(env, SecureStorageEnvVar)
@@ -91,7 +91,7 @@ func TestEnvStripsInheritedValues(t *testing.T) {
 	t.Setenv(ConfigDirEnvVar, "/inherited/config")
 	t.Setenv(SecureStorageEnvVar, "/inherited/credentials")
 
-	dir := "/home/me/.ccam/accounts/work"
+	dir := "/home/me/.clawdh/accounts/work"
 	for _, tc := range []struct {
 		name string
 		env  []string

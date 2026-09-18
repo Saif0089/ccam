@@ -137,7 +137,7 @@ func copyProjectsTree(src, dst string) (copied, skipped, failed int, err error) 
 	// nothing had copied. Refuse to touch it instead.
 	info, statErr := os.Lstat(src)
 	if statErr == nil && info.Mode()&os.ModeSymlink != 0 {
-		return 0, 0, 0, fmt.Errorf("%s is a symlink; ccam will not migrate or delete a linked transcript tree", src)
+		return 0, 0, 0, fmt.Errorf("%s is a symlink; clawdh will not migrate or delete a linked transcript tree", src)
 	}
 	if statErr != nil {
 		if os.IsNotExist(statErr) {
@@ -205,7 +205,7 @@ func copyProjectsTree(src, dst string) (copied, skipped, failed int, err error) 
 // copyFilePreservingMode copies src to dst via a UNIQUE temp file in dst's
 // directory, flushed to disk, then renamed into place — so a crash cannot
 // leave a partial file at the final UUID name (which the skip-existing check
-// would later mistake for an already-migrated transcript), and two ccam
+// would later mistake for an already-migrated transcript), and two clawdh
 // processes copying the same source concurrently cannot interleave into one
 // temp file. The rename is atomic; the last writer wins with a complete copy.
 func copyFilePreservingMode(src, dst string) error {
@@ -219,7 +219,7 @@ func copyFilePreservingMode(src, dst string) error {
 		return err
 	}
 
-	tmp, err := os.CreateTemp(filepath.Dir(dst), ".ccam-migrating-*")
+	tmp, err := os.CreateTemp(filepath.Dir(dst), ".clawdh-migrating-*")
 	if err != nil {
 		return err
 	}

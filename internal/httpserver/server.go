@@ -1,4 +1,4 @@
-// Package httpserver serves ccam's REST/SSE API and embedded web UI on
+// Package httpserver serves clawdh's REST/SSE API and embedded web UI on
 // 127.0.0.1 only — this tool manages login credentials, so it must never
 // be reachable from anything but the same machine.
 package httpserver
@@ -98,7 +98,7 @@ func withLogging(h http.Handler) http.Handler {
 }
 
 // Serve runs the HTTP server on 127.0.0.1:port (0 to pick any free
-// port), writes the chosen port to ccam's port file so other ccam
+// port), writes the chosen port to clawdh's port file so other clawdh
 // invocations and the installer's health check can find it, records
 // this process's PID, and blocks until ctx is canceled — at which point
 // it shuts down gracefully and cleans up both files.
@@ -177,9 +177,9 @@ func Serve(ctx context.Context, srv *Server, port int) error {
 		}
 
 		// Same idea for editors. The Claude Code extension starts Claude
-		// itself and never sees a shell, so the only way ccam reaches it is
+		// itself and never sees a shell, so the only way clawdh reaches it is
 		// this setting — and the only way a user gets in-conversation
-		// switching without being told to run a command is for ccam to set it
+		// switching without being told to run a command is for clawdh to set it
 		// on their behalf, the way it already writes shell aliases. Editors
 		// without the extension are left alone, and the write is skipped when
 		// the setting already names this binary.
@@ -194,7 +194,7 @@ func Serve(ctx context.Context, srv *Server, port int) error {
 		errCh <- httpSrv.Serve(ln)
 	}()
 
-	log.Printf("ccam listening on http://127.0.0.1:%d", actualPort)
+	log.Printf("clawdh listening on http://127.0.0.1:%d", actualPort)
 
 	select {
 	case <-ctx.Done():
@@ -209,19 +209,19 @@ func Serve(ctx context.Context, srv *Server, port int) error {
 	case <-srv.restart:
 		// An update replaced this binary on disk. Shut down first so
 		// the port is free, then start the file that is there now: no
-		// service manager supervises ccam (see internal/service), so
+		// service manager supervises clawdh (see internal/service), so
 		// nothing else would ever bring it back.
 		srv.stopAllLogins()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = httpSrv.Shutdown(shutdownCtx)
 
-		// Someone asked ccam to stop while it was handing over —
-		// `ccam stop`, `ccam uninstall`, or a logout. Starting a
+		// Someone asked clawdh to stop while it was handing over —
+		// `clawdh stop`, `clawdh uninstall`, or a logout. Starting a
 		// successor now would leave a server running that the thing
 		// which just stopped us no longer knows how to stop.
 		if ctx.Err() != nil {
-			log.Print("update installed, but ccam was asked to stop before it could restart")
+			log.Print("update installed, but clawdh was asked to stop before it could restart")
 			return nil
 		}
 
@@ -258,9 +258,9 @@ func Serve(ctx context.Context, srv *Server, port int) error {
 // ErrRestartFailed means an update was installed but this process could
 // not hand over to it. The caller turns that into something the person
 // sees, because the service is now down and only they can start it.
-var ErrRestartFailed = errors.New("ccam updated itself but could not restart")
+var ErrRestartFailed = errors.New("clawdh updated itself but could not restart")
 
-// waitForSuccessor reports whether a ccam is answering on port again.
+// waitForSuccessor reports whether a clawdh is answering on port again.
 func waitForSuccessor(port int, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -284,7 +284,7 @@ func writePortFile(port int) error {
 }
 
 // removePortFile clears the record only if it still names this
-// server's port. A second `ccam serve --port N` on a different port is
+// server's port. A second `clawdh serve --port N` on a different port is
 // a supported thing to do, and deleting the *first* one's record on the
 // way out would strand it: status stops finding it and stop can no
 // longer stop it.
@@ -304,9 +304,9 @@ func removePortFile(port int) {
 }
 
 // configureEditors points every editor that has the Claude Code extension at
-// ccam, so its conversations each get their own credential store.
+// clawdh, so its conversations each get their own credential store.
 func configureEditors(home string) error {
-	// The one setting ccam writes outside its own directory and the user's
+	// The one setting clawdh writes outside its own directory and the user's
 	// shell rc, so it takes an opt-out: CCAM_MANAGE_EDITORS=0 in the service's
 	// environment leaves every editor alone.
 	if config.Env("MANAGE_EDITORS") == "0" {
@@ -321,7 +321,7 @@ func configureEditors(home string) error {
 			continue
 		}
 		// Configured means everything PointAtWrapper does, not just the value
-		// it is named after. An editor set up by an older ccam has the wrapper
+		// it is named after. An editor set up by an older clawdh has the wrapper
 		// AND the per-editor entry that overrides it, and checking only the
 		// wrapper meant that editor was skipped for ever and never repaired.
 		if editors.WrapperPath(ed.Settings) == self &&
@@ -331,7 +331,7 @@ func configureEditors(home string) error {
 		if err := editors.PointAtWrapper(ed.Settings, self); err != nil {
 			return err
 		}
-		log.Printf("editors: %s now launches Claude through ccam", ed.Name)
+		log.Printf("editors: %s now launches Claude through clawdh", ed.Name)
 	}
 	return nil
 }

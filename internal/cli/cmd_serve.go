@@ -33,23 +33,23 @@ func cmdServe(args []string) int {
 	// served; asking for a different port is a legitimate request, not
 	// a duplicate start.
 	if info, err := service.Running(); err == nil && info != nil && info.Port == *port {
-		fmt.Fprintf(os.Stdout, "ccam is already running on http://127.0.0.1:%d\n", info.Port)
+		fmt.Fprintf(os.Stdout, "clawdh is already running on http://127.0.0.1:%d\n", info.Port)
 		return 0
 	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam: resolving home directory:", err)
+		fmt.Fprintln(os.Stderr, "clawdh: resolving home directory:", err)
 		return 1
 	}
 	accountsFile, err := config.AccountsFile()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	accountsDir, err := config.AccountsDir()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 
@@ -109,19 +109,19 @@ func cmdServe(args []string) int {
 	go watchPanel(ctx)
 
 	if err := httpserver.Serve(ctx, srv, *port); err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		// An update that installed but could not restart leaves no
 		// server running, and this process is about to be gone. The
 		// notification is the only thing that will tell anyone.
 		if errors.Is(err, httpserver.ErrRestartFailed) {
-			_ = notify.Send("Updated, but ccam could not restart. Run `ccam start` to bring it back.")
+			_ = notify.Send("Updated, but clawdh could not restart. Run `clawdh start` to bring it back.")
 		}
 		return 1
 	}
 	return 0
 }
 
-// maxLogBytes caps ~/.clawdh/ccam.log. Every request is logged there and
+// maxLogBytes caps ~/.clawdh/clawdh.log. Every request is logged there and
 // nothing ever rotated it, so a service left running with a page open
 // grew it without bound — on the one file that also carries the only
 // diagnostics when something goes wrong.
@@ -143,7 +143,7 @@ func capLogFile() {
 }
 
 // resolveBinaryPath returns the absolute, symlink-resolved path to the
-// currently running ccam executable — what autostart registration and
+// currently running clawdh executable — what autostart registration and
 // the manual start/stop lifecycle should point at, and what an update
 // replaces.
 func resolveBinaryPath() (string, error) {
@@ -152,7 +152,7 @@ func resolveBinaryPath() (string, error) {
 
 // startAutoUpdate keeps this installation current in the background.
 //
-// The service is the only part of ccam that is always running, so it is
+// The service is the only part of clawdh that is always running, so it is
 // the only place an update can happen without waiting for someone to
 // remember. When one lands, the person gets a desktop notification —
 // the binary changing underneath them is not something to discover by
@@ -160,7 +160,7 @@ func resolveBinaryPath() (string, error) {
 func startAutoUpdate(ctx context.Context, srv *httpserver.Server) {
 	// A server someone is watching in their own terminal must not
 	// replace its binary and hand over to a detached process: that
-	// would look exactly like `ccam serve` quitting on its own, with a
+	// would look exactly like `clawdh serve` quitting on its own, with a
 	// daemon left behind that they never asked for. Updating belongs to
 	// the copy started at login, whose output goes to the log file.
 	if isTerminal(os.Stdout) {

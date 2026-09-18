@@ -11,7 +11,7 @@ import (
 
 const varName = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
 
-// settings.json belongs to the user. ccam edits one value in it and must leave
+// settings.json belongs to the user. clawdh edits one value in it and must leave
 // everything else — including comments, which a JSON round trip would delete —
 // exactly as it was.
 func TestPointAtPreservesCommentsAndOtherSettings(t *testing.T) {
@@ -27,7 +27,7 @@ func TestPointAtPreservesCommentsAndOtherSettings(t *testing.T) {
 	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := PointAt(path, varName, "/Users/me/.ccam/editors/vscode"); err != nil {
+	if err := PointAt(path, varName, "/Users/me/.clawdh/editors/vscode"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(path)
@@ -43,15 +43,15 @@ func TestPointAtPreservesCommentsAndOtherSettings(t *testing.T) {
 		`"workbench.colorTheme": "Default Dark+"`,
 	} {
 		if !strings.Contains(out, keep) {
-			t.Errorf("ccam destroyed %q:\n%s", keep, out)
+			t.Errorf("clawdh destroyed %q:\n%s", keep, out)
 		}
 	}
-	if dir := ReadStoreDir(path, varName); dir != "/Users/me/.ccam/editors/vscode" {
+	if dir := ReadStoreDir(path, varName); dir != "/Users/me/.clawdh/editors/vscode" {
 		t.Errorf("store dir reads back as %q", dir)
 	}
 }
 
-// Switching an editor to another account rewrites ccam's entry and must not
+// Switching an editor to another account rewrites clawdh's entry and must not
 // accumulate duplicates or disturb variables the user set themselves.
 func TestPointAtReplacesItsOwnEntryAndKeepsTheUsers(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
@@ -70,7 +70,7 @@ func TestPointAtReplacesItsOwnEntryAndKeepsTheUsers(t *testing.T) {
 	}
 	out, _ := os.ReadFile(path)
 	if strings.Count(string(out), varName) != 1 {
-		t.Errorf("ccam's entry was duplicated rather than replaced:\n%s", out)
+		t.Errorf("clawdh's entry was duplicated rather than replaced:\n%s", out)
 	}
 	if !strings.Contains(string(out), "HTTPS_PROXY") {
 		t.Errorf("the user's own variable was dropped:\n%s", out)
@@ -103,7 +103,7 @@ func TestPointAtCreatesTheFileAndHandlesAnEmptyObject(t *testing.T) {
 	}
 }
 
-// A settings file ccam has never touched reports no account, rather than
+// A settings file clawdh has never touched reports no account, rather than
 // guessing one.
 func TestReadStoreDirOnAnUnconfiguredEditor(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
@@ -117,7 +117,7 @@ func TestReadStoreDirOnAnUnconfiguredEditor(t *testing.T) {
 }
 
 // The two schemes are mutually exclusive and the extension applies
-// environmentVariables LAST — over the environment ccam's wrapper just built.
+// environmentVariables LAST — over the environment clawdh's wrapper just built.
 // So an entry left behind by the older per-editor scheme silently puts every
 // conversation back on one shared store, and per-conversation switching stops
 // working with nothing on screen to say so. Setting the wrapper has to take it
@@ -127,7 +127,7 @@ func TestPointAtWrapperRemovesTheOlderPerEditorEntry(t *testing.T) {
 	original := `{
   // the user's own note
   "claudeCode.environmentVariables": [
-    { "name": "CLAUDE_SECURESTORAGE_CONFIG_DIR", "value": "/Users/x/.ccam/editors/vs-code" },
+    { "name": "CLAUDE_SECURESTORAGE_CONFIG_DIR", "value": "/Users/x/.clawdh/editors/vs-code" },
     { "name": "MY_OWN_VAR", "value": "keep me" }
   ],
   "editor.minimap.enabled": false
@@ -135,7 +135,7 @@ func TestPointAtWrapperRemovesTheOlderPerEditorEntry(t *testing.T) {
 	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := PointAtWrapper(path, "/usr/local/bin/ccam"); err != nil {
+	if err := PointAtWrapper(path, "/usr/local/bin/clawdh"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(path)
@@ -152,8 +152,8 @@ func TestPointAtWrapperRemovesTheOlderPerEditorEntry(t *testing.T) {
 	if !strings.Contains(text, "// the user's own note") {
 		t.Error("the user's comment was lost")
 	}
-	if WrapperPath(path) != "/usr/local/bin/ccam" {
-		t.Errorf("wrapper = %q, want the ccam binary", WrapperPath(path))
+	if WrapperPath(path) != "/usr/local/bin/clawdh" {
+		t.Errorf("wrapper = %q, want the clawdh binary", WrapperPath(path))
 	}
 	if !strings.Contains(text, `"editor.minimap.enabled": false`) {
 		t.Error("an unrelated setting was disturbed")
@@ -167,7 +167,7 @@ func TestPointAtWrapperLeavesAFileWithNoEnvSettingAlone(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"editor.fontSize": 13}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := PointAtWrapper(path, "/usr/local/bin/ccam"); err != nil {
+	if err := PointAtWrapper(path, "/usr/local/bin/clawdh"); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(path)
@@ -176,16 +176,16 @@ func TestPointAtWrapperLeavesAFileWithNoEnvSettingAlone(t *testing.T) {
 	}
 }
 
-// Uninstalling ccam has to take it back out of the launch path. The setting
+// Uninstalling clawdh has to take it back out of the launch path. The setting
 // names this binary by absolute path, so leaving it behind has the extension
 // launching a file that no longer exists — every conversation failing, and no
-// ccam left to explain it.
+// clawdh left to explain it.
 func TestUnsetWrapperLeavesTheRestOfTheFileAlone(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	original := `{
   // a note the user wrote
   "editor.fontSize": 13,
-  "claudeCode.claudeProcessWrapper": "/Users/x/.local/bin/ccam",
+  "claudeCode.claudeProcessWrapper": "/Users/x/.local/bin/clawdh",
   "claudeCode.preferredLocation": "panel"
 }`
 	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {

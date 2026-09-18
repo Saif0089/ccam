@@ -20,7 +20,7 @@ const repoRoot = "../.."
 // TestCcamNeverTouchesTheCredentialStore is the guard on the bug that cost two
 // real logins.
 //
-// ccam used to keep a copy of each session's credentials so a switch could be a
+// clawdh used to keep a copy of each session's credentials so a switch could be a
 // write rather than a restart. Making that work meant re-deriving Claude Code's
 // own Keychain item name and writing it through `security -i`, which truncates
 // at 4095 bytes: a real store is larger than that once MCP logins are in it, so
@@ -28,7 +28,7 @@ const repoRoot = "../.."
 // copied the fragment over the account's own store. Both managed accounts were
 // unrecoverable.
 //
-// The fix was to delete the whole arrangement. ccam reads an account's login
+// The fix was to delete the whole arrangement. clawdh reads an account's login
 // only through Claude Code itself (`claude auth status`) or from the plain
 // credentials file, and writes one never. This test is what keeps it deleted:
 // the strings below cannot reappear in shipped code without failing the build.
@@ -87,7 +87,7 @@ func TestCcamNeverWritesTheCredentialStore(t *testing.T) {
 				if strings.Contains(value, needle) {
 					rel, _ := filepath.Rel(repoRoot, path)
 					t.Errorf("%s:%d: %q is back — %s.\n"+
-						"ccam must never WRITE Claude Code's credential store; this is the class of code that destroyed two real logins.",
+						"clawdh must never WRITE Claude Code's credential store; this is the class of code that destroyed two real logins.",
 						rel, fset.Position(lit.Pos()).Line, needle, why)
 				}
 			}
@@ -105,6 +105,6 @@ func TestCcamNeverWritesTheCredentialStore(t *testing.T) {
 // name and quietly reacquire callers.
 func TestCredstorePackageStaysDeleted(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(repoRoot, "internal", "credstore")); !os.IsNotExist(err) {
-		t.Error("internal/credstore is back. It existed to write credential stores, which ccam no longer does.")
+		t.Error("internal/credstore is back. It existed to write credential stores, which clawdh no longer does.")
 	}
 }

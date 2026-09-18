@@ -1,6 +1,6 @@
 # De-isolation plan (handoff for Opus 5)
 
-Turn each ccam account from a **full isolated config dir** into a **credential namespace only**,
+Turn each clawdh account from a **full isolated config dir** into a **credential namespace only**,
 so every account shares the user's own `~/.claude` (sessions, MCP, skills, plugins, hooks,
 CLAUDE.md) and only the login differs. Switching an account keeps the conversation.
 
@@ -20,7 +20,7 @@ and afterward **all** of the following hold, verified by tests:
    see "Credentials" below). This is a hard requirement.
 3. `/resume` (or `--continue`) in any account lists **every** conversation, including each
    account's pre-migration history.
-4. Switching accounts (`ccam <name>`) relaunches in place and lands back in the **same
+4. Switching accounts (`clawdh <name>`) relaunches in place and lands back in the **same
    conversation** on the other account. The user sees a redraw, nothing else.
 5. The usage monitor still shows correct **per-account** current usage (session ledger).
 6. Existing users get all of this on the next auto-update restart with **zero manual steps**;
@@ -34,14 +34,14 @@ and afterward **all** of the following hold, verified by tests:
 ```
 ~/.claude/                     default account's home: 2652 transcripts, skills, plugins,
 ~/.claude.json                 hooks, CLAUDE.md, MCP; identity + shared config
-~/.ccam/
+~/.clawdh/
   accounts.json                the contract other tools read
   accounts/
     ehti/                      FULL config dir — .claude.json, projects/ (646 jsonl, 170M),
                                skills/, plugins/, sessions/, session-env/, shell-snapshots/,
                                file-history/, history.jsonl   (creds: keychain item 2e9966a8)
     usama/                     FULL config dir — .claude.json, projects/ (39 jsonl, 21M), ...
-  ccam.log, ccam.pid, <port>
+  clawdh.log, clawdh.pid, <port>
 ```
 
 ### After (credentials-only)
@@ -50,7 +50,7 @@ and afterward **all** of the following hold, verified by tests:
   projects/                    pooled ~3337 transcripts (2652 + 646 + 39) — /resume sees all
   skills/ plugins/ hooks/ agents/ CLAUDE.md   every account inherits these
 ~/.claude.json                 shared config; oauthAccount = whichever account is active (T3)
-~/.ccam/
+~/.clawdh/
   accounts.json                each managed account gains  "isolation":"credentials-only"
   accounts/
     ehti/
@@ -59,7 +59,7 @@ and afterward **all** of the following hold, verified by tests:
                                             monitor and the never-updating Windows .exe read)
       _pre-deisolation/                     archived projects/skills/... (reversible; prunable)
     usama/   (same shape)
-  ccam.log, ccam.pid, <port>
+  clawdh.log, clawdh.pid, <port>
 ```
 
 The managed account dirs shrink from a whole config dir to a credential holder plus an
@@ -72,7 +72,7 @@ identity stub. Nothing about the login moves.
 Claude Code derives its credential store name from the same path string whether it is passed
 as `CLAUDE_CONFIG_DIR` (old) or `CLAUDE_SECURESTORAGE_CONFIG_DIR` (new):
 `Claude Code-credentials-<sha256(path)[:8]>`. The path does not change (`configDir` stays
-`~/.ccam/accounts/<id>`), so the item name does not change. Verified live against all three
+`~/.clawdh/accounts/<id>`), so the item name does not change. Verified live against all three
 real logins:
 
 ```
@@ -88,7 +88,7 @@ step must never touch the keychain, `.credentials.json`, or the `oauthAccount` s
 
 ## Already built this session (do NOT redo)
 
-ccam:
+clawdh:
 - `internal/accounts/env.go` — `SecureStorageEnvVar`; `EnvForConfigDir` sets **both** vars
   (login/probe, pins the NFC keychain branch); `EnvForSharedConfig` sets securestorage only
   (sessions); both strip inherited vars, never emit an empty value.
@@ -98,7 +98,7 @@ ccam:
   `SharesUserConfigDir()`; managed = `credentials-only`, default = `config-dir`.
 - `internal/accounts/contract_test.go`, `docs/ARCHITECTURE.md` — contract carries `isolation`;
   absent means the old scheme (old readers stay correct).
-- `internal/httpserver/server.go` — **boot-time `syncAliases()`** so an auto-updated ccam
+- `internal/httpserver/server.go` — **boot-time `syncAliases()`** so an auto-updated clawdh
   rewrites the alias block on restart with nothing to type (this is what carries the new
   aliases to existing users).
 - `internal/updater/replace_windows.go`, `install.ps1` — elevation-on-demand (only when
@@ -134,7 +134,7 @@ binary. Remaining sub-check for T4: a full run with a *valid* account B (one che
 confirm the reply renders — non-blocking; the rejection path is what mattered and it is clear.
 
 ### T1 — One-time transcript migration — ✅ DONE
-`Manager.MigrateManagedToShared(claudeDir)` in `internal/accounts/migrate.go`, called on ccam
+`Manager.MigrateManagedToShared(claudeDir)` in `internal/accounts/migrate.go`, called on clawdh
 startup from `cmd_serve.go` (best-effort, logged, non-fatal). Fires for every managed account
 still on the config-dir scheme, so an existing install picks it up on the next updater restart
 with nothing to run.
@@ -149,7 +149,7 @@ overwrites, never-used account is safe, default skipped, creds untouched.
 
 Note: migrated history appears in `/resume` but counts as **unattributed** in the usage
 dashboard (all pre-ledger history does — the safe direction). Archiving the now-redundant
-per-account subdirs is deferred to **T2** (`ccam prune`), so T1 stays purely additive and
+per-account subdirs is deferred to **T2** (`clawdh prune`), so T1 stays purely additive and
 reversible; the source transcripts remain until the user prunes.
 
 Adversarially reviewed (15-agent workflow) and hardened against all 4 confirmed findings:
@@ -161,7 +161,7 @@ file can't abort or permanently block an account); copies use a **unique temp + 
 rename** (no cross-process interleave, no partial file surviving a crash). 7 tests.
 
 ### T2 — Prune — ✅ DONE
-`ccam prune [--yes] [id...]` (`internal/accounts/prune.go`, `internal/cli/cmd_prune.go`).
+`clawdh prune [--yes] [id...]` (`internal/accounts/prune.go`, `internal/cli/cmd_prune.go`).
 Reclaims the per-account directories the migration left in place: for a credentials-only
 account it removes everything except the credential and identity files (`.claude.json`,
 `.credentials.json`). Previews by default (reports reclaimable bytes), deletes only with
@@ -174,17 +174,17 @@ into shared `~/.claude.json` and deletes the six org-keyed caches (`clientDataCa
 `additionalModelOptionsCache`, `cachedExtraUsageDisabledReason`), preserving projects/mcp/etc.
 No-op when it already names the account (no churn) and never creates a missing file. The default
 account's identity is captured once on boot (`SnapshotDefaultIdentity`, safe because managed
-accounts were isolated until now) into `~/.ccam/accounts/default/.claude.json`, so switching
+accounts were isolated until now) into `~/.clawdh/accounts/default/.claude.json`, so switching
 back to it restores `/status`. Single-session-at-a-time is last-writer-wins. 6 tests.
 
-### T4 — `ccam <name>` in-place switch — ✅ DONE (hook verified E2E; interactive redraw is the one manual check)
+### T4 — `clawdh <name>` in-place switch — ✅ DONE (hook verified E2E; interactive redraw is the one manual check)
 Kept the simple `claude-<slug>` aliases as the robust direct launch; switching is a separate,
-explicit entry so a broken ccam can never block a plain launch:
-- `ccam <name>` (or `ccam run <name>`) starts a **supervised** session (`internal/cli/cmd_run.go`).
+explicit entry so a broken clawdh can never block a plain launch:
+- `clawdh <name>` (or `clawdh run <name>`) starts a **supervised** session (`internal/cli/cmd_run.go`).
 - The supervisor installs, idempotently, a `UserPromptSubmit` hook into shared
   `~/.claude/settings.json` (`internal/switching/hookinstall.go`) — preserving the user's other
   hooks, and writing only when something changed.
-- In-session `ccam <name>` (a **plain word**, never `/slash`) → the hook (`internal/cli/cmd_hook.go`)
+- In-session `clawdh <name>` (a **plain word**, never `/slash`) → the hook (`internal/cli/cmd_hook.go`)
   writes a handoff and returns `decision:"block"` + `suppressOriginalPrompt` (zero model tokens,
   not echoed). The supervisor polls the handoff, terminates Claude (SIGTERM→SIGKILL on Unix,
   Kill on Windows), and relaunches `claude --resume <id> --fork-session` as the new account
@@ -197,7 +197,7 @@ explicit entry so a broken ccam can never block a plain launch:
 ### T5 — Rollout wiring — ✅ DONE
 Delivery path is the updater restart → boot: alias re-sync (`server.go`), the background
 transcript migration (T1), and the default-identity snapshot (T3) all run there. The switch
-hook self-installs on first `ccam <name>`. Nothing for the user to run.
+hook self-installs on first `clawdh <name>`. Nothing for the user to run.
 
 ### T6 — Tests + CI — ✅ (Go tests run cross-OS in the existing matrix)
 Migration (7 tests), identity (6), switching core + hook-install (8), supervisor (4) all run in

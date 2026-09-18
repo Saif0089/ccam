@@ -85,7 +85,7 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 // syncAliases rewrites every rc file's managed block. Accounts no longer get
-// shell aliases — every account runs as `ccam <name>` or `ccam shared <name>`,
+// shell aliases — every account runs as `clawdh <name>` or `clawdh shared <name>`,
 // one command shape on every OS — so the block carries only the `claude`
 // wrapper that makes a plain `claude` session switchable. Syncing with no
 // entries is also what removes aliases written by earlier versions.

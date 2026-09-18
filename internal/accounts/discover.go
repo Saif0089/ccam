@@ -17,7 +17,7 @@ type DiscoveredLogin struct {
 }
 
 // DiscoverLogins finds every authenticated Claude login on this machine: the
-// default ~/.claude one and each ccam-managed account, whether the credential
+// default ~/.claude one and each clawdh-managed account, whether the credential
 // lives in a file or the macOS Keychain. Each is paired with the email and plan
 // Claude stored alongside it, and duplicates (the same account signed in more
 // than one place) collapse to one entry.

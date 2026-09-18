@@ -16,41 +16,41 @@ import (
 // and carries the shared account's name, for the switch hook to read.
 const sharedSessionEnvVar = "CCAM_SHARED_SESSION"
 
-// cmdUse runs Claude Code through a ccam gateway: it points Claude at the
+// cmdUse runs Claude Code through a clawdh gateway: it points Claude at the
 // gateway (ANTHROPIC_BASE_URL) and presents the person's key
 // (ANTHROPIC_AUTH_TOKEN), so their traffic is served by the shared subscription
 // the gateway holds — the person never has the credential, and many people can
 // use one account at once.
 //
-//	ccam use <gateway-url> <key> [claude args...]
+//	clawdh use <gateway-url> <key> [claude args...]
 func cmdUse(args []string) int {
 	if len(args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: ccam use <gateway-url> <key> [claude args...]")
+		fmt.Fprintln(os.Stderr, "usage: clawdh use <gateway-url> <key> [claude args...]")
 		return 2
 	}
 	return runGateway(strings.TrimRight(args[0], "/"), args[1], "a shared account", args[2:])
 }
 
 // cmdShared runs a gateway-shared account by its slug, reading the gateway URL
-// and this person's key from ccam's shares cache — so nobody has to copy a key
+// and this person's key from clawdh's shares cache — so nobody has to copy a key
 // around. Everything after the slug goes to Claude Code unchanged.
 //
-//	ccam shared <slug> [claude args...]
+//	clawdh shared <slug> [claude args...]
 func cmdShared(args []string) int {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: ccam shared <account> [claude args...]")
+		fmt.Fprintln(os.Stderr, "usage: clawdh shared <account> [claude args...]")
 		return 2
 	}
 	slug, rest := args[0], args[1:]
 
 	path, err := config.SharesFile()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	shares, err := panel.LoadShares(path)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	for _, sh := range shares {
@@ -58,7 +58,7 @@ func cmdShared(args []string) int {
 			return runGateway(strings.TrimRight(sh.Gateway, "/"), sh.Key, sh.Slug, rest)
 		}
 	}
-	fmt.Fprintf(os.Stderr, "ccam: no shared account called %q on this machine.\n", slug)
+	fmt.Fprintf(os.Stderr, "clawdh: no shared account called %q on this machine.\n", slug)
 	if len(shares) > 0 {
 		names := make([]string, len(shares))
 		for i, sh := range shares {
@@ -66,7 +66,7 @@ func cmdShared(args []string) int {
 		}
 		fmt.Fprintf(os.Stderr, "      Shared with you: %s.\n", strings.Join(names, ", "))
 	} else {
-		fmt.Fprintln(os.Stderr, "      Nothing is shared with this machine yet. Connect to a panel from the ccam page.")
+		fmt.Fprintln(os.Stderr, "      Nothing is shared with this machine yet. Connect to a panel from the clawdh page.")
 	}
 	return 1
 }
@@ -78,9 +78,9 @@ func cmdShared(args []string) int {
 //
 // label names the shared account for the switch hook: a shared session cannot
 // change accounts in place, and the hook says so by name instead of telling the
-// person their session "was not started by ccam". Any supervisor handoff
-// inherited from an enclosing `ccam <account>` session is dropped for the same
-// reason — a `ccam <name>` typed in here must not switch that outer session.
+// person their session "was not started by clawdh". Any supervisor handoff
+// inherited from an enclosing `clawdh <account>` session is dropped for the same
+// reason — a `clawdh <name>` typed in here must not switch that outer session.
 func runGateway(url, key, label string, rest []string) int {
 	name, argv := claudebin.Invocation(claudebin.Resolve(), rest)
 	cmd := exec.Command(name, argv...)

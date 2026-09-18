@@ -14,11 +14,11 @@ import (
 // each — the terminal counterpart of the web page's two lists. It is the answer
 // to "what do I have here and how do I start it", with nothing to remember.
 //
-//	ccam list
+//	clawdh list
 func cmdList(_ []string) int {
 	local, err := loadAccounts()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ccam:", err)
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
 	shares := sharedAccounts()
@@ -37,7 +37,7 @@ func cmdList(_ []string) int {
 	switch {
 	case len(shares) > 0:
 		for _, sh := range shares {
-			fmt.Fprintf(w, "  %s\tready\tccam shared %s\n", sh.Account, sh.Slug)
+			fmt.Fprintf(w, "  %s\tready\tclawdh shared %s\n", sh.Account, sh.Slug)
 		}
 	case panelConnected():
 		fmt.Fprintln(w, "  (nothing shared with you yet)")
@@ -49,12 +49,12 @@ func cmdList(_ []string) int {
 }
 
 // runCommand is the command that starts an account: plain `claude` for the
-// machine's main login, `ccam <slug>` for every other one.
+// machine's main login, `clawdh <slug>` for every other one.
 func runCommand(a accounts.Account) string {
 	if a.IsDefault() {
 		return "claude"
 	}
-	return "ccam " + a.Slug
+	return "clawdh " + a.Slug
 }
 
 // statusWord says whether an account will work right now, in the page's words.

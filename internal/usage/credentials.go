@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// Credentials is the part of Claude Code's stored OAuth record ccam
+// Credentials is the part of Claude Code's stored OAuth record clawdh
 // needs. The tokens never leave this package's caller: they are used to
 // call the API, and are never logged or sent to the browser.
 type Credentials struct {
@@ -43,7 +43,7 @@ type storedCredentials struct {
 // configDir is the account's CLAUDE_CONFIG_DIR, or empty for the
 // default account — the one plain `claude` uses.
 //
-// This reads the credentials file and nothing else. ccam used to also
+// This reads the credentials file and nothing else. clawdh used to also
 // derive and read Claude Code's macOS Keychain item, duplicating an
 // undocumented name derivation that only Claude Code owns; the write
 // half of that arrangement destroyed two real logins (see the 4 KB
@@ -54,7 +54,7 @@ type storedCredentials struct {
 func ReadCredentials(configDir string) (Credentials, error) {
 	// Read the login wherever it lives — a file, or on macOS the Keychain.
 	// Reading is safe (it is what shows the card its numbers); only writing a
-	// credential store was ever dangerous, and ccam does not do that. Reusing
+	// credential store was ever dangerous, and clawdh does not do that. Reusing
 	// the account layer's capture keeps one derivation of the Keychain item
 	// name, not two.
 	raw, err := accounts.CaptureLogin(configDir)

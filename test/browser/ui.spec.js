@@ -1,5 +1,5 @@
-// End-to-end tests that drive ccam's actual web UI in a real browser
-// against a real ccam server, with testdata/fakeclaude standing in for
+// End-to-end tests that drive clawdh's actual web UI in a real browser
+// against a real clawdh server, with testdata/fakeclaude standing in for
 // the `claude` CLI.
 const { test, expect } = require("@playwright/test");
 const { spawn, execFileSync } = require("child_process");
@@ -39,7 +39,7 @@ const REJECTED_TOKEN = "revoked-access-token";
 
 // The one token this stub is slow to answer, standing in for a call to
 // Anthropic that takes its time: longer than two poll intervals, and
-// shorter than the 15 seconds ccam allows the call.
+// shorter than the 15 seconds clawdh allows the call.
 const SLOW_TOKEN = "slow-access-token";
 const SLOW_ANSWER_MS = 12_000;
 
@@ -141,17 +141,17 @@ async function waitForServer(url, timeoutMs) {
     }
     await new Promise((r) => setTimeout(r, 200));
   }
-  throw new Error(`ccam did not start within ${timeoutMs}ms`);
+  throw new Error(`clawdh did not start within ${timeoutMs}ms`);
 }
 
 test.beforeAll(async () => {
-  workDir = fs.mkdtempSync(path.join(os.tmpdir(), "ccam-browser-"));
+  workDir = fs.mkdtempSync(path.join(os.tmpdir(), "clawdh-browser-"));
   const home = path.join(workDir, "home");
   fs.mkdirSync(home);
 
-  const ccamBin = path.join(workDir, exe("ccam"));
+  const clawdhBin = path.join(workDir, exe("clawdh"));
   const fakeClaude = path.join(workDir, exe("claude"));
-  build("./cmd/ccam", ccamBin);
+  build("./cmd/clawdh", clawdhBin);
   build("./testdata/fakeclaude", fakeClaude);
 
   const port = await freePort();
@@ -160,7 +160,7 @@ test.beforeAll(async () => {
   usageServer = await startUsageStub();
   const usageURL = `http://127.0.0.1:${usageServer.address().port}/usage`;
 
-  server = spawn(ccamBin, ["serve", "--port", String(port)], {
+  server = spawn(clawdhBin, ["serve", "--port", String(port)], {
     env: {
       ...process.env,
       HOME: home,
@@ -223,7 +223,7 @@ test("adds an account, shows the full OAuth URL, and links it", async ({ page })
 
   await page.click("#login-close");
   await expect(page.locator(".status-pill")).toHaveText("Ready");
-  await expect(page.locator(".run-cmd")).toHaveText("ccam work");
+  await expect(page.locator(".run-cmd")).toHaveText("clawdh work");
 });
 
 test("shows plan usage and reset countdowns", async ({ page }) => {
@@ -316,7 +316,7 @@ test("names the running build in the header", async ({ page }) => {
   await expect(tag).toHaveText(status.tag);
 });
 
-// An account ccam knows about but has no login for must say so, rather
+// An account clawdh knows about but has no login for must say so, rather
 // than keep showing the last status it saw.
 test("reports a signed-out account instead of claiming it is linked", async ({ page }) => {
   const created = await fetch(`${baseURL}/api/accounts`, {
@@ -341,12 +341,12 @@ test("reports a signed-out account instead of claiming it is linked", async ({ p
 
 // The bug: the account being used at that very moment showed the red
 // "login expired" badge. Claude Code only refreshes the short access
-// token when it runs, so between runs ccam held a stale one, the API
+// token when it runs, so between runs clawdh held a stale one, the API
 // answered 401, and a working login was reported as rejected.
 test("calls an account with a stale access token linked, not expired", async ({ page }) => {
   const account = await createAccount("Stale Token");
   // The stale token is one the API refuses, exactly as a real expired
-  // one is: the fix is that ccam never sends it in the first place.
+  // one is: the fix is that clawdh never sends it in the first place.
   writeCredentials(account.configDir, { accessToken: REJECTED_TOKEN, accessInHours: -1, refreshInDays: 27 });
 
   await page.goto(baseURL);
@@ -547,7 +547,7 @@ test("renames an account and updates its run command", async ({ page }) => {
   await page.click("#rename-form button[type=submit]");
 
   await expect(page.locator(".account-name")).toHaveText("Side Project");
-  await expect(page.locator(".run-cmd")).toHaveText("ccam side-project");
+  await expect(page.locator(".run-cmd")).toHaveText("clawdh side-project");
 });
 
 test("rejects a whitespace-only name instead of silently doing nothing", async ({ page }) => {

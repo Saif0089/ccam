@@ -8,12 +8,12 @@ import (
 	"strconv"
 )
 
-// Respawn starts a fresh ccam server on port from binaryPath — after an
+// Respawn starts a fresh clawdh server on port from binaryPath — after an
 // update has replaced that file — and records its pid. The caller exits
 // once it returns.
 //
 // Windows has no execve, so unlike the Unix path this really is a
-// separate process. Nothing supervises ccam here (the autostart entry
+// separate process. Nothing supervises clawdh here (the autostart entry
 // only runs it at logon), so there is no service manager to notice the
 // old process leaving and tidy up the new one with it.
 //
@@ -25,7 +25,7 @@ func Respawn(binaryPath string, port int) error {
 	}
 	pid, err := spawnDetached(binaryPath, []string{"serve", "--port", strconv.Itoa(port)})
 	if err != nil {
-		return fmt.Errorf("restarting ccam: %w", err)
+		return fmt.Errorf("restarting clawdh: %w", err)
 	}
 	// The successor is already running; a pid file that could not be
 	// written is worth a log line, not an error that would make the

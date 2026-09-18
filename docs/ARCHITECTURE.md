@@ -1,14 +1,14 @@
 # Architecture
 
-ccam is a single Go binary (`cmd/ccam`) with no runtime dependencies and no
+clawdh is a single Go binary (`cmd/clawdh`) with no runtime dependencies and no
 cgo, so it cross-compiles trivially for darwin/linux/windows ×
 amd64/arm64 (`CGO_ENABLED=0`).
 
 ## Packages
 
 - **`internal/accounts`** — the source of truth for account metadata. Each
-  account is a row in `~/.ccam/accounts.json` plus a directory under
-  `~/.ccam/accounts/<slug>/` used as that account's `CLAUDE_CONFIG_DIR`.
+  account is a row in `~/.clawdh/accounts.json` plus a directory under
+  `~/.clawdh/accounts/<slug>/` used as that account's `CLAUDE_CONFIG_DIR`.
   `Prober` checks whether a directory already holds a successful login: it
   looks for a `.credentials.json` file first, and falls back to a short
   headless `claude -p ... --max-turns 1` probe for the case where a backend
@@ -24,7 +24,7 @@ amd64/arm64 (`CGO_ENABLED=0`).
   interface.
 
 - **`internal/claudebin`** — finds the `claude` executable. Started at login
-  by launchd/systemd/a Startup entry, ccam has almost no `PATH` (launchd
+  by launchd/systemd/a Startup entry, clawdh has almost no `PATH` (launchd
   hands out roughly `/usr/bin:/bin:/usr/sbin:/sbin`) while `claude` lives
   under the user's home, so `exec.LookPath` alone works from a terminal and
   fails after every reboot. Checks `CCAM_CLAUDE_BIN`, then `PATH`, then the
@@ -54,7 +54,7 @@ amd64/arm64 (`CGO_ENABLED=0`).
      reads `type`/`url`, and every field is `undefined`.
 
 - **`internal/shellrc`** — maintains one idempotent, clearly delimited block
-  (`# >>> ccam accounts >>> ... <<< ccam accounts <<<`) inside each shell's rc
+  (`# >>> clawdh accounts >>> ... <<< clawdh accounts <<<`) inside each shell's rc
   file, never touching anything outside it. One alias per account, e.g.
   `alias claude-work='CLAUDE_CONFIG_DIR="..." claude'`. Covers bash, zsh,
   fish, and PowerShell (Core, on every OS, plus Windows PowerShell's default
@@ -71,7 +71,7 @@ amd64/arm64 (`CGO_ENABLED=0`).
   `Stop`, and `IsRunning` are identical everywhere (`generic.go`), built on a
   pidfile plus a check that the HTTP server actually answers on its recorded
   port. None of the OS service managers are configured to supervise/restart
-  ccam — they're used only to start it once at login — so there's no risk of
+  clawdh — they're used only to start it once at login — so there's no risk of
   a service manager silently reviving a process this package just stopped.
 
 - **`internal/usage`** — reads an account's stored OAuth record and reports
@@ -85,7 +85,7 @@ amd64/arm64 (`CGO_ENABLED=0`).
 - **`internal/panel`** — the account-lending server, and the client half that
   answers to it. Flat by design: one admin, no teams, no roles. It keeps its
   state in one JSON file rather than a database — tens of rows, one writer, and
-  ccam already stores accounts this way — and holds the invariant that matters
+  clawdh already stores accounts this way — and holds the invariant that matters
   (an account is with at most one person) by keeping the mutex across
   read-decide-write, which for a single writer is what a unique index would buy.
   Logins it lends are sealed with a key beside the file, so a copy of the file
@@ -95,7 +95,7 @@ amd64/arm64 (`CGO_ENABLED=0`).
   machine to take an account away from it.
 
   The panel keeps its whole state as one blob behind a small `Backend`
-  interface: a JSON file for `ccam panel serve` on one machine, and Postgres
+  interface: a JSON file for `clawdh panel serve` on one machine, and Postgres
   (`panelpg`, a separate package so its driver never links into the
   client binary) for a panel hosted as several instances at once. The one-holder
   rule that a single writer gets from a mutex, several writers get from a
@@ -112,9 +112,9 @@ amd64/arm64 (`CGO_ENABLED=0`).
   `stop`, `status`, `serve`, `version`). The only package that touches
   `os.Args`, exit codes, or signal handling.
 
-## `~/.ccam/accounts.json` is a contract, not an internal file
+## `~/.clawdh/accounts.json` is a contract, not an internal file
 
-ccam is the only thing on a machine that knows how many Claude accounts
+clawdh is the only thing on a machine that knows how many Claude accounts
 exist and where each one lives, so other tools read its store to find out —
 the Claude usage monitor parses it to attribute usage per account. That
 makes the JSON field names an external interface even though nothing in Go
@@ -125,7 +125,7 @@ What a reader can rely on: a top-level `accounts` array, each entry with
 `id`, `name`, `slug`, `kind`, `configDir`, `isolation`, `alias`, `status`,
 `createdAt` and `lastUsedAt`. `slug` is the stable short id — a rename
 changes `name` and `alias`, never `slug`, `id`, or `configDir`.
-`configDir` is the account's absolute private directory: the value ccam
+`configDir` is the account's absolute private directory: the value clawdh
 exports to scope that account, and the exact string hashed into its
 credential store's name. It is empty for exactly one row: the
 `kind: "default"` account, which is reached by *removing* the variable
@@ -136,12 +136,12 @@ but the ones above don't move.
 `isolation` says what `configDir` actually contains, and a reader that
 attributes usage per account **must** branch on it:
 
-- `"config-dir"` — the original scheme. ccam exports `CLAUDE_CONFIG_DIR`,
+- `"config-dir"` — the original scheme. clawdh exports `CLAUDE_CONFIG_DIR`,
   so the directory holds that account's own `.claude.json` *and* its
   `projects/` transcripts. **An absent or unrecognised value means this**,
-  which is how a file written by an older ccam still reads correctly.
-- `"credentials-only"` — what ccam writes for a managed account today.
-  ccam exports `CLAUDE_SECURESTORAGE_CONFIG_DIR` and leaves
+  which is how a file written by an older clawdh still reads correctly.
+- `"credentials-only"` — what clawdh writes for a managed account today.
+  clawdh exports `CLAUDE_SECURESTORAGE_CONFIG_DIR` and leaves
   `CLAUDE_CONFIG_DIR` unset, so only the login lives in `configDir`; the
   sessions, MCP servers, skills, plugins, hooks and `projects/`
   transcripts all come from the user's shared `~/.claude`. Scanning
@@ -151,7 +151,7 @@ attributes usage per account **must** branch on it:
   its own.
 
 `configDir` still holds that account's `.claude.json` under either scheme,
-because ccam runs `claude auth login` with both variables set: the
+because clawdh runs `claude auth login` with both variables set: the
 credential lands in the per-account store while the CLI writes
 `oauthAccount` into the account's private directory, where it has always
 been. That is deliberate — it keeps identity discovery working unchanged
@@ -164,7 +164,7 @@ whoever renames a field finds out here rather than from a bug report.
 
 Claude Code's credential storage is file-based on Linux and Windows, and on
 macOS may additionally use the Keychain, keyed off the config directory so
-that two accounts never collide. ccam does not reimplement any of that. It
+that two accounts never collide. clawdh does not reimplement any of that. It
 asks the CLI: `claude auth status --json` prints `{"loggedIn": true|false, …}`
 for whatever config directory it is given. That is correct regardless of which
 backend a given OS or version uses, costs nothing (a local check, unlike the
@@ -186,7 +186,7 @@ fragment shadowed the good copy, and a mirror then wrote it over the account's
 own store.
 
 So the rule now is flat, and `test/guard` enforces it against the whole tree:
-**ccam never reads or writes an OS keychain, and never writes a credential
+**clawdh never reads or writes an OS keychain, and never writes a credential
 store of any kind.** `internal/usage` reads `<configDir>/.credentials.json`
 and nothing else; where Claude Code has put its credentials in the Keychain
 instead, usage reports itself unavailable, which is true rather than a guess.
@@ -198,7 +198,7 @@ Two traps are still worth writing down, because `EnvForConfigDir` still has to
 get them right. The CLI branches on whether the variable is **present**, not on
 what it holds, so `CLAUDE_SECURESTORAGE_CONFIG_DIR=""` resolves to the bare
 `Claude Code-credentials` — the user's real default login — and the next token
-refresh would rotate that login's single-use refresh token. ccam therefore
+refresh would rotate that login's single-use refresh token. clawdh therefore
 never emits either name with an empty value; the default account is reached by
 removing both. And the two branches normalise differently — the securestorage
 path is NFC-normalised, the config-dir path is hashed raw — so a non-ASCII
@@ -214,7 +214,7 @@ or python — a shell whose `grep` is aliased to `ugrep` fails on a bounded
 Four layers, because each one has a blind spot that let a real bug through:
 
 1. **Unit tests** per package.
-2. **`test/e2e`** drives the real built `ccam` binary through
+2. **`test/e2e`** drives the real built `clawdh` binary through
    install → add account → log in → uninstall against `testdata/fakeclaude`,
    on all three OSes.
 3. **`test/browser`** loads the actual web UI in Chromium and WebKit
@@ -231,5 +231,5 @@ verified by `internal/ptyauth/realclaude_test.go` (a manual probe, run with
 `CCAM_REAL_CLAUDE=1`): it implements `auth status --json` and
 `auth login --claudeai`, prints a ~600-character URL so truncation is
 caught, offers a paste-a-code path, and — importantly — emulates the
-interactive theme picker for a bare `claude`, so that if ccam ever goes back
+interactive theme picker for a bare `claude`, so that if clawdh ever goes back
 to spawning bare `claude` the tests hang exactly the way a real machine did.

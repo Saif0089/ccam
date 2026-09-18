@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ccam</title>
+<title>clawdh</title>
 <style>
   :root {
     color-scheme: dark;
@@ -142,7 +142,7 @@
 <!-- The main view -->
 <div class="wrap hidden" id="panel">
   <div class="top">
-    <span class="brand">ccam</span>
+    <span class="brand">clawdh</span>
     <nav>
       <button data-tab="accounts" aria-current="true">Accounts</button>
       <button data-tab="people">People</button>
@@ -196,7 +196,7 @@ const el = (t, props = {}, kids = []) => {
 async function api(method, path, body) {
   // Relative to the document, so the same UI works served directly by the panel
   // (document at "/") and behind a machine's local reverse proxy (document at
-  // "/panel/"), where it is embedded in the ccam page.
+  // "/panel/"), where it is embedded in the clawdh page.
   const res = await fetch(path.replace(/^\//, ""), {
     method,
     headers: body ? { "Content-Type": "application/json" } : {},
@@ -332,7 +332,7 @@ function renderAccounts() {
   if (!state.accounts.length) {
     body.append(el("div", { className: "empty" }, [
       el("div", { style: "font-size:16px; color:var(--ink); margin-bottom:8px", textContent: "No accounts yet." }),
-      "On a machine where a Claude account is signed in, open the ccam page there and choose "
+      "On a machine where a Claude account is signed in, open the clawdh page there and choose "
         + "“Add to panel” on that account. It shows up here, ready to share.",
     ]));
     return;
@@ -426,7 +426,7 @@ async function revokeShare(a, sh) {
 function howToAddLogin(a) {
   ask({
     title: `Add a login for ${a.name}`,
-    note: "The panel can't sign in for you — Claude's login needs a real browser. On the machine where this account is signed in, open the ccam page there and choose “Add to panel” on it. That hands its login up here. People you share it with never do this.",
+    note: "The panel can't sign in for you — Claude's login needs a real browser. On the machine where this account is signed in, open the clawdh page there and choose “Add to panel” on it. That hands its login up here. People you share it with never do this.",
     confirm: "Got it", cancel: "",
   });
 }

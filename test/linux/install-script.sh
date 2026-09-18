@@ -16,7 +16,7 @@ export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
 cd "$HOME"
 
 # The published binary needs a claude to talk to; a stub is enough to
-# prove ccam resolves and runs one.
+# prove clawdh resolves and runs one.
 mkdir -p "$HOME/.local/bin"
 cat > "$HOME/.local/bin/claude" <<'STUB'
 #!/bin/sh
@@ -30,10 +30,10 @@ chmod +x "$HOME/.local/bin/claude"
 
 echo "=== running install.sh exactly as the README says ==="
 sh /src/install.sh 2>&1 | tee /tmp/install.log
-grep -q "ccam is running" /tmp/install.log || fail "install.sh did not end with a running service"
-ok "install.sh installed and started ccam"
+grep -q "clawdh is running" /tmp/install.log || fail "install.sh did not end with a running service"
+ok "install.sh installed and started clawdh"
 
-[ -x "$HOME/.local/bin/ccam" ] || fail "no binary at ~/.local/bin/ccam"
+[ -x "$HOME/.local/bin/clawdh" ] || fail "no binary at ~/.local/bin/clawdh"
 ok "binary installed to a per-user directory"
 
 # Nothing outside the user's own home may have been touched.
@@ -41,7 +41,7 @@ grep -qE "sudo|/usr/local|/etc/systemd/system" /tmp/install.log && fail "install
 ok "no system paths or sudo involved"
 
 PORT=$(cat "$HOME/.clawdh/port")
-curl -fsS "http://127.0.0.1:$PORT/api/status" | grep -q '"service":"ccam"' || fail "service does not identify as ccam"
+curl -fsS "http://127.0.0.1:$PORT/api/status" | grep -q '"service":"clawdh"' || fail "service does not identify as clawdh"
 ok "service answers on the recorded port ($PORT)"
 
 # The published build must report a real version, not "dev".
@@ -53,12 +53,12 @@ ok "running published version: $VERSION"
 # working service rather than two fighting over the port.
 echo "=== re-running install.sh (the upgrade path) ==="
 sh /src/install.sh 2>&1 | tee /tmp/install2.log
-grep -q "ccam is running" /tmp/install2.log || fail "re-running install.sh did not leave a running service"
-curl -fsS "http://127.0.0.1:$PORT/api/status" | grep -q '"service":"ccam"' || fail "service not answering after re-install"
+grep -q "clawdh is running" /tmp/install2.log || fail "re-running install.sh did not leave a running service"
+curl -fsS "http://127.0.0.1:$PORT/api/status" | grep -q '"service":"clawdh"' || fail "service not answering after re-install"
 ok "re-running the installer is safe"
 
-ccam uninstall >/dev/null
-[ -f "$HOME/.local/bin/ccam" ] && fail "binary survived uninstall"
+clawdh uninstall >/dev/null
+[ -f "$HOME/.local/bin/clawdh" ] && fail "binary survived uninstall"
 ok "uninstall removed it"
 
 echo

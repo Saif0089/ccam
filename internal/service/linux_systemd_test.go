@@ -29,7 +29,7 @@ func TestSystemdUnitIsValid(t *testing.T) {
 	t.Setenv("HOME", home)
 	// A home directory and PATH containing exactly the characters that
 	// break naive interpolation.
-	binary := filepath.Join(home, "odd dir 100%", "ccam")
+	binary := filepath.Join(home, "odd dir 100%", "clawdh")
 	if err := os.MkdirAll(filepath.Dir(binary), 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestSystemdUnitEscapesSpecifiers(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", "/opt/100%stuff:/usr/bin")
 
-	binary := filepath.Join(home, "ccam")
+	binary := filepath.Join(home, "clawdh")
 	svc := &linuxService{generic{binaryPath: binary, port: 47932}}
 	unitPath, err := svc.installSystemd(binary, 47932)
 	if err != nil {

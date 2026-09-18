@@ -1,7 +1,7 @@
 {
-  "name": "ccam-browser-tests",
+  "name": "clawdh-browser-tests",
   "private": true,
-  "description": "Browser-level end-to-end tests for ccam's web UI.",
+  "description": "Browser-level end-to-end tests for clawdh's web UI.",
   "scripts": {
     "test": "playwright test"
   },

@@ -1,11 +1,11 @@
 // Package claudebin locates the `claude` executable.
 //
-// This exists because of where ccam runs from: at login the background
+// This exists because of where clawdh runs from: at login the background
 // service is started by launchd / systemd --user / a Startup entry, none
 // of which give it the user's shell PATH. launchd in particular hands a
 // process roughly `/usr/bin:/bin:/usr/sbin:/sbin`, while `claude` is
 // typically installed under the user's home (~/.local/bin). A plain
-// exec.LookPath("claude") therefore works when ccam is started from a
+// exec.LookPath("claude") therefore works when clawdh is started from a
 // terminal and fails after every reboot — so we also look in the places
 // Claude Code actually installs itself.
 package claudebin
@@ -17,7 +17,7 @@ import (
 	"runtime"
 )
 
-// EnvOverride lets a user point ccam at a specific claude executable.
+// EnvOverride lets a user point clawdh at a specific claude executable.
 const EnvOverride = "CCAM_CLAUDE_BIN"
 
 // Resolve returns the path to the claude executable. It prefers an

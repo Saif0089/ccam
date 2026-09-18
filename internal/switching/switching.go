@@ -1,6 +1,6 @@
 // Package switching implements in-session account switching: the user types
-// `ccam <name>` at the Claude prompt, a UserPromptSubmit hook intercepts it
-// and records a handoff, and the `ccam run` supervisor relaunches Claude Code
+// `clawdh <name>` at the Claude prompt, a UserPromptSubmit hook intercepts it
+// and records a handoff, and the `clawdh run` supervisor relaunches Claude Code
 // as the named account with the conversation resumed. Nothing here spawns a
 // process; it is the pure trigger/handoff/decision logic the two CLI commands
 // share, so it can be tested on its own.
@@ -20,7 +20,7 @@ import (
 // the hook (a child of claude) finds it without guessing.
 const HandoffEnvVar = "CCAM_HANDOFF"
 
-// SupervisorEnvVar carries the `ccam run` supervisor's pid into the session it
+// SupervisorEnvVar carries the `clawdh run` supervisor's pid into the session it
 // runs, so a switch staged from a shell command can tell a live supervisor
 // from an inherited environment variable left over by one that has exited.
 const SupervisorEnvVar = "CCAM_SUPERVISOR"
@@ -41,18 +41,18 @@ type Handoff struct {
 // ParseTrigger reports whether a submitted prompt is a switch command and, if
 // so, the account name in it. Accepted forms, whitespace-trimmed:
 //
-//	ccam <name>
-//	ccam switch <name>
+//	clawdh <name>
+//	clawdh switch <name>
 //
 // Anything else — extra words, a leading slash (Claude Code routes "/…" to
 // command resolution before the hook ever runs), a sentence that merely starts
-// with "ccam" — is not a trigger and passes through to the model untouched.
+// with "clawdh" — is not a trigger and passes through to the model untouched.
 func ParseTrigger(prompt string) (name string, ok bool) {
 	fields := strings.Fields(strings.TrimSpace(prompt))
 	switch {
-	case len(fields) == 2 && fields[0] == "ccam":
+	case len(fields) == 2 && fields[0] == "clawdh":
 		return fields[1], true
-	case len(fields) == 3 && fields[0] == "ccam" && fields[1] == "switch":
+	case len(fields) == 3 && fields[0] == "clawdh" && fields[1] == "switch":
 		return fields[2], true
 	default:
 		return "", false
@@ -61,7 +61,7 @@ func ParseTrigger(prompt string) (name string, ok bool) {
 
 // ResolveAccount finds the account a typed name refers to, matching (case-
 // insensitively) its slug, id, alias, or the alias with the "claude-" prefix
-// stripped — so `ccam ehti`, `ccam claude-ehti`, and `ccam default` all work.
+// stripped — so `clawdh ehti`, `clawdh claude-ehti`, and `clawdh default` all work.
 // Returns the account and true, or false if nothing matches.
 func ResolveAccount(list []accounts.Account, name string) (accounts.Account, bool) {
 	n := strings.ToLower(strings.TrimSpace(name))
@@ -83,7 +83,7 @@ func ResolveAccount(list []accounts.Account, name string) (accounts.Account, boo
 // The session is resumed, not forked. Forking was a holdover from when a switch
 // was applied in place: it made a second conversation out of every switch, so
 // /resume filled up with near-duplicates, and the fork's new id is minted by
-// Claude Code, which means ccam never learns it and cannot record who owns it.
+// Claude Code, which means clawdh never learns it and cannot record who owns it.
 // Resuming keeps one conversation with one id, and the usage monitor resolves
 // ownership by interval — the last ledger entry at or before a line's timestamp
 // — so the same id being account A's before the switch and account B's after is

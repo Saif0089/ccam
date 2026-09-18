@@ -16,7 +16,7 @@ func notifyCommand(body string) (string, []string, error) {
 	if err != nil {
 		return "", nil, errors.New("no notify-send on PATH, so there is nowhere to show a desktop notification")
 	}
-	return path, []string{"--app-name=ccam", title, body}, nil
+	return path, []string{"--app-name=clawdh", title, body}, nil
 }
 
 func hideWindow(*exec.Cmd) {}

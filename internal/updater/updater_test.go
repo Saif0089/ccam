@@ -51,7 +51,7 @@ func stubRelease(t *testing.T, body []byte, publishedAt time.Time, tamper bool) 
 	mux.HandleFunc("/download/checksums.txt", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "%s  %s\n", digest, AssetName())
 	})
-	mux.HandleFunc("/repos/acme/ccam/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/repos/acme/clawdh/releases/latest", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(release{
 			Name:        "latest (main@abc1234)",
 			TagName:     "latest",
@@ -65,11 +65,11 @@ func stubRelease(t *testing.T, body []byte, publishedAt time.Time, tamper bool) 
 	return srv
 }
 
-// installedBinary writes a stand-in for the running ccam, with the
+// installedBinary writes a stand-in for the running clawdh, with the
 // modification time that decides whether a release counts as newer.
 func installedBinary(t *testing.T, content string, modTime time.Time) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "ccam")
+	path := filepath.Join(t.TempDir(), "clawdh")
 	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
 		t.Fatalf("writing the stand-in binary: %v", err)
 	}
@@ -82,7 +82,7 @@ func installedBinary(t *testing.T, content string, modTime time.Time) string {
 func newUpdater(t *testing.T, srv *httptest.Server, binaryPath string) *Updater {
 	t.Helper()
 	return &Updater{
-		Repo:       "acme/ccam",
+		Repo:       "acme/clawdh",
 		APIBase:    srv.URL,
 		HTTPClient: srv.Client(),
 		BinaryPath: binaryPath,
@@ -167,7 +167,7 @@ func TestRefusesADownloadThatDoesNotMatchItsChecksum(t *testing.T) {
 	// Nothing half-written may be left beside the binary either.
 	entries, _ := os.ReadDir(filepath.Dir(path))
 	for _, entry := range entries {
-		if entry.Name() != "ccam" {
+		if entry.Name() != "clawdh" {
 			t.Errorf("left %q behind next to the binary", entry.Name())
 		}
 	}
@@ -203,7 +203,7 @@ func TestRefusesAReleaseWithNoChecksums(t *testing.T) {
 	mux := http.NewServeMux()
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	mux.HandleFunc("/repos/acme/ccam/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/repos/acme/clawdh/releases/latest", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(release{
 			Name:        "unverifiable",
 			TagName:     "latest",
@@ -250,7 +250,7 @@ func TestReportsAReleaseWithNoPublishTime(t *testing.T) {
 	mux := http.NewServeMux()
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	mux.HandleFunc("/repos/acme/ccam/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/repos/acme/clawdh/releases/latest", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(release{Name: "undated", TagName: "latest"})
 	})
 	path := installedBinary(t, "the old build", time.Now().Add(-24*time.Hour))

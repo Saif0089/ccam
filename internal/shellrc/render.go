@@ -14,13 +14,13 @@ import (
 // from there, everything else — sessions, MCP servers, skills, plugins,
 // hooks, agents, CLAUDE.md — from the user's own shared ~/.claude. The
 // alias also unsets CLAUDE_CONFIG_DIR, because a user who already has it
-// exported (exactly the manual workflow ccam replaces) would otherwise
+// exported (exactly the manual workflow clawdh replaces) would otherwise
 // keep every session isolated and see none of that sharing.
 type AliasEntry struct {
 	Alias     string
 	ConfigDir string
-	// Account is what to pass to ccam to start this account — its slug. The
-	// entry point prefers `ccam <account>` so the session it starts can be
+	// Account is what to pass to clawdh to start this account — its slug. The
+	// entry point prefers `clawdh <account>` so the session it starts can be
 	// switched from inside; ConfigDir is only used by the fallback that runs
 	// Claude Code directly.
 	Account string
@@ -48,28 +48,28 @@ func RenderBody(shell Shell, entries []AliasEntry) string {
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Alias < sorted[j].Alias })
 
 	var b strings.Builder
-	b.WriteString("# Managed by ccam — do not edit by hand, use the ccam web UI instead.\n")
+	b.WriteString("# Managed by clawdh — do not edit by hand, use the clawdh web UI instead.\n")
 	for _, e := range sorted {
-		// Without an account name there is nothing to hand ccam, so the entry
+		// Without an account name there is nothing to hand clawdh, so the entry
 		// point is the plain, direct launch it always was. Better a session
-		// that cannot be switched than a function that runs `ccam` with no
+		// that cannot be switched than a function that runs `clawdh` with no
 		// argument.
 		if strings.TrimSpace(e.Account) == "" {
 			writeDirectEntry(&b, shell, e)
 			continue
 		}
-		// Each account's entry point goes through ccam, so the session it
-		// starts is switchable: `ccam <name>` typed in it moves that session
+		// Each account's entry point goes through clawdh, so the session it
+		// starts is switchable: `clawdh <name>` typed in it moves that session
 		// and nothing else. The fallback still launches Claude Code directly
-		// with only the credential store scoped, so removing ccam — or being
+		// with only the credential store scoped, so removing clawdh — or being
 		// somewhere it cannot supervise — leaves a working command behind.
 		switch shell {
 		case Fish:
 			fmt.Fprintf(&b, `function %s
-    if set -q CLAUDECODE; or test "$CCAM_WRAP" = 0; or not isatty stdin; or not command -q ccam
+    if set -q CLAUDECODE; or test "$CCAM_WRAP" = 0; or not isatty stdin; or not command -q clawdh
         env -u CLAUDE_CONFIG_DIR CLAUDE_SECURESTORAGE_CONFIG_DIR=%s claude $argv
     else
-        command ccam %s $argv
+        command clawdh %s $argv
     end
 end
 `, e.Alias, escapeForSingleQuotes(Fish, dquote(e.ConfigDir)), e.Account)
@@ -79,21 +79,21 @@ end
 			// left defined-but-empty is not the same as an absent one.
 			fmt.Fprintf(&b, `function %s {
     if ($env:CLAUDECODE -or $env:CCAM_WRAP -eq '0' -or [Console]::IsInputRedirected -or
-        -not (Get-Command ccam -CommandType Application -ErrorAction SilentlyContinue)) {
+        -not (Get-Command clawdh -CommandType Application -ErrorAction SilentlyContinue)) {
         Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue
         $env:CLAUDE_SECURESTORAGE_CONFIG_DIR = %s
         claude @args
     } else {
-        ccam %s @args
+        clawdh %s @args
     }
 }
 `, e.Alias, psQuote(e.ConfigDir), psQuote(e.Account))
 		default: // bash, zsh
 			fmt.Fprintf(&b, `%s() {
-    if [ -n "$CLAUDECODE" ] || [ "$CCAM_WRAP" = 0 ] || [ ! -t 0 ] || ! command -v ccam >/dev/null 2>&1; then
+    if [ -n "$CLAUDECODE" ] || [ "$CCAM_WRAP" = 0 ] || [ ! -t 0 ] || ! command -v clawdh >/dev/null 2>&1; then
         env -u CLAUDE_CONFIG_DIR CLAUDE_SECURESTORAGE_CONFIG_DIR=%s command claude "$@"
     else
-        command ccam %s "$@"
+        command clawdh %s "$@"
     fi
 }
 `, e.Alias, escapeForSingleQuotes(shell, dquote(e.ConfigDir)), e.Account)
@@ -103,7 +103,7 @@ end
 	return b.String()
 }
 
-// writeDirectEntry renders the pre-ccam form: scope the credential store and
+// writeDirectEntry renders the pre-clawdh form: scope the credential store and
 // exec Claude Code, with no supervision and no switching.
 func writeDirectEntry(b *strings.Builder, shell Shell, e AliasEntry) {
 	switch shell {
@@ -119,9 +119,9 @@ func writeDirectEntry(b *strings.Builder, shell Shell, e AliasEntry) {
 	}
 }
 
-// claudeWrapper makes a plain `claude` a switchable ccam session, so
+// claudeWrapper makes a plain `claude` a switchable clawdh session, so
 // in-session switching does not depend on the user remembering to type
-// `ccam <account>` instead. It is a shell function rather than anything on
+// `clawdh <account>` instead. It is a shell function rather than anything on
 // PATH: nothing is installed, nothing is shadowed for other tools, and it
 // only exists in interactive shells that read this file.
 //
@@ -132,7 +132,7 @@ func writeDirectEntry(b *strings.Builder, shell Shell, e AliasEntry) {
 //     session, not a re-account of the session you are in;
 //   - no terminal on stdin — scripts, pipes, CI — where a supervisor has no
 //     terminal to relaunch into;
-//   - ccam not installed or not on PATH, so removing ccam can never leave a
+//   - clawdh not installed or not on PATH, so removing clawdh can never leave a
 //     shell unable to run claude.
 //
 // `command` (and, in PowerShell, -CommandType Application) is what stops the
@@ -141,42 +141,42 @@ func claudeWrapper(shell Shell) string {
 	switch shell {
 	case Fish:
 		return `
-# A plain ` + "`claude`" + ` is a switchable ccam session; inside it, ` + "`!ccam <name>`" + `
+# A plain ` + "`claude`" + ` is a switchable clawdh session; inside it, ` + "`!clawdh <name>`" + `
 # switches account without leaving the conversation. Falls through to Claude
 # Code itself when that cannot work.
 function claude
-    if set -q CLAUDECODE; or test "$CCAM_WRAP" = 0; or not isatty stdin; or not command -q ccam
+    if set -q CLAUDECODE; or test "$CCAM_WRAP" = 0; or not isatty stdin; or not command -q clawdh
         command claude $argv
     else
-        command ccam run --auto $argv
+        command clawdh run --auto $argv
     end
 end
 `
 	case PowerShell, PowerShellDesktop:
 		return `
-# A plain ` + "`claude`" + ` is a switchable ccam session; inside it, ` + "`!ccam <name>`" + `
+# A plain ` + "`claude`" + ` is a switchable clawdh session; inside it, ` + "`!clawdh <name>`" + `
 # switches account without leaving the conversation. The per-account functions
 # above call through this one, so they are switchable too.
 function claude {
     $real = Get-Command claude -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($env:CLAUDECODE -or $env:CCAM_WRAP -eq '0' -or [Console]::IsInputRedirected -or
-        -not (Get-Command ccam -CommandType Application -ErrorAction SilentlyContinue)) {
+        -not (Get-Command clawdh -CommandType Application -ErrorAction SilentlyContinue)) {
         if ($real) { & $real.Source @args } else { Write-Error 'claude is not installed' }
     } else {
-        ccam run --auto @args
+        clawdh run --auto @args
     }
 }
 `
 	default: // bash, bash-login, zsh
 		return `
-# A plain ` + "`claude`" + ` is a switchable ccam session; inside it, ` + "`!ccam <name>`" + `
+# A plain ` + "`claude`" + ` is a switchable clawdh session; inside it, ` + "`!clawdh <name>`" + `
 # switches account without leaving the conversation. Falls through to Claude
 # Code itself when that cannot work.
 claude() {
-    if [ -n "$CLAUDECODE" ] || [ "$CCAM_WRAP" = 0 ] || [ ! -t 0 ] || ! command -v ccam >/dev/null 2>&1; then
+    if [ -n "$CLAUDECODE" ] || [ "$CCAM_WRAP" = 0 ] || [ ! -t 0 ] || ! command -v clawdh >/dev/null 2>&1; then
         command claude "$@"
     else
-        command ccam run --auto "$@"
+        command clawdh run --auto "$@"
     fi
 }
 `
@@ -196,7 +196,7 @@ func dquote(s string) string {
 // value the caller is building. A home directory is allowed to contain an
 // apostrophe — /Users/o'brien — and one there used to close the alias early
 // and leave the rest of the rc file as a dangling quote, which breaks the
-// user's shell on its next start, not just ccam.
+// user's shell on its next start, not just clawdh.
 //
 // POSIX shells cannot escape a quote inside single quotes at all, so the
 // string is closed, an escaped quote concatenated, and the string reopened:

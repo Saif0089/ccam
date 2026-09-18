@@ -60,7 +60,7 @@ func TestEnsureDefaultAdoptsTheSignedInAccount(t *testing.T) {
 		t.Errorf("configDir = %q, want empty", account.ConfigDir)
 	}
 	if account.OwnsConfigDir() {
-		t.Error("the default account must never own a directory ccam can delete")
+		t.Error("the default account must never own a directory clawdh can delete")
 	}
 
 	// Running again must not duplicate it.

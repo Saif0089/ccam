@@ -1,6 +1,6 @@
-// Package handler is the ccam panel as a Vercel serverless function.
+// Package handler is the clawdh panel as a Vercel serverless function.
 //
-// It is the same panel `ccam panel serve` runs, wired to the two things a
+// It is the same panel `clawdh panel serve` runs, wired to the two things a
 // serverless host provides instead of a local disk: a Postgres database for the
 // state, and an environment variable for the key that seals the logins. Every
 // request may be a fresh instance, which is exactly why the state lives in

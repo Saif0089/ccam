@@ -144,7 +144,7 @@ func (s *Server) handleAddAccount(w http.ResponseWriter, r *http.Request) {
 //
 // The panel takes the credentials file Claude Code wrote for an account that is
 // already signed in, rather than driving a sign-in itself: an admin runs
-// `ccam panel push <account>` on the machine where that account is linked. It
+// `clawdh panel push <account>` on the machine where that account is linked. It
 // is sealed before it touches disk.
 func (s *Server) handleStoreLogin(w http.ResponseWriter, r *http.Request) {
 	var in struct {
