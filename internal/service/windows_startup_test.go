@@ -108,7 +108,7 @@ func TestStartupScriptActuallyStartsTheService(t *testing.T) {
 		time.Sleep(250 * time.Millisecond)
 	}
 
-	log, _ := os.ReadFile(filepath.Join(home, ".ccam", "ccam.log"))
+	log, _ := os.ReadFile(filepath.Join(home, ".clawdh", "ccam.log"))
 	t.Fatalf("the startup script did not bring up the service\nccam log:\n%s", log)
 }
 

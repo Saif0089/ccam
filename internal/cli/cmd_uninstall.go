@@ -72,7 +72,7 @@ func cmdUninstall(args []string) int {
 	// build output.
 	if !isInstalledBinary(binaryPath) {
 		fmt.Printf("\nLeft %s in place (not in ccam's install directory).\n", binaryPath)
-		fmt.Println("Account data under ~/.ccam/accounts was left in place. Remove ~/.ccam yourself if you want a full wipe.")
+		fmt.Println("Account data was left in place: newer accounts under ~/.clawdh/accounts, and any carried over from ccam still under ~/.ccam/accounts. Remove those directories yourself if you want a full wipe.")
 		return 0
 	}
 
@@ -83,7 +83,7 @@ func cmdUninstall(args []string) int {
 		fmt.Println("Removed", binaryPath)
 	}
 
-	fmt.Println("\nAccount data under ~/.ccam/accounts was left in place. Remove ~/.ccam yourself if you want a full wipe.")
+	fmt.Println("\nAccount data was left in place: newer accounts under ~/.clawdh/accounts, and any carried over from ccam still under ~/.ccam/accounts. Remove those directories yourself if you want a full wipe.")
 	return 0
 }
 

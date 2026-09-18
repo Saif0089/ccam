@@ -96,7 +96,7 @@ by ccam itself; it asks Anthropic for fresh numbers at most once a minute
 per account. That endpoint is not a documented API and publishes no rate
 limit, so when it does refuse, ccam waits — a minute, then two, four,
 eight, up to fifteen — and keeps showing the last numbers it read rather
-than emptying the card. Those numbers are kept in `~/.ccam/usage.json`
+than emptying the card. Those numbers are kept in `~/.clawdh/usage.json`
 (percentages and reset times, never a credential), so a restart in the
 middle of a rate limit still has something true to show; anything older
 than six hours is discarded, because by then the shortest window on the
@@ -141,7 +141,7 @@ machine runs the ordinary ccam client, which self-updates on each release.
 What this does and does not do, plainly. Members never hold the Claude login —
 it stays sealed on the panel and is only ever used by the gateway — so there is
 no copy on a member's disk to leak, and taking access away is immediate and
-total. A member does hold a scoped gateway key (in `~/.ccam/shares.json`, 0600);
+total. A member does hold a scoped gateway key (in `~/.clawdh/shares.json`, 0600);
 revoking their share makes it stop working on the next request. The panel binds
 `127.0.0.1` unless you give it `--addr`, and both the panel and the gateway
 should be behind TLS.
@@ -199,7 +199,7 @@ ccam account separately: each login is its own account on the dashboard,
 under the one device, rather than every account's tokens piling up in a
 single number for the machine. There is nothing to configure per account
 and nothing to re-run after adding one. The agent re-reads
-`~/.ccam/accounts.json` on every sync — so an account you add now starts
+`~/.clawdh/accounts.json` on every sync — so an account you add now starts
 reporting within a sync tick, and an account you delete simply stops.
 
 Because accounts share one `~/.claude`, their transcripts pool into a single
@@ -244,7 +244,8 @@ ccam uninstall
 
 Stops the service, removes the autostart registration, strips every
 managed shell block, and removes the installed binary. Your accounts'
-login data under `~/.ccam/accounts` is left in place — remove `~/.ccam`
+login data under `~/.clawdh/accounts` (and `~/.ccam/accounts`, if carried over
+from a previous ccam install) is left in place — remove those directories
 yourself for a full wipe.
 
 ## Development

@@ -328,14 +328,14 @@ func (h *harness) readAnyRcFile() string {
 }
 
 func readLog(h *harness) string {
-	data, _ := os.ReadFile(filepath.Join(h.home, ".ccam", "ccam.log"))
+	data, _ := os.ReadFile(filepath.Join(h.home, ".clawdh", "ccam.log"))
 	return string(data)
 }
 
 func assertNoSystemPaths(t *testing.T, home string) {
 	t.Helper()
 	forbidden := []string{"/usr/local", "/etc/systemd/system", "Program Files", "System32"}
-	filepath.WalkDir(filepath.Join(home, ".ccam"), func(path string, d os.DirEntry, err error) error {
+	filepath.WalkDir(filepath.Join(home, ".clawdh"), func(path string, d os.DirEntry, err error) error {
 		return nil // presence check only, not content; directory existing is enough context for the message below
 	})
 	for _, f := range forbidden {

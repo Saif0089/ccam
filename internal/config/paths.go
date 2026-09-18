@@ -4,9 +4,11 @@
 package config
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 )
 
 // Env reads a clawdh environment variable by its suffix (e.g. Env("PANEL_KEY")
@@ -25,19 +27,103 @@ func Env(suffix string) string {
 // running on a dev machine.
 const DefaultPort = 47932
 
-// HomeDir returns the ccam base directory: ~/.ccam on every OS. Using a
+// legacyDirName is the pre-clawdh base directory (~/.ccam). Its metadata is
+// imported into ~/.clawdh once, on first use — see migrateFromLegacy.
+const legacyDirName = ".ccam"
+
+// baseDirName is the clawdh base directory (~/.clawdh).
+const baseDirName = ".clawdh"
+
+var (
+	migMu      sync.Mutex
+	migratedTo = map[string]bool{}
+)
+
+// HomeDir returns the clawdh base directory: ~/.clawdh on every OS. Using a
 // single dotdir (rather than OS-specific "proper" locations) keeps the
 // install/uninstall and e2e-test logic identical across platforms.
+//
+// The first time a given base is resolved, a previous ~/.ccam install's metadata
+// (accounts, panel enrolment, shares) is imported into it. Account directories
+// are deliberately left where they are: each account's CLAUDE_CONFIG_DIR is
+// stored absolutely in accounts.json and, on macOS, the Keychain item holding
+// its login is keyed by a hash of that path — so moving the directory would sign
+// every account out. The path is recomputed from $HOME each call (never cached),
+// so a test that repoints HOME sees its own directory; only the one-time
+// migration per base is guarded.
 func HomeDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".ccam"), nil
+	base := filepath.Join(home, baseDirName)
+	migrateOnce(filepath.Join(home, legacyDirName), base)
+	return base, nil
 }
 
-// AccountsDir returns ~/.ccam/accounts, the parent of every per-account
-// CLAUDE_CONFIG_DIR.
+// migrateOnce runs migrateFromLegacy at most once per base directory in this
+// process, so the per-call HomeDir stays cheap without caching the path itself.
+func migrateOnce(legacy, current string) {
+	migMu.Lock()
+	defer migMu.Unlock()
+	if migratedTo[current] {
+		return
+	}
+	migratedTo[current] = true
+	migrateFromLegacy(legacy, current)
+}
+
+// migrateFromLegacy copies a previous ~/.ccam install's metadata files into
+// ~/.clawdh, once. It is best-effort and idempotent: a file already present in
+// the new directory is left untouched, a file absent from the old one is
+// skipped, and the account directories the metadata points at are never moved.
+// A machine with no ~/.ccam (a fresh clawdh install) does nothing.
+func migrateFromLegacy(legacy, current string) {
+	if legacy == current {
+		return
+	}
+	if _, err := os.Stat(legacy); err != nil {
+		return // no previous install
+	}
+	if err := os.MkdirAll(current, 0o700); err != nil {
+		return
+	}
+	// Metadata only — never the accounts/ directory (see HomeDir).
+	for _, name := range []string{
+		"accounts.json", "panel-client.json", "shares.json", "usage.json",
+		"port", "panel.json", "panel.key",
+	} {
+		dst := filepath.Join(current, name)
+		if _, err := os.Stat(dst); err == nil {
+			continue // already migrated, or written since
+		}
+		copyFilePreserving(filepath.Join(legacy, name), dst)
+	}
+}
+
+// copyFilePreserving copies src to dst 0600, best-effort, doing nothing if src
+// is absent. Both files here can hold secrets (tokens, keys), hence 0600.
+func copyFilePreserving(src, dst string) {
+	in, err := os.Open(src)
+	if err != nil {
+		return
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(dst)
+		return
+	}
+	out.Close()
+}
+
+// AccountsDir returns ~/.clawdh/accounts, the parent of every per-account
+// CLAUDE_CONFIG_DIR created under clawdh. Accounts carried over from a previous
+// ccam install keep their original ~/.ccam/accounts/<id> paths (see HomeDir).
 func AccountsDir() (string, error) {
 	base, err := HomeDir()
 	if err != nil {

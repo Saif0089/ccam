@@ -121,7 +121,7 @@ func cmdServe(args []string) int {
 	return 0
 }
 
-// maxLogBytes caps ~/.ccam/ccam.log. Every request is logged there and
+// maxLogBytes caps ~/.clawdh/ccam.log. Every request is logged there and
 // nothing ever rotated it, so a service left running with a page open
 // grew it without bound — on the one file that also carries the only
 // diagnostics when something goes wrong.

@@ -97,12 +97,12 @@ ok "OAuth URL arrived whole ($URL_LEN chars)"
 
 # Onboarding must be marked so the first real claude run skips the wizard.
 for _ in $(seq 1 40); do
-  [ -f "$HOME/.ccam/accounts/work/.claude.json" ] && break
+  [ -f "$HOME/.clawdh/accounts/work/.claude.json" ] && break
   sleep 0.5
 done
 python3 -c "
 import json
-d=json.load(open('$HOME/.ccam/accounts/work/.claude.json'))
+d=json.load(open('$HOME/.clawdh/accounts/work/.claude.json'))
 assert d.get('hasCompletedOnboarding') is True, d
 " || fail "onboarding not marked complete"
 ok "onboarding marked complete"
@@ -122,14 +122,14 @@ for _ in $(seq 1 40); do
   sleep 0.5
 done
 curl -fsS "http://127.0.0.1:$PORT/api/status" | grep -q '"service":"ccam"' \
-  || { cat /tmp/autostart.log; cat "$HOME/.ccam/ccam.log" 2>/dev/null; fail "autostart command line did not bring up the service"; }
+  || { cat /tmp/autostart.log; cat "$HOME/.clawdh/ccam.log" 2>/dev/null; fail "autostart command line did not bring up the service"; }
 ok "service starts from the autostart entry with a bare login PATH"
 
 # And with that bare PATH it must still find claude, which is the whole
 # point of baking PATH into the entry.
 curl -fsS -X POST "http://127.0.0.1:$PORT/api/accounts/work/login" -o /dev/null
 timeout 60 curl -sN "http://127.0.0.1:$PORT/api/accounts/work/login/events" > /tmp/sse2.txt || true
-grep -q '"type":"url"' /tmp/sse2.txt || { cat /tmp/sse2.txt; cat "$HOME/.ccam/ccam.log"; fail "login failed under the autostart environment (claude not found?)"; }
+grep -q '"type":"url"' /tmp/sse2.txt || { cat /tmp/sse2.txt; cat "$HOME/.clawdh/ccam.log"; fail "login failed under the autostart environment (claude not found?)"; }
 ok "claude still resolves under the autostart environment"
 
 # --- uninstall leaves nothing behind ---
@@ -138,7 +138,7 @@ cat /tmp/uninstall.log
 [ -f "$DESKTOP" ] && fail "autostart entry survived uninstall"
 grep -q "claude-work" "$HOME/.bashrc" 2>/dev/null && fail "alias survived uninstall"
 [ -f "$HOME/.local/bin/ccam" ] && fail "binary survived uninstall"
-[ -d "$HOME/.ccam/accounts/work" ] || fail "account data was deleted (it should be kept)"
+[ -d "$HOME/.clawdh/accounts/work" ] || fail "account data was deleted (it should be kept)"
 ok "uninstall removed the autostart entry, aliases and binary, and kept account data"
 
 echo

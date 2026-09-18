@@ -40,7 +40,7 @@ ok "binary installed to a per-user directory"
 grep -qE "sudo|/usr/local|/etc/systemd/system" /tmp/install.log && fail "install.sh mentioned a system path"
 ok "no system paths or sudo involved"
 
-PORT=$(cat "$HOME/.ccam/port")
+PORT=$(cat "$HOME/.clawdh/port")
 curl -fsS "http://127.0.0.1:$PORT/api/status" | grep -q '"service":"ccam"' || fail "service does not identify as ccam"
 ok "service answers on the recorded port ($PORT)"
 

@@ -159,7 +159,7 @@ func stopAndRelease(t *testing.T, h *harness) {
 		t.Logf("uninstall after the test: %v\n%s", err, out)
 	}
 
-	logPath := filepath.Join(h.home, ".ccam", "ccam.log")
+	logPath := filepath.Join(h.home, ".clawdh", "ccam.log")
 	deadline := time.Now().Add(20 * time.Second)
 	for {
 		if err := os.Remove(logPath); err == nil || os.IsNotExist(err) {

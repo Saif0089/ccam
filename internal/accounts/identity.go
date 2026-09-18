@@ -27,7 +27,7 @@ var orgScopedCacheKeys = []string{
 // A managed account keeps its oauthAccount in its own <configDir>/.claude.json,
 // but the default account's identity lives in the shared ~/.claude.json — the
 // very field a switch to another account overwrites. So ccam snapshots it into
-// a stub of its own (stubDir/.claude.json, stubDir being ~/.ccam/accounts/default)
+// a stub of its own (stubDir/.claude.json, stubDir being ~/.clawdh/accounts/default)
 // the first time, while ~/.claude.json still cleanly names the default account.
 // That first time is safe by construction: before this feature every managed
 // account was isolated, so nothing had ever rewritten ~/.claude.json.

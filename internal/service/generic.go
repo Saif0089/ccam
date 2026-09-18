@@ -39,7 +39,7 @@ func (g generic) Start() error {
 // Stop ends the running server and verifies it actually stopped.
 //
 // The pidfile alone isn't trusted for that verdict: it can be missing
-// (a cleaned ~/.ccam, or a RecordSelf that failed) while the server is
+// (a cleaned ~/.clawdh, or a RecordSelf that failed) while the server is
 // very much alive, and reporting "Stopped." in that case is how
 // `ccam uninstall` ends up deleting its own binary and autostart entry
 // while leaving an unstoppable server holding the port.

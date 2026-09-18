@@ -43,7 +43,7 @@ func Running() (*RunningInfo, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			// No record — but a server may still be running with its
-			// port file lost (a cleaned ~/.ccam, or an older version
+			// port file lost (a cleaned ~/.clawdh, or an older version
 			// that removed it). Without this ccam can't find, stop or
 			// upgrade its own running server, and every start just
 			// fails to bind a port it already holds.

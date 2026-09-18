@@ -17,7 +17,7 @@ import (
 	"clawdh/internal/switching"
 )
 
-// seedRunEnv points HOME at a temp dir with a two-account ~/.ccam and a shared
+// seedRunEnv points HOME at a temp dir with a two-account ~/.clawdh and a shared
 // ~/.claude, so cmdRun's real config/store/hook-install paths all operate on
 // throwaway files.
 func seedRunEnv(t *testing.T) string {
@@ -26,10 +26,10 @@ func seedRunEnv(t *testing.T) string {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 
-	mustMkdir(t, filepath.Join(home, ".ccam", "accounts"))
+	mustMkdir(t, filepath.Join(home, ".clawdh", "accounts"))
 	mustMkdir(t, filepath.Join(home, ".claude"))
-	ehtiDir := filepath.Join(home, ".ccam", "accounts", "ehti")
-	workDir := filepath.Join(home, ".ccam", "accounts", "work")
+	ehtiDir := filepath.Join(home, ".clawdh", "accounts", "ehti")
+	workDir := filepath.Join(home, ".clawdh", "accounts", "work")
 	mustMkdir(t, ehtiDir)
 	mustMkdir(t, workDir)
 
@@ -43,7 +43,7 @@ func seedRunEnv(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustWrite(t, filepath.Join(home, ".ccam", "accounts.json"), string(accountsData))
+	mustWrite(t, filepath.Join(home, ".clawdh", "accounts.json"), string(accountsData))
 	mustWrite(t, filepath.Join(home, ".claude.json"), `{"oauthAccount":{"accountUuid":"orig"}}`)
 	// Give "work" an identity stub so the switch also exercises applyIdentity.
 	mustWrite(t, filepath.Join(workDir, ".claude.json"), `{"oauthAccount":{"accountUuid":"work-uuid"}}`)
@@ -337,7 +337,7 @@ func TestRunWithArgsInsideASessionDoesNotStageASwitch(t *testing.T) {
 // at — here, an account directory exported by ccam's own alias.
 func TestRunAutoFollowsTheAccountTheShellPointsAt(t *testing.T) {
 	home := seedRunEnv(t)
-	workDir := filepath.Join(home, ".ccam", "accounts", "work")
+	workDir := filepath.Join(home, ".clawdh", "accounts", "work")
 	t.Setenv(accounts.SecureStorageEnvVar, workDir)
 
 	var env []string
@@ -478,7 +478,7 @@ func readJSONFile(t *testing.T, path string) map[string]any {
 func TestSwitchRelaunchesOntoTheOtherAccount(t *testing.T) {
 	home := seedRunEnv(t)
 	seedTranscript(t, home, "sess-1")
-	ehti := filepath.Join(home, ".ccam", "accounts", "ehti")
+	ehti := filepath.Join(home, ".clawdh", "accounts", "ehti")
 	ledger := filepath.Join(home, switching.LedgerFile)
 	mustWrite(t, ledger, "#cutover\t1.000000\n")
 
@@ -526,7 +526,7 @@ func TestSwitchRelaunchesOntoTheOtherAccount(t *testing.T) {
 	// The conversation keeps its id, so ccam can record who owns it from the
 	// switch onward. The monitor reads ownership by interval, so the work done
 	// before the switch stays with the account that did it.
-	work := filepath.Join(home, ".ccam", "accounts", "work")
+	work := filepath.Join(home, ".clawdh", "accounts", "work")
 	raw, err := os.ReadFile(ledger)
 	if err != nil {
 		t.Fatal(err)
@@ -587,7 +587,7 @@ func TestRunClaudeOnceStopsOnRevocation(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell-script fake claude is POSIX")
 	}
-	t.Setenv("HOME", t.TempDir()) // config.HomeDir -> a temp ~/.ccam
+	t.Setenv("HOME", t.TempDir()) // config.HomeDir -> a temp ~/.clawdh
 	t.Setenv("USERPROFILE", t.TempDir())
 
 	dir := t.TempDir()

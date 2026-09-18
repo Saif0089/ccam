@@ -108,7 +108,7 @@ func (s *Service) saveReports() {
 
 // cachePath is where reports are kept. Empty means persistence is off,
 // which is the default: only NewService, the constructor the running
-// server uses, points this at ~/.ccam.
+// server uses, points this at ~/.clawdh.
 func (s *Service) cachePath() string {
 	return s.CachePath
 }

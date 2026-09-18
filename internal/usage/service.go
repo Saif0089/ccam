@@ -127,7 +127,7 @@ type Service struct {
 	now    func() time.Time
 
 	// CachePath overrides where the last good numbers are kept, for
-	// tests. Empty means ~/.ccam/usage.json.
+	// tests. Empty means ~/.clawdh/usage.json.
 	CachePath string
 
 	mu       sync.Mutex
@@ -142,7 +142,7 @@ type Service struct {
 }
 
 // NewService returns a Service using the default endpoint, keeping its
-// last good numbers under ~/.ccam so a restart does not lose them.
+// last good numbers under ~/.clawdh so a restart does not lose them.
 func NewService() *Service {
 	s := NewServiceWithClient(NewClient())
 	if path, err := config.UsageCacheFile(); err == nil {
@@ -157,7 +157,7 @@ func NewService() *Service {
 func NewServiceWithClient(c *Client) *Service {
 	// No CachePath: nothing is read from or written to disk. Only the
 	// running service sets one, so a test constructing a Service can
-	// never reach into the real ~/.ccam — which it did, once.
+	// never reach into the real ~/.clawdh — which it did, once.
 	return &Service{
 		client:     c,
 		now:        time.Now,

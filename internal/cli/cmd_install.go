@@ -59,7 +59,7 @@ func cmdInstall(args []string) int {
 	if reason := lastLogLine(); reason != "" {
 		fmt.Fprintln(os.Stderr, "  last log line:", reason)
 	}
-	fmt.Fprintln(os.Stderr, "  full log: ~/.ccam/ccam.log")
+	fmt.Fprintln(os.Stderr, "  full log: ~/.clawdh/ccam.log")
 	return 1
 }
 

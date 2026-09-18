@@ -18,7 +18,7 @@ type Manager struct {
 }
 
 // NewManager builds a Manager whose account directories live under
-// accountsDir (typically ~/.ccam/accounts).
+// accountsDir (typically ~/.clawdh/accounts).
 func NewManager(store *Store, accountsDir string) *Manager {
 	return &Manager{store: store, accountsDir: accountsDir}
 }

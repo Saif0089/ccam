@@ -7,7 +7,7 @@ import (
 
 // The revocation marker is how the panel, running in the background service,
 // tells a live session — a separate process — that its account has been taken
-// back. It is a file per account under ~/.ccam/revoked/. The session supervisor
+// back. It is a file per account under ~/.clawdh/revoked/. The session supervisor
 // already polls for account switches every 150ms; it checks for this marker on
 // the same tick, so a revoked session stops within that interval rather than
 // limping on its in-memory token until the next token refresh.

@@ -130,9 +130,9 @@ func diagnostics(home string) string {
 		}
 		fmt.Fprintf(&b, "--- %s (%s) ---\n%s\n", label, path, data)
 	}
-	dump("ccam.log", filepath.Join(home, ".ccam", "ccam.log"))
-	dump("pidfile", filepath.Join(home, ".ccam", "ccam.pid"))
-	dump("port file", filepath.Join(home, ".ccam", "port"))
+	dump("ccam.log", filepath.Join(home, ".clawdh", "ccam.log"))
+	dump("pidfile", filepath.Join(home, ".clawdh", "ccam.pid"))
+	dump("port file", filepath.Join(home, ".clawdh", "port"))
 	return b.String()
 }
 

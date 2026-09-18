@@ -48,12 +48,12 @@ func newTestServer(t *testing.T) (*Server, string) {
 	t.Helper()
 	home := t.TempDir()
 	// Not just for the paths built below: New() constructs a usage
-	// Service, which keeps its last good numbers under ~/.ccam. Without
+	// Service, which keeps its last good numbers under ~/.clawdh. Without
 	// this the test writes into the home of whoever is running it.
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home) // Windows' UserHomeDir
-	store := accounts.NewStore(filepath.Join(home, ".ccam", "accounts.json"))
-	manager := accounts.NewManager(store, filepath.Join(home, ".ccam", "accounts"))
+	store := accounts.NewStore(filepath.Join(home, ".clawdh", "accounts.json"))
+	manager := accounts.NewManager(store, filepath.Join(home, ".clawdh", "accounts"))
 	syncer := shellrc.NewSyncer(home)
 	fake := buildFakeClaude(t)
 	return New(manager, syncer, fake), home
