@@ -40,6 +40,8 @@ func Run(args []string) int {
 		return cmdRun(args[1:])
 	case "hook":
 		return cmdHook(args[1:])
+	case "use":
+		return cmdUse(args[1:])
 	case "panel":
 		return cmdPanel(args[1:])
 	case "prune":

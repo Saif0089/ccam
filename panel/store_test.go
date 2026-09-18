@@ -219,11 +219,11 @@ func TestSharesAreManyPerAccountAndResolveByKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	aliceKey, err := s.IssueShare(account, alice)
+	aliceKey, err := s.IssueShare(account, alice, func(k string) []byte { return []byte(k) })
 	if err != nil {
 		t.Fatal(err)
 	}
-	bobKey, err := s.IssueShare(account, bob)
+	bobKey, err := s.IssueShare(account, bob, func(k string) []byte { return []byte(k) })
 	if err != nil {
 		t.Fatal(err)
 	}

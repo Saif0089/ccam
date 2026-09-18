@@ -303,11 +303,8 @@ function renderAccounts() {
     const act = el("td", { className: "right" });
     if (!a.hasLogin) {
       act.append(el("button", { className: "link brass", textContent: "How to authenticate", onclick: () => howToAuth(a) }));
-    } else if (a.holder) {
-      act.append(el("button", { className: "link", textContent: "Give to someone else", onclick: () => reassign(a) }));
-      act.append(el("button", { className: "link warn", textContent: "Take back", style: "margin-left:16px", onclick: () => takeBack(a) }));
     } else {
-      act.append(el("button", { className: "link", textContent: "Assign", onclick: () => assign(a) }));
+      act.append(el("button", { className: "link", textContent: "Give access", onclick: () => giveAccess(a) }));
     }
     act.append(el("button", { className: "link", textContent: "Remove", style: "margin-left:16px", onclick: () => removeAccount(a) }));
     tr.append(act);
@@ -319,6 +316,38 @@ function renderAccounts() {
 // note renders a line of explanation above a tab's content.
 function note(text) {
   return el("p", { style: "margin:22px 0 0; font-size:12.6px; color:var(--faint); max-width:78ch; line-height:1.6", textContent: text });
+}
+
+// giveAccess shares an account with a person through the gateway — many people
+// can share one account at once — and shows that person exactly what to run.
+async function giveAccess(a) {
+  if (!state.people.length) {
+    await ask({ title: "Nobody to give it to", note: "Add someone on the People tab first.", confirm: "Close" });
+    return;
+  }
+  const out = await ask({
+    title: `Give access to ${a.name}`,
+    fields: [{ name: "personId", label: "To", options: state.people.map((p) => ({ value: p.id, label: p.name })) }],
+    note: "They will use this account through the gateway — many people can share it at once, and their access stops the moment you take it back.",
+    confirm: "Give access",
+  });
+  if (!out) return;
+  try {
+    const { key, gateway } = await api("POST", `/api/accounts/${a.id}/share`, { personId: out.personId });
+    await refresh();
+    if (!gateway) {
+      await ask({ title: "Gateway not set", note: "The gateway URL is not configured on the panel (CCAM_GATEWAY_URL). The key was issued but there is nowhere to point it yet.", confirm: "Close" });
+      return;
+    }
+    await ask({
+      title: `${a.name} — access for that person`,
+      fields: [{ name: "cmd", label: "They run this once to use it", value: `ccam use ${gateway} ${key}` }],
+      note: "Or, without ccam, run Claude with ANTHROPIC_BASE_URL set to the gateway and ANTHROPIC_AUTH_TOKEN set to this key. The key is shown once.",
+      confirm: "Done",
+    });
+  } catch (e) {
+    alert(e.message);
+  }
 }
 
 // howToAuth tells you exactly how to give a login-less account its login.

@@ -108,10 +108,15 @@ type Event struct {
 // share carries the hash of a gateway key the person's Claude Code presents; the
 // gateway maps that key to this account's live token.
 type Share struct {
-	ID        string    `json:"id"`
-	AccountID string    `json:"accountId"`
-	PersonID  string    `json:"personId"`
-	KeyHash   string    `json:"keyHash"`
+	ID        string `json:"id"`
+	AccountID string `json:"accountId"`
+	PersonID  string `json:"personId"`
+	KeyHash   string `json:"keyHash"`
+	// SealedKey is the gateway key, sealed with the panel key, so an enrolled
+	// device can be handed it back on check-in. The gateway matches by KeyHash;
+	// this is only for delivery. A gateway key is a scoped bearer token, not the
+	// Claude credential, so this is a lower-stakes secret than the login itself.
+	SealedKey []byte    `json:"sealedKey,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 

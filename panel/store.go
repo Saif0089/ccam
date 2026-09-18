@@ -347,11 +347,15 @@ func (s *Store) TakeBack(assignmentID, why, who string) error {
 // IssueShare makes an account available to a person through the gateway and
 // returns the gateway key to hand out (stored only as a hash). Issuing it again
 // for the same pair replaces the key, so a lost key is rotated by re-issuing.
-func (s *Store) IssueShare(accountID, personID string) (key string, err error) {
+// IssueShare makes an account available to a person through the gateway and
+// returns the gateway key. sealKey seals it for later delivery to the person's
+// device (the caller supplies it because only it holds the panel key).
+func (s *Store) IssueShare(accountID, personID string, sealKey func(string) []byte) (key string, err error) {
 	key, hash, err := NewToken()
 	if err != nil {
 		return "", err
 	}
+	sealed := sealKey(key)
 	err = s.Mutate(func(d *Data) error {
 		if _, ok := d.Account(accountID); !ok {
 			return fmt.Errorf("no account with id %q", accountID)
@@ -365,7 +369,7 @@ func (s *Store) IssueShare(accountID, personID string) (key string, err error) {
 				out = append(out, sh)
 			}
 		}
-		d.Shares = append(out, Share{ID: newID(), AccountID: accountID, PersonID: personID, KeyHash: hash, CreatedAt: s.now()})
+		d.Shares = append(out, Share{ID: newID(), AccountID: accountID, PersonID: personID, KeyHash: hash, SealedKey: sealed, CreatedAt: s.now()})
 		d.Log(s.now(), "You", fmt.Sprintf("gave %s access to %s", d.personName(personID), d.accountName(accountID)))
 		return nil
 	})

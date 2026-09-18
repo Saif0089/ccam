@@ -340,7 +340,7 @@ func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	key, err := s.store.IssueShare(id, in.PersonID)
+	key, err := s.store.IssueShare(id, in.PersonID, func(k string) []byte { sealed, _ := s.secret.Seal([]byte(k)); return sealed })
 	if err != nil {
 		fail(w, http.StatusBadRequest, err.Error())
 		return
@@ -457,6 +457,16 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"deviceId": deviceID, "token": token, "personName": personName})
 }
 
+// clientShare is one account a person may use through the gateway: its name,
+// where to route (the gateway URL), and this person's key. The client turns each
+// into an alias that runs Claude Code in gateway mode.
+type clientShare struct {
+	Account string `json:"account"`
+	Slug    string `json:"slug"`
+	Gateway string `json:"gateway"`
+	Key     string `json:"key"`
+}
+
 // clientAssignment is one account a machine is entitled to right now.
 type clientAssignment struct {
 	AccountID  string     `json:"accountId"`
@@ -509,5 +519,43 @@ func (s *Server) handleCheckin(w http.ResponseWriter, r *http.Request, dev Devic
 		fail(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"assignments": out})
+	// Gateway shares: the accounts this person may use through the gateway, with
+	// their key. This is the model going forward — the credential never leaves
+	// the server; the client only learns where to route and its key.
+	var shares []clientShare
+	if gw := gatewayURL(); gw != "" {
+		d, _ := s.store.Load()
+		for _, sh := range d.Shares {
+			if sh.PersonID != dev.PersonID {
+				continue
+			}
+			acct, ok := d.Account(sh.AccountID)
+			if !ok || len(sh.SealedKey) == 0 {
+				continue
+			}
+			plain, err := s.secret.Open(sh.SealedKey)
+			if err != nil {
+				continue
+			}
+			shares = append(shares, clientShare{Account: acct.Name, Slug: slugify(acct.Name), Gateway: gw, Key: string(plain)})
+		}
+	}
+	writeJSON(w, 200, map[string]any{"assignments": out, "gateway": shares})
+}
+
+// slugify makes a shell-safe short name for an account's alias.
+func slugify(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == ' ' || r == '-' || r == '_':
+			b.WriteByte('-')
+		}
+	}
+	if out := strings.Trim(b.String(), "-"); out != "" {
+		return out
+	}
+	return "account"
 }
