@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"clawdh/internal/accounts"
+	"clawdh/internal/config"
 )
 
 // ErrNotEnrolled means the panel no longer recognises this machine — it was
@@ -45,6 +46,25 @@ func LoadClientConfig(path string) (ClientConfig, error) {
 		return c, err
 	}
 	return c, json.Unmarshal(raw, &c)
+}
+
+// PusherName is the member name to record for the machine pushing a login: the
+// person this machine already enrolled as with the same panel, or the machine's
+// hostname when it is not enrolled there. It is only a label for the panel — the
+// account's own login is unaffected either way.
+func PusherName(server string) string {
+	server = strings.TrimRight(server, "/")
+	if path, err := config.PanelClientFile(); err == nil {
+		if c, err := LoadClientConfig(path); err == nil &&
+			c.Configured() && strings.TrimRight(c.Server, "/") == server &&
+			strings.TrimSpace(c.PersonName) != "" {
+			return c.PersonName
+		}
+	}
+	if h, err := os.Hostname(); err == nil && strings.TrimSpace(h) != "" {
+		return h
+	}
+	return "the machine that added it"
 }
 
 // SaveClientConfig writes it back, readable only by this user: it holds this

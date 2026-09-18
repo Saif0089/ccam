@@ -67,7 +67,7 @@ func (s *Server) handleAddLoginToPanel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	if err := panel.PushLogin(ctx, httpc, in.Panel, id, base64.StdEncoding.EncodeToString(login)); err != nil {
+	if err := panel.PushLogin(ctx, httpc, in.Panel, id, base64.StdEncoding.EncodeToString(login), panel.PusherName(in.Panel)); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}

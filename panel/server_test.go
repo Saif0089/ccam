@@ -150,6 +150,87 @@ func TestAMachineIsToldWhatItCanUseAndWhenItStops(t *testing.T) {
 	}
 }
 
+// The machine that pushes a login is recorded as a member with its own gateway
+// access, so it shows in the panel and can be cut off there. Re-pushing does not
+// duplicate the record, and taking the access away removes only the share — the
+// person stays, the escrowed login stays, and (structurally, since the panel
+// never reaches a client's account store) the login on that machine is untouched.
+func TestPushingALoginRecordsThePusherAsAMember(t *testing.T) {
+	h := newHarness(t)
+
+	if code, _ := h.do("POST", "/api/setup", map[string]string{"password": "a-long-enough-one"}, ""); code != 200 {
+		t.Fatal("setup failed")
+	}
+	if code, _ := h.do("POST", "/api/accounts", map[string]string{"name": "Work"}, ""); code != 201 {
+		t.Fatalf("adding an account = %d", code)
+	}
+	_, pb := h.do("GET", "/api/panel", nil, "")
+	accountID := pb["accounts"].([]any)[0].(map[string]any)["id"].(string)
+
+	login := base64.StdEncoding.EncodeToString([]byte(`{"claudeAiOauth":{"accessToken":"fake"}}`))
+	push := func() int {
+		code, _ := h.do("POST", "/api/accounts/"+accountID+"/login",
+			map[string]string{"credential": login, "pusher": "hassan-mbp"}, "")
+		return code
+	}
+	if code := push(); code != 200 {
+		t.Fatalf("pushing the login = %d", code)
+	}
+
+	// sharesAndPusher reads the one account's shares plus the pusher's person row.
+	sharesAndPusher := func() ([]any, map[string]any) {
+		_, pb := h.do("GET", "/api/panel", nil, "")
+		shared, _ := pb["accounts"].([]any)[0].(map[string]any)["shared"].([]any)
+		var person map[string]any
+		for _, p := range pb["people"].([]any) {
+			if pm := p.(map[string]any); pm["name"] == "hassan-mbp" {
+				person = pm
+			}
+		}
+		return shared, person
+	}
+
+	shared, person := sharesAndPusher()
+	if len(shared) != 1 {
+		t.Fatalf("the pusher got %d shares, want 1", len(shared))
+	}
+	if person == nil {
+		t.Fatal("the pusher was not recorded as a member")
+	}
+	if shared[0].(map[string]any)["personName"] != "hassan-mbp" {
+		t.Errorf("the account's share is not the pusher's: %v", shared[0])
+	}
+	if can, _ := person["can"].([]any); len(can) != 1 || can[0] != "Work" {
+		t.Errorf("the pusher cannot use the account they added: %v", person["can"])
+	}
+
+	// Re-pushing the same login keeps one member record, not two.
+	if code := push(); code != 200 {
+		t.Fatalf("re-push = %d", code)
+	}
+	shared, _ = sharesAndPusher()
+	if len(shared) != 1 {
+		t.Fatalf("re-pushing duplicated the member record: %d shares", len(shared))
+	}
+
+	// Take the access away.
+	shareID := shared[0].(map[string]any)["shareId"].(string)
+	if code, _ := h.do("POST", "/api/shares/"+shareID+"/revoke", nil, ""); code != 200 {
+		t.Fatalf("revoke = %d", code)
+	}
+	_, pb2 := h.do("GET", "/api/panel", nil, "")
+	acct := pb2["accounts"].([]any)[0].(map[string]any)
+	if s, _ := acct["shared"].([]any); len(s) != 0 {
+		t.Errorf("after revoke the account still has shares: %v", s)
+	}
+	if acct["hasLogin"] != true {
+		t.Error("revoke removed the escrowed login; it must remove only gateway access")
+	}
+	if _, person := sharesAndPusher(); person == nil {
+		t.Error("revoke removed the person; it must remove only their gateway access")
+	}
+}
+
 // An invite is a single link that carries a join code and lands on a public
 // page explaining what to do with it — the no-terminal way to set someone up.
 func TestInviteLinkOpensAWelcomePage(t *testing.T) {

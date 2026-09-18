@@ -358,11 +358,12 @@ func panelPush(args []string) int {
 		fmt.Fprintln(os.Stderr, "ccam:", err)
 		return 1
 	}
-	if err := panel.PushLogin(ctx, httpc, server, id, base64.StdEncoding.EncodeToString(raw)); err != nil {
+	if err := panel.PushLogin(ctx, httpc, server, id, base64.StdEncoding.EncodeToString(raw), panel.PusherName(server)); err != nil {
 		fmt.Fprintln(os.Stderr, "ccam:", err)
 		return 1
 	}
 	fmt.Printf("%s is on the panel and ready to share.\n", acct.Name)
+	fmt.Printf("This machine is recorded as a member with access; take that back from the panel to cut off the gateway without touching %s here.\n", acct.Name)
 	return 0
 }
 

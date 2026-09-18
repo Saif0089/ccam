@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -197,6 +198,51 @@ func (d *Data) Device(id string) (*Device, bool) {
 	return nil, false
 }
 
+// personByName finds a person by name, case-insensitively. Names are how a
+// pushed login attributes the machine that added it, and one small team's
+// names are unique enough to key on.
+func (d *Data) personByName(name string) (*Person, bool) {
+	for i := range d.People {
+		if strings.EqualFold(d.People[i].Name, name) {
+			return &d.People[i], true
+		}
+	}
+	return nil, false
+}
+
+// ensurePerson returns the person with this name, creating one if there is
+// none. It is how the machine that pushes a login gets a member record without
+// the admin having to add them by hand first.
+func (d *Data) ensurePerson(name, email string, now time.Time) *Person {
+	if p, ok := d.personByName(name); ok {
+		return p
+	}
+	d.People = append(d.People, Person{ID: newID(), Name: name, Email: email, CreatedAt: now})
+	return &d.People[len(d.People)-1]
+}
+
+// shareFor returns a person's existing share on an account, if any.
+func (d *Data) shareFor(accountID, personID string) (Share, bool) {
+	for _, sh := range d.Shares {
+		if sh.AccountID == accountID && sh.PersonID == personID {
+			return sh, true
+		}
+	}
+	return Share{}, false
+}
+
+// putShare records a share, replacing any existing key for the same
+// account+person pair — re-issuing is how a lost key is rotated.
+func (d *Data) putShare(sh Share) {
+	out := d.Shares[:0]
+	for _, existing := range d.Shares {
+		if !(existing.AccountID == sh.AccountID && existing.PersonID == sh.PersonID) {
+			out = append(out, existing)
+		}
+	}
+	d.Shares = append(out, sh)
+}
+
 // ShareByKeyHash returns the share a gateway key belongs to, for the gateway to
 // resolve a member key to an account. A key with no live share is unknown, which
 // the gateway turns into a 401 — instant revocation.
@@ -239,13 +285,7 @@ func (s *Store) IssueShare(accountID, personID string, sealKey func(string) []by
 		if _, ok := d.Person(personID); !ok {
 			return fmt.Errorf("no person with id %q", personID)
 		}
-		out := d.Shares[:0]
-		for _, sh := range d.Shares {
-			if !(sh.AccountID == accountID && sh.PersonID == personID) {
-				out = append(out, sh)
-			}
-		}
-		d.Shares = append(out, Share{ID: newID(), AccountID: accountID, PersonID: personID, KeyHash: hash, SealedKey: sealed, CreatedAt: s.now()})
+		d.putShare(Share{ID: newID(), AccountID: accountID, PersonID: personID, KeyHash: hash, SealedKey: sealed, CreatedAt: s.now()})
 		d.Log(s.now(), "You", fmt.Sprintf("gave %s access to %s", d.personName(personID), d.accountName(accountID)))
 		return nil
 	})

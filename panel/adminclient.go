@@ -54,14 +54,16 @@ func FindAccountID(ctx context.Context, httpc *http.Client, server, name string)
 	return "", fmt.Errorf("the panel has no account called %q — add it there first", name)
 }
 
-// PushLogin stores a base64 login against an account.
-func PushLogin(ctx context.Context, httpc *http.Client, server, accountID, credential string) error {
+// PushLogin stores a base64 login against an account. pusher names the machine
+// doing the push, which the panel records as a member with its own revocable
+// gateway access; an empty pusher records no member.
+func PushLogin(ctx context.Context, httpc *http.Client, server, accountID, credential, pusher string) error {
 	var out struct {
 		Error string `json:"error"`
 	}
 	if _, err := adminCall(ctx, httpc, http.MethodPost,
 		server+"/api/accounts/"+accountID+"/login",
-		map[string]string{"credential": credential}, &out); err != nil {
+		map[string]string{"credential": credential, "pusher": pusher}, &out); err != nil {
 		return err
 	}
 	if out.Error != "" {

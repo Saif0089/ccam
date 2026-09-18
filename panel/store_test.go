@@ -32,6 +32,28 @@ func seed(t *testing.T, s *Store) (account, alice, bob string) {
 	return
 }
 
+// ensurePerson is how a pushed login attributes the machine that added it. It
+// must reuse an existing member by name (case-insensitively) rather than pile up
+// a new person on every push.
+func TestEnsurePersonDedupesByNameCaseInsensitively(t *testing.T) {
+	d := &Data{}
+	now := time.Now()
+	first := d.ensurePerson("Hassan", "", now).ID
+	again := d.ensurePerson("hassan", "", now).ID // same name, different case
+	if first != again {
+		t.Errorf("ensurePerson made two members for one name: %s vs %s", first, again)
+	}
+	if len(d.People) != 1 {
+		t.Errorf("People has %d entries, want 1", len(d.People))
+	}
+	if other := d.ensurePerson("Ibrahim", "", now).ID; other == first {
+		t.Error("a different name should be a different member")
+	}
+	if len(d.People) != 2 {
+		t.Errorf("People has %d entries, want 2", len(d.People))
+	}
+}
+
 func TestAMissingFileIsAnEmptyPanel(t *testing.T) {
 	s := NewStore(filepath.Join(t.TempDir(), "nothing-here.json"))
 	d, err := s.Load()

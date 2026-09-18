@@ -151,6 +151,7 @@ func (s *Server) handleStoreLogin(w http.ResponseWriter, r *http.Request) {
 		Credential string `json:"credential"` // base64 of the credentials JSON
 		Email      string `json:"email"`
 		Plan       string `json:"plan"`
+		Pusher     string `json:"pusher"` // the machine that added it, recorded as a member
 	}
 	if err := readJSON(r, &in); err != nil {
 		fail(w, 400, "That request could not be read.")
@@ -166,6 +167,28 @@ func (s *Server) handleStoreLogin(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, err.Error())
 		return
 	}
+
+	// The machine that pushes a login is recorded as a member with its own
+	// gateway access, so it shows in the panel and can be cut off there without
+	// touching the login still on that machine. The key is minted once, before
+	// the write, so a CAS retry does not rotate it; it reaches the machine (when
+	// that machine is enrolled) on the next check-in, like any other share.
+	pusher := strings.TrimSpace(in.Pusher)
+	var pusherHash string
+	var pusherSealed []byte
+	if pusher != "" {
+		key, hash, err := NewToken()
+		if err != nil {
+			fail(w, 500, err.Error())
+			return
+		}
+		if pusherSealed, err = s.secret.Seal([]byte(key)); err != nil {
+			fail(w, 500, err.Error())
+			return
+		}
+		pusherHash = hash
+	}
+
 	id := r.PathValue("id")
 	err = s.store.Mutate(func(d *Data) error {
 		a, ok := d.Account(id)
@@ -180,6 +203,17 @@ func (s *Server) handleStoreLogin(w http.ResponseWriter, r *http.Request) {
 			a.Plan = in.Plan
 		}
 		d.Log(s.now(), "You", "stored the login for "+a.Name)
+
+		// Record the pusher as a member with access. Skip if they already have a
+		// share on this account, so re-pushing keeps their key instead of
+		// rotating it.
+		if pusher != "" {
+			p := d.ensurePerson(pusher, in.Email, s.now())
+			if _, has := d.shareFor(a.ID, p.ID); !has {
+				d.putShare(Share{ID: newID(), AccountID: a.ID, PersonID: p.ID, KeyHash: pusherHash, SealedKey: pusherSealed, CreatedAt: s.now()})
+				d.Log(s.now(), pusher, "added "+a.Name+" and was recorded with access to it")
+			}
+		}
 		return nil
 	})
 	if err != nil {
