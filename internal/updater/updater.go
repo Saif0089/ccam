@@ -19,6 +19,7 @@
 package updater
 
 import (
+	"clawdh/internal/config"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -104,7 +105,7 @@ func New(binaryPath string) *Updater {
 // reason CCAM_UPDATE_API does: so a test can drive the real update path
 // end to end instead of a mock of it.
 func firstCheckDelay() time.Duration {
-	if raw := os.Getenv("CCAM_UPDATE_DELAY"); raw != "" {
+	if raw := config.Env("UPDATE_DELAY"); raw != "" {
 		if d, err := time.ParseDuration(raw); err == nil && d >= 0 {
 			// A zero here means "check now", but zero is also how Run
 			// spells "no preference, use the default". One millisecond
@@ -121,7 +122,7 @@ func firstCheckDelay() time.Duration {
 // apiBase honours CCAM_UPDATE_API so the end-to-end tests can exercise
 // the whole path — check, download, verify, swap — against a stub.
 func apiBase() string {
-	if base := os.Getenv("CCAM_UPDATE_API"); base != "" {
+	if base := config.Env("UPDATE_API"); base != "" {
 		return strings.TrimSuffix(base, "/")
 	}
 	return DefaultAPIBase
@@ -132,7 +133,7 @@ func apiBase() string {
 // person never had an opinion, and the point of this package is that
 // they should not need one.
 func Enabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("CCAM_AUTO_UPDATE"))) {
+	switch strings.ToLower(strings.TrimSpace(config.Env("AUTO_UPDATE"))) {
 	case "0", "false", "off", "no":
 		return false
 	}

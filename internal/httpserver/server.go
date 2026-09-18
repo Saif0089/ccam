@@ -309,7 +309,7 @@ func configureEditors(home string) error {
 	// The one setting ccam writes outside its own directory and the user's
 	// shell rc, so it takes an opt-out: CCAM_MANAGE_EDITORS=0 in the service's
 	// environment leaves every editor alone.
-	if os.Getenv("CCAM_MANAGE_EDITORS") == "0" {
+	if config.Env("MANAGE_EDITORS") == "0" {
 		return nil
 	}
 	self, err := service.SelfPath()

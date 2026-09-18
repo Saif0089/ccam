@@ -9,6 +9,17 @@ import (
 	"runtime"
 )
 
+// Env reads a clawdh environment variable by its suffix (e.g. Env("PANEL_KEY")
+// reads CLAWDH_PANEL_KEY), falling back to the historical CCAM_ prefix so a
+// gateway or panel still running with the old variable names keeps working until
+// it is redeployed. New deployments set the CLAWDH_ names.
+func Env(suffix string) string {
+	if v := os.Getenv("CLAWDH_" + suffix); v != "" {
+		return v
+	}
+	return os.Getenv("CCAM_" + suffix)
+}
+
 // DefaultPort is the port ccam listens on unless overridden. Chosen to
 // be memorable-ish and unlikely to collide with anything else already
 // running on a dev machine.

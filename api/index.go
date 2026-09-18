@@ -18,6 +18,7 @@ import (
 	"os"
 	"sync"
 
+	"clawdh/internal/config"
 	"clawdh/panel"
 	"clawdh/panelpg"
 )
@@ -35,7 +36,7 @@ func build() (http.Handler, error) {
 	if dsn == "" {
 		return nil, errMissing("DATABASE_URL", "a Postgres connection string")
 	}
-	keyEnc := os.Getenv("CCAM_PANEL_KEY")
+	keyEnc := config.Env("PANEL_KEY")
 	if keyEnc == "" {
 		return nil, errMissing("CCAM_PANEL_KEY", "the base64 key that seals stored logins")
 	}

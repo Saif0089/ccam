@@ -1,11 +1,11 @@
 package panel
 
 import (
+	"clawdh/internal/config"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -23,11 +23,11 @@ const inviteLife = 1 * time.Hour
 // ---------------------------------------------------------------- the panel
 
 type accountView struct {
-	ID       string      `json:"id"`
-	Name     string      `json:"name"`
-	Email    string      `json:"email,omitempty"`
-	Plan     string      `json:"plan,omitempty"`
-	HasLogin bool        `json:"hasLogin"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Email    string `json:"email,omitempty"`
+	Plan     string `json:"plan,omitempty"`
+	HasLogin bool   `json:"hasLogin"`
 	// Shared is everyone with gateway access to this account right now — many
 	// people can share one login, so this is a list, not one holder.
 	Shared []shareView `json:"shared,omitempty"`
@@ -48,9 +48,9 @@ type deviceView struct {
 }
 
 type personView struct {
-	ID      string       `json:"id"`
-	Name    string       `json:"name"`
-	Email   string       `json:"email,omitempty"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email,omitempty"`
 	// Can is the accounts this person may use through the gateway.
 	Can     []string     `json:"can,omitempty"`
 	Devices []deviceView `json:"devices,omitempty"`
@@ -380,7 +380,7 @@ func (s *Server) handleInvitePage(w http.ResponseWriter, r *http.Request) {
 // canonical URL when it is set (behind a proxy the request's own host is the
 // internal one), otherwise derived from the request.
 func (s *Server) baseURL(r *http.Request) string {
-	if u := strings.TrimRight(os.Getenv("CCAM_PANEL_URL"), "/"); u != "" {
+	if u := strings.TrimRight(config.Env("PANEL_URL"), "/"); u != "" {
 		return u
 	}
 	scheme := "https"
@@ -452,7 +452,7 @@ func (s *Server) handleRevokeShare(w http.ResponseWriter, r *http.Request) {
 }
 
 // gatewayURL is where members route their Claude Code, set on the panel's env.
-func gatewayURL() string { return strings.TrimRight(os.Getenv("CCAM_GATEWAY_URL"), "/") }
+func gatewayURL() string { return strings.TrimRight(config.Env("GATEWAY_URL"), "/") }
 
 // ---------------------------------------------------------------- machines
 

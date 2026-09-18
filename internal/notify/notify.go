@@ -12,9 +12,9 @@
 package notify
 
 import (
+	"clawdh/internal/config"
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -31,7 +31,7 @@ const Timeout = 20 * time.Second
 // real update path without popping a notification on the desktop of
 // whoever happens to be running it.
 func Enabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("CCAM_NOTIFY"))) {
+	switch strings.ToLower(strings.TrimSpace(config.Env("NOTIFY"))) {
 	case "0", "false", "off", "no":
 		return false
 	}

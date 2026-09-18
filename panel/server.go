@@ -1,13 +1,13 @@
 package panel
 
 import (
+	"clawdh/internal/config"
 	"embed"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
@@ -107,7 +107,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{
 		"needsSetup":   d.Admin == nil,
 		"signedIn":     s.sessionValid(r),
-		"canonicalUrl": strings.TrimRight(os.Getenv("CCAM_PANEL_URL"), "/"),
+		"canonicalUrl": strings.TrimRight(config.Env("PANEL_URL"), "/"),
 		"gatewayUrl":   gatewayURL(),
 	})
 }

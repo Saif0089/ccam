@@ -1,12 +1,12 @@
 package usage
 
 import (
+	"clawdh/internal/config"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -99,7 +99,7 @@ type Client struct {
 // the whole path — server, handler, page — against a stub instead of
 // calling Anthropic from CI.
 func NewClient() *Client {
-	endpoint := os.Getenv("CCAM_USAGE_ENDPOINT")
+	endpoint := config.Env("USAGE_ENDPOINT")
 	if endpoint == "" {
 		endpoint = DefaultEndpoint
 	}
