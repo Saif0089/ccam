@@ -33,7 +33,7 @@ func newHarness(t *testing.T) *harness {
 	h := &harness{t: t, store: store, clock: time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)}
 	store.now = func() time.Time { return h.clock }
 
-	ps := NewServer(store, secret)
+	ps := NewServer(store, secret, nil)
 	ps.now = func() time.Time { return h.clock }
 	h.srv = httptest.NewServer(ps.Handler())
 	t.Cleanup(h.srv.Close)

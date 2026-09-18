@@ -3,7 +3,10 @@ package panelpg
 import (
 	"context"
 	"database/sql"
+	"sort"
 	"time"
+
+	"clawdh/panel"
 )
 
 // The metering tables live alongside the panel_state blob. Unlike the small,
@@ -128,4 +131,97 @@ func (b *Backend) RecordUsage(ctx context.Context, ev UsageEvent) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// ---------------------------------------------------------------- board reads
+//
+// The board types (SubjectUsage/ModelUsage/HourBucket) live in the panel package
+// so the panel can serve them without importing this Postgres layer; panelpg
+// returns them. That keeps the client binary, which imports panel, free of pgx.
+
+// UsageBySubject returns every subject of a kind ('person' | 'account') with its
+// per-model usage since a time, sorted by weighted tokens descending. Names are
+// resolved by the caller from the panel blob (these are IDs).
+func (b *Backend) UsageBySubject(ctx context.Context, subjectType string, since time.Time) ([]panel.SubjectUsage, error) {
+	rows, err := b.db.QueryContext(ctx, `
+		SELECT subject_id, model,
+		       SUM(weighted_tokens), SUM(input_tokens), SUM(output_tokens),
+		       SUM(cache_creation_tokens), SUM(cache_read_tokens), SUM(cost_usd)
+		  FROM usage_counters
+		 WHERE subject_type = $1 AND window_start >= $2
+		 GROUP BY subject_id, model
+		 ORDER BY subject_id`, subjectType, since.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	bySubject := map[string]*panel.SubjectUsage{}
+	for rows.Next() {
+		var sid string
+		var mu panel.ModelUsage
+		if err := rows.Scan(&sid, &mu.Model, &mu.Weighted, &mu.Input, &mu.Output,
+			&mu.CacheCreation, &mu.CacheRead, &mu.CostUSD); err != nil {
+			return nil, err
+		}
+		s := bySubject[sid]
+		if s == nil {
+			s = &panel.SubjectUsage{SubjectID: sid}
+			bySubject[sid] = s
+		}
+		s.ByModel = append(s.ByModel, mu)
+		s.Weighted += mu.Weighted
+		s.CostUSD += mu.CostUSD
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]panel.SubjectUsage, 0, len(bySubject))
+	for _, s := range bySubject {
+		sort.Slice(s.ByModel, func(i, j int) bool { return s.ByModel[i].Weighted > s.ByModel[j].Weighted })
+		out = append(out, *s)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Weighted > out[j].Weighted })
+	return out, nil
+}
+
+// HourlyTotals returns per-hour totals for one subject since a time, or across
+// all subjects of a kind when subjectID is "".
+func (b *Backend) HourlyTotals(ctx context.Context, subjectType, subjectID string, since time.Time) ([]panel.HourBucket, error) {
+	q := `
+		SELECT window_start, SUM(weighted_tokens), SUM(cost_usd)
+		  FROM usage_counters
+		 WHERE subject_type = $1 AND window_start >= $2`
+	args := []any{subjectType, since.UTC()}
+	if subjectID != "" {
+		q += ` AND subject_id = $3`
+		args = append(args, subjectID)
+	}
+	q += ` GROUP BY window_start ORDER BY window_start`
+	rows, err := b.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []panel.HourBucket
+	for rows.Next() {
+		var h panel.HourBucket
+		if err := rows.Scan(&h.Hour, &h.Weighted, &h.CostUSD); err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
+// LatestEventAt is when the most recent usage event landed — the "as of" a board
+// carries so a viewer always knows how fresh the numbers are, and nothing goes
+// silently stale. A never-metered panel returns the zero time.
+func (b *Backend) LatestEventAt(ctx context.Context) (time.Time, error) {
+	var at sql.NullTime
+	err := b.db.QueryRowContext(ctx, `SELECT max(at) FROM usage_events`).Scan(&at)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return at.Time, nil
 }

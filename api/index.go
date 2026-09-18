@@ -50,7 +50,8 @@ func build() (http.Handler, error) {
 		return nil, err
 	}
 	store := panel.NewStoreWithBackend(back)
-	return panel.NewServer(store, secret).Handler(), nil
+	// back is the Postgres backend, which also serves the usage boards.
+	return panel.NewServer(store, secret, back).Handler(), nil
 }
 
 // Handler is Vercel's entry point.

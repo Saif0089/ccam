@@ -103,7 +103,7 @@ func panelServe(args []string) int {
 		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
-	srv := panel.NewServer(panel.NewStore(storePath), secret)
+	srv := panel.NewServer(panel.NewStore(storePath), secret, nil) // local file panel: no metering DB
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {

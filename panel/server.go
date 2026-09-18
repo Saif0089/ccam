@@ -30,12 +30,15 @@ const sessionCookie = "clawdh_panel"
 type Server struct {
 	store  *Store
 	secret *Secret
+	usage  UsageReader // nil for a file-backed panel with no metering DB
 	now    func() time.Time
 }
 
-// NewServer wires a panel over a store and its key.
-func NewServer(store *Store, secret *Secret) *Server {
-	return &Server{store: store, secret: secret, now: time.Now}
+// NewServer wires a panel over a store and its key. usage is the metering read
+// surface for the boards; pass nil (a local, file-backed panel) to leave the
+// usage routes unmounted.
+func NewServer(store *Store, secret *Secret, usage UsageReader) *Server {
+	return &Server{store: store, secret: secret, usage: usage, now: time.Now}
 }
 
 // Handler is the whole panel.
@@ -61,6 +64,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/devices/{id}", s.admin(s.handleRemoveDevice))
 	mux.HandleFunc("POST /api/accounts/{id}/share", s.admin(s.handleShare))
 	mux.HandleFunc("POST /api/shares/{id}/revoke", s.admin(s.handleRevokeShare))
+
+	// The usage boards, when a metering database is wired (the Postgres panel).
+	if s.usage != nil {
+		mux.HandleFunc("GET /api/usage/people", s.admin(s.handleUsage("person")))
+		mux.HandleFunc("GET /api/usage/accounts", s.admin(s.handleUsage("account")))
+		mux.HandleFunc("GET /api/usage/burn", s.admin(s.handleBurn))
+	}
 
 	// What an enrolled machine speaks.
 	mux.HandleFunc("POST /api/v1/enroll", s.handleEnroll)
