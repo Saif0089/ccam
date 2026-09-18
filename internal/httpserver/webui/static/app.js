@@ -491,7 +491,7 @@ function openShareDialog(account, login) {
   shareTarget = { account, login };
   document.getElementById("share-title").textContent = `Share ${account.name}`;
   document.getElementById("share-note").textContent =
-    "Adds this login to a panel so many people can use it at once, through the gateway. Nothing leaves your machine except the login itself.";
+    "Adds this login to a panel so many people can use it at once through the gateway. Important: after this, run it only through the gateway (claude-… under “Shared with you”), not this local one — using the same login both ways breaks it for everyone.";
   document.getElementById("share-err").textContent = "";
   document.getElementById("share-password").value = "";
   // Prefill the panel address from wherever this machine is already connected.
@@ -525,7 +525,7 @@ document.getElementById("share-form").addEventListener("submit", async (e) => {
       }),
     });
     shareDialog.close();
-    alert(`${shareTarget.account.name} is on the panel. Open the panel to give people access.`);
+    alert(`${shareTarget.account.name} is on the panel — open it to give people access.\n\nFrom now on, use this account through the gateway (its claude-… command under "Shared with you"), not the local "${shareTarget.account.name}". Running the same login both ways rotates its token and breaks sharing.`);
   } catch (e2) {
     err.textContent = e2.message;
   } finally {

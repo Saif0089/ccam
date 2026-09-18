@@ -12,11 +12,21 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
 )
+
+// ErrUnknownKey means the presented gateway key belongs to no live share: it was
+// never issued, or its share was revoked. The gateway answers it with 401, which
+// is how revoking a share cuts a member off instantly. Any other error from
+// Resolve means the share is real but its subscription login could not produce a
+// token right now (a failed central refresh, usually because the same login is
+// still being used first-party somewhere) — a 502, not a 401, because the member
+// did nothing wrong and retrying may help.
+var ErrUnknownKey = errors.New("unknown or revoked gateway key")
 
 const (
 	anthropicHost = "api.anthropic.com"
@@ -32,8 +42,10 @@ const (
 // revocation takes effect instantly with nothing to reach the member's machine.
 type Upstream interface {
 	// Resolve maps a member's gateway key to the subscription access token to
-	// forward with, plus a label for logging (never the token).
-	Resolve(memberKey string) (accessToken, label string, ok bool)
+	// forward with, plus a label for logging (never the token). A nil error
+	// means forward; ErrUnknownKey means answer 401; any other error means the
+	// share is valid but its login is unusable right now, answered with 502.
+	Resolve(memberKey string) (accessToken, label string, err error)
 }
 
 // New builds the gateway handler over an Upstream.
@@ -68,9 +80,17 @@ func New(up Upstream) http.Handler {
 			http.Error(w, `{"type":"error","error":{"type":"authentication_error","message":"no gateway key"}}`, http.StatusUnauthorized)
 			return
 		}
-		token, _, ok := up.Resolve(key)
-		if !ok {
+		token, _, err := up.Resolve(key)
+		switch {
+		case errors.Is(err, ErrUnknownKey):
 			http.Error(w, `{"type":"error","error":{"type":"authentication_error","message":"this access has been withdrawn"}}`, http.StatusUnauthorized)
+			return
+		case err != nil:
+			// The share is real but its shared login can't be used right now —
+			// almost always because the same account is still signed in and in
+			// use first-party somewhere, which rotates the login's refresh token
+			// out from under the gateway. Say so, and let the client retry.
+			http.Error(w, `{"type":"error","error":{"type":"api_error","message":"the shared login needs to be re-added — it is being used somewhere else at the same time"}}`, http.StatusBadGateway)
 			return
 		}
 		proxy.ServeHTTP(w, r.WithContext(withToken(r.Context(), token)))

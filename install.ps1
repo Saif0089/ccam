@@ -79,7 +79,19 @@ if (Test-Path $dest) {
 # the move is ever reached, and the elevation below would never get a
 # chance to help. TEMP always belongs to the user.
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) "ccam-$([guid]::NewGuid().ToString('N')).download"
-Invoke-WebRequest -Uri $url -OutFile $tmp
+# Retry a transient CDN hiccup (a 502/504 or a dropped connection) instead of
+# failing the install on the first blip. A loop rather than -MaximumRetryCount,
+# which Windows PowerShell 5.1 does not have. -UseBasicParsing keeps 5.1 off the
+# legacy IE engine.
+$attempt = 0
+while ($true) {
+  try { Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing; break }
+  catch {
+    $attempt++
+    if ($attempt -ge 5) { throw }
+    Start-Sleep -Seconds 2
+  }
+}
 
 # Verify against the checksums published alongside the binary.
 try {

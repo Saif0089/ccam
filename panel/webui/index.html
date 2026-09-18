@@ -73,6 +73,12 @@
   input, select { width:100%; background:var(--sunken); border:1px solid var(--line); color:var(--ink);
     border-radius:8px; padding:11px 12px; font:inherit; font-size:15px; }
   .field + .field { margin-top:16px; }
+  .checks { display:flex; flex-direction:column; gap:2px; max-height:240px; overflow-y:auto;
+    border:1px solid var(--line); border-radius:8px; padding:6px; background:var(--sunken); }
+  .check { display:flex; align-items:center; gap:10px; padding:8px 8px; border-radius:6px;
+    font-size:14.5px; color:var(--ink); cursor:pointer; margin:0; }
+  .check:hover { background:var(--raised-2); }
+  .check input { width:auto; accent-color:var(--primary); }
 
   .copybox { display:flex; gap:8px; margin-top:6px; }
   .copybox code { flex:1; min-width:0; overflow-x:auto; white-space:nowrap; background:var(--sunken);
@@ -226,6 +232,15 @@ function ask({ title, fields = [], note = "", noteClass = "", confirm = "OK", ca
         }).catch(() => (btn.textContent = "Copy failed"));
         box.append(code, btn);
         wrap.append(box);
+      } else if (f.checks) {
+        const list = el("div", { className: "checks", id: "f-" + f.name });
+        for (const o of f.checks) {
+          const row = el("label", { className: "check" });
+          row.append(el("input", { type: "checkbox", value: o.value, checked: !!o.checked }));
+          row.append(el("span", { textContent: o.label }));
+          list.append(row);
+        }
+        wrap.append(list);
       } else if (f.options) {
         const sel = el("select", { id: "f-" + f.name, name: f.name });
         for (const o of f.options) sel.append(el("option", { value: o.value, textContent: o.label }));
@@ -250,7 +265,15 @@ function ask({ title, fields = [], note = "", noteClass = "", confirm = "OK", ca
     const close = (value) => { ok.onclick = null; cancelBtn.onclick = null; $("#dlg").close(); resolve(value); };
     ok.onclick = () => {
       const out = {};
-      for (const f of fields) { const node = $("#f-" + f.name); if (node && "value" in node) out[f.name] = node.value; }
+      for (const f of fields) {
+        const node = $("#f-" + f.name);
+        if (!node) continue;
+        if (f.checks) {
+          out[f.name] = [...node.querySelectorAll("input:checked")].map((c) => c.value);
+        } else if ("value" in node) {
+          out[f.name] = node.value;
+        }
+      }
       close(out);
     };
     cancelBtn.onclick = () => close(null);
@@ -345,28 +368,30 @@ async function giveAccess(a) {
   }
   const out = await ask({
     title: `Give access to ${a.name}`,
-    fields: [{ name: "personId", label: "To", options: without.map((p) => ({ value: p.id, label: p.name })) }],
-    note: "They'll run this account through the gateway — many people can share it at once. It appears on their machine on its own once they've joined.",
+    fields: [{ name: "people", label: "To", checks: without.map((p) => ({ value: p.id, label: p.name })) }],
+    note: "Pick everyone who should use this account. Many people can share it at once, through the gateway — it appears on each machine once they've joined.",
     confirm: "Give access",
   });
   if (!out) return;
+  const ids = out.people || [];
+  if (!ids.length) return;
   try {
-    const { key, gateway } = await api("POST", `/api/accounts/${a.id}/share`, { personId: out.personId });
-    const person = without.find((p) => p.id === out.personId);
-    await refresh();
-    const setUp = person && (person.devices || []).length;
-    if (setUp) {
-      await ask({ title: "Done", note: `${person.name} can now use ${a.name}. It'll appear on their machine within a minute — nothing else to do.`, confirm: "Close", cancel: "" });
-    } else if (gateway && key) {
-      await ask({
-        title: "Done — they haven't joined yet",
-        note: `Once ${person ? person.name : "they"} join, ${a.name} appears on their machine automatically. Until then, they can run it directly with this:`,
-        fields: [{ name: "cmd", label: "Run once to use it", copy: `ccam use ${gateway} ${key}` }],
-        confirm: "Close", cancel: "",
-      });
-    } else {
-      await ask({ title: "Gateway not set", note: "There's no gateway configured (CCAM_GATEWAY_URL), so there's nowhere to point their access yet.", confirm: "Close", cancel: "" });
+    let lastGateway = "";
+    for (const id of ids) {
+      const { gateway } = await api("POST", `/api/accounts/${a.id}/share`, { personId: id });
+      lastGateway = gateway || lastGateway;
     }
+    await refresh();
+    if (!lastGateway) {
+      await ask({ title: "Gateway not set", note: "There's no gateway configured (CCAM_GATEWAY_URL), so there's nowhere to point their access yet.", confirm: "Close", cancel: "" });
+      return;
+    }
+    const names = without.filter((p) => ids.includes(p.id)).map((p) => p.name).join(", ");
+    await ask({
+      title: "Done",
+      note: `${names} can now use ${a.name}. It appears on each machine within a minute once they've joined — invite anyone who hasn't from the People tab.`,
+      confirm: "Close", cancel: "",
+    });
   } catch (e) { alert(e.message); }
 }
 

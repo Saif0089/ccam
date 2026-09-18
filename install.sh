@@ -43,11 +43,13 @@ sums="$(mktemp)"
 trap 'rm -f "$tmp" "$sums"' EXIT
 
 echo "Downloading ccam ($os/$arch)..."
-curl -fsSL "$url" -o "$tmp"
+# --retry rides out a transient hiccup from GitHub's release CDN (a 502/504 or a
+# dropped connection) rather than failing the whole install on the first blip.
+curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused "$url" -o "$tmp"
 
 # Verify against the checksums published alongside the binary. Skipped
 # only if the release has none (older releases) or no sha256 tool exists.
-if curl -fsSL "$(dirname "$url")/checksums.txt" -o "$sums" 2>/dev/null; then
+if curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused "$(dirname "$url")/checksums.txt" -o "$sums" 2>/dev/null; then
   expected="$(grep " ${asset}\$" "$sums" | awk '{print $1}' | head -n 1)"
   if [ -n "$expected" ]; then
     if command -v sha256sum >/dev/null 2>&1; then

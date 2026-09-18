@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,11 +11,11 @@ import (
 
 type fakeUpstream struct{ key, token string }
 
-func (f fakeUpstream) Resolve(k string) (string, string, bool) {
+func (f fakeUpstream) Resolve(k string) (string, string, error) {
 	if k == f.key {
-		return f.token, "acct", true
+		return f.token, "acct", nil
 	}
-	return "", "", false
+	return "", "", ErrUnknownKey
 }
 
 // The gateway must swap a member's key for the real subscription token and add
@@ -74,6 +75,34 @@ func TestGatewayRejectsUnknownKey(t *testing.T) {
 		}
 		resp.Body.Close()
 	}
+}
+
+// A share that is real but whose login can't produce a token is a 502, not a
+// 401: the member did nothing wrong, so telling them their access was withdrawn
+// would be a lie and a retry might succeed.
+func TestGatewayReports502WhenTheLoginIsUnusable(t *testing.T) {
+	h := New(brokenUpstream{})
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/messages", nil)
+	req.Header.Set("Authorization", "Bearer anything")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 502 {
+		t.Errorf("a valid key with an unusable login -> %d, want 502", resp.StatusCode)
+	}
+}
+
+// brokenUpstream stands for a share whose subscription login cannot be refreshed
+// right now — a known key, but no token.
+type brokenUpstream struct{}
+
+func (brokenUpstream) Resolve(string) (string, string, error) {
+	return "", "", errors.New("refreshing the shared login: the token service answered 400")
 }
 
 // rewriteHost points the proxy's outbound host at the test's fake Anthropic,

@@ -82,6 +82,15 @@ func refresh(ctx context.Context, httpc *http.Client, refreshToken string) (Cred
 	}, nil
 }
 
+// Refresh trades a refresh token for a fresh credential against the live token
+// endpoint. It is exported for the gateway's `diagnose` command; ordinary
+// serving goes through a Manager, which caches and persists. Note the refresh
+// token is single-use — a successful call rotates it, so the caller must
+// persist the result or the old token is lost.
+func Refresh(ctx context.Context, refreshToken string) (Credential, error) {
+	return refresh(ctx, &http.Client{Timeout: 30 * time.Second}, refreshToken)
+}
+
 // Manager keeps one account's credential fresh and hands out usable access
 // tokens. It is the exported handle the DB-backed gateway builds one of per
 // shared account.

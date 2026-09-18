@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -52,6 +53,11 @@ func (u *dbUpstream) snapshot() panel.Data {
 	if time.Since(u.dataAt) < dataTTL {
 		return u.data
 	}
+	return u.reloadLocked()
+}
+
+// reloadLocked re-reads the panel now, ignoring the TTL. u.mu must be held.
+func (u *dbUpstream) reloadLocked() panel.Data {
 	if d, err := u.store.Load(); err == nil {
 		u.data = d
 		u.dataAt = time.Now()
@@ -60,25 +66,51 @@ func (u *dbUpstream) snapshot() panel.Data {
 }
 
 // Resolve maps a member key to the account's current access token.
-func (u *dbUpstream) Resolve(memberKey string) (accessToken, label string, ok bool) {
+//
+// A key that is not in the cached snapshot triggers one fresh read before it is
+// declared unknown, so a share created moments ago works on the first request
+// rather than after the cache's TTL — the window that produced a spurious
+// "access has been withdrawn" right after granting access.
+func (u *dbUpstream) Resolve(memberKey string) (accessToken, label string, err error) {
+	keyHash := panel.HashToken(memberKey)
 	d := u.snapshot()
-	share, found := d.ShareByKeyHash(panel.HashToken(memberKey))
+	share, found := d.ShareByKeyHash(keyHash)
 	if !found {
-		return "", "", false
+		u.mu.Lock()
+		d = u.reloadLocked()
+		u.mu.Unlock()
+		if share, found = d.ShareByKeyHash(keyHash); !found {
+			return "", "", gateway.ErrUnknownKey
+		}
 	}
 	acct, ok := d.Account(share.AccountID)
-	if !ok || !acct.HasLogin() {
-		return "", "", false
+	if !ok {
+		return "", "", gateway.ErrUnknownKey // the account was removed
+	}
+	if !acct.HasLogin() {
+		return "", "", fmt.Errorf("%s has no stored login", acct.Name)
 	}
 	mgr, err := u.managerFor(*acct)
 	if err != nil {
-		return "", "", false
+		return "", "", fmt.Errorf("opening the shared login for %s: %w", acct.Name, err)
 	}
 	token, err := mgr.Token(context.Background())
 	if err != nil {
-		return "", "", false
+		// The login can't be rolled forward — its refresh token is dead, which
+		// happens when the same account is still being used first-party
+		// somewhere. Drop the cached manager so a re-added login is picked up.
+		u.forget(acct.ID)
+		return "", "", fmt.Errorf("refreshing the shared login for %s: %w", acct.Name, err)
 	}
-	return token, acct.Name, true
+	return token, acct.Name, nil
+}
+
+// forget drops an account's cached token manager, so the next request rebuilds
+// it from whatever the database now holds (e.g. a login the admin re-added).
+func (u *dbUpstream) forget(accountID string) {
+	u.mu.Lock()
+	delete(u.managers, accountID)
+	u.mu.Unlock()
 }
 
 // managerFor returns the one refreshing token-manager for an account, building

@@ -15,14 +15,24 @@ import (
 
 type staticUpstream struct{ key, token string }
 
-func (s staticUpstream) Resolve(k string) (string, string, bool) {
+func (s staticUpstream) Resolve(k string) (string, string, error) {
 	if k != "" && k == s.key {
-		return s.token, "static", true
+		return s.token, "static", nil
 	}
-	return "", "", false
+	return "", "", gateway.ErrUnknownKey
 }
 
 func main() {
+	// `ccam-gateway diagnose` reports why shares do or don't resolve against the
+	// live DB, then exits. Handled before flag parsing so it needs no flags.
+	if len(os.Args) > 1 && os.Args[1] == "diagnose" {
+		if err := runDiagnose(context.Background(), os.Getenv("DATABASE_URL"), os.Getenv("CCAM_PANEL_KEY")); err != nil {
+			fmt.Fprintln(os.Stderr, "diagnose:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	addr := flag.String("addr", "127.0.0.1:8787", "listen address")
 	memberKey := flag.String("member-key", os.Getenv("CCAM_GW_MEMBER_KEY"), "the gateway key a client presents")
 	flag.Parse()
