@@ -14,6 +14,24 @@ import (
 
 const startupScriptName = "clawdh-autostart.cmd"
 
+// legacyStartupScriptName / the "ccam" scheduled task are the pre-clawdh
+// autostart entries, removed on upgrade so they do not start a second daemon
+// that fights for the port.
+const legacyStartupScriptName = "ccam-autostart.cmd"
+
+// removeLegacyPlatform deletes the old ccam Startup script and scheduled task,
+// if any. All best-effort.
+func removeLegacyPlatform() {
+	_ = exec.Command("schtasks", "/Delete", "/TN", "ccam", "/F").Run()
+	if folder, err := startupFolder(); err == nil {
+		_ = os.Remove(filepath.Join(folder, legacyStartupScriptName))
+	}
+	// The old Scheduled-Task fallback kept its script under the old ~/.ccam home.
+	if home, err := os.UserHomeDir(); err == nil {
+		_ = os.Remove(filepath.Join(home, ".ccam", legacyStartupScriptName))
+	}
+}
+
 type windowsService struct{ generic }
 
 func newPlatformService(binaryPath string, port int) Service {

@@ -31,3 +31,16 @@ type Service interface {
 func New(binaryPath string, port int) Service {
 	return newPlatformService(binaryPath, port)
 }
+
+// RemoveLegacy best-effort removes a prior ccam install's autostart
+// registration — the old service under the com.ccam.agent / ccam.service /
+// ccam.desktop names (and the old Windows Startup script / scheduled task) —
+// and stops it if it is running. It never errors: installing clawdh on a
+// machine that never had ccam simply finds nothing to remove.
+//
+// The clean cutover is the install script running the old `ccam uninstall`,
+// which also strips the old rc block and removes the old binary. This is the
+// safety net for a manual `clawdh install` where the old binary is already gone
+// but its autostart entry would otherwise start a second daemon that fights the
+// new one for the port.
+func RemoveLegacy() { removeLegacyPlatform() }

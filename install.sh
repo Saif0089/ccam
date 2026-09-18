@@ -27,7 +27,7 @@ case "$arch_name" in
     ;;
 esac
 
-version="${CCAM_VERSION:-latest}"
+version="${CLAWDH_VERSION:-${CCAM_VERSION:-latest}}"
 asset="clawdh_${os}_${arch}"
 if [ "$version" = "latest" ]; then
   url="https://github.com/${REPO}/releases/latest/download/${asset}"
@@ -35,7 +35,7 @@ else
   url="https://github.com/${REPO}/releases/download/${version}/${asset}"
 fi
 
-install_dir="${CCAM_INSTALL_DIR:-$HOME/.local/bin}"
+install_dir="${CLAWDH_INSTALL_DIR:-${CCAM_INSTALL_DIR:-$HOME/.local/bin}}"
 mkdir -p "$install_dir"
 
 tmp="$(mktemp)"
@@ -88,6 +88,18 @@ case ":$PATH:" in
     echo "  export PATH=\"$install_dir:\$PATH\""
     ;;
 esac
+
+# Cross over from a previous ccam install: let the old binary uninstall itself
+# (it stops its service, strips its shell block, and removes itself), so it
+# doesn't leave a second daemon fighting clawdh for the port. Account data is
+# left in place for clawdh to import on first run. Best-effort; a machine with
+# no ccam just skips it.
+for old_ccam in "$HOME/.local/bin/ccam" "$install_dir/ccam"; do
+  if [ -x "$old_ccam" ]; then
+    echo "Removing the previous ccam install..."
+    "$old_ccam" uninstall >/dev/null 2>&1 || true
+  fi
+done
 
 echo ""
 "$install_dir/clawdh" install

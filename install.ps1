@@ -1,7 +1,7 @@
 # Installs clawdh for the current user: no system directories, only a
 # per-user install dir and a per-user PATH entry (HKCU, not HKLM). The
 # default install needs no admin and prompts for none — elevation is
-# requested only if CCAM_INSTALL_DIR points somewhere this account
+# requested only if CLAWDH_INSTALL_DIR points somewhere this account
 # cannot write, and only after Windows has actually refused. Safe to
 # pipe straight into a normal (non-elevated) PowerShell prompt:
 #
@@ -15,7 +15,7 @@ $arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArch
   default   { "amd64" }
 }
 
-$version = if ($env:CCAM_VERSION) { $env:CCAM_VERSION } else { "latest" }
+$version = if ($env:CLAWDH_VERSION) { $env:CLAWDH_VERSION } elseif ($env:CCAM_VERSION) { $env:CCAM_VERSION } else { "latest" }
 $asset = "clawdh_windows_$arch.exe"
 if ($version -eq "latest") {
   $url = "https://github.com/$Repo/releases/latest/download/$asset"
@@ -25,7 +25,7 @@ if ($version -eq "latest") {
 
 # Elevation is never needed for the install this script is designed for:
 # %LOCALAPPDATA% and a HKCU PATH entry both belong to the user. But the
-# directory is overridable, and an administrator pointing CCAM_INSTALL_DIR
+# directory is overridable, and an administrator pointing CLAWDH_INSTALL_DIR
 # at Program Files — or an enterprise image that pre-creates it — leaves a
 # location this account cannot write. Rather than fail there, ask for
 # rights, and only once Windows has actually refused. Nothing below
@@ -53,7 +53,7 @@ function Test-AccessDenied($errorRecord) {
 
 function ps1Quote([string]$s) { "'" + $s.Replace("'", "''") + "'" }
 
-$installDir = if ($env:CCAM_INSTALL_DIR) { $env:CCAM_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "clawdh\bin" }
+$installDir = if ($env:CLAWDH_INSTALL_DIR) { $env:CLAWDH_INSTALL_DIR } elseif ($env:CCAM_INSTALL_DIR) { $env:CCAM_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "clawdh\bin" }
 try {
   New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 } catch {
@@ -136,5 +136,21 @@ if ($userPath.Split(";") -notcontains $installDir) {
 }
 
 Write-Host "Installed $dest"
+
+# Cross over from a previous ccam install: let the old binary uninstall itself
+# (it stops its service, strips its shell block, and removes itself), so it
+# doesn't leave a second daemon fighting clawdh for the port. Account data is
+# left in place for clawdh to import on first run. Best-effort.
+$oldCcam = @(
+  (Join-Path $env:LOCALAPPDATA "ccam\bin\ccam.exe"),
+  (Join-Path $installDir "ccam.exe")
+) | Select-Object -Unique
+foreach ($old in $oldCcam) {
+  if (Test-Path $old) {
+    Write-Host "Removing the previous ccam install..."
+    try { & $old uninstall | Out-Null } catch { }
+  }
+}
+
 Write-Host ""
 & $dest install

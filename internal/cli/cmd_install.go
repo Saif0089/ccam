@@ -24,6 +24,12 @@ func cmdInstall(args []string) int {
 		return 1
 	}
 
+	// Upgrading from a prior ccam install: clear its autostart entry before
+	// registering ours, so both don't start at login and fight for the port.
+	// The install script does the fuller cutover (the old `ccam uninstall`);
+	// this covers a manual install where the old binary is already gone.
+	service.RemoveLegacy()
+
 	svc := service.New(binaryPath, *port)
 	artifact, err := svc.Install(binaryPath, *port)
 	if err != nil {

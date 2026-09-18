@@ -14,6 +14,22 @@ import (
 
 const launchAgentLabel = "com.clawdh.agent"
 
+// legacyLaunchAgentLabel is the pre-clawdh (ccam) LaunchAgent, removed on
+// upgrade so it does not start a second daemon that fights for the port.
+const legacyLaunchAgentLabel = "com.ccam.agent"
+
+// removeLegacyPlatform boots out and deletes the old ccam LaunchAgent, if any.
+// `launchctl bootout` both stops and unloads it, so this also stops a running
+// old daemon; everything is best-effort.
+func removeLegacyPlatform() {
+	if target, err := guiTarget(); err == nil {
+		_ = exec.Command("launchctl", "bootout", target+"/"+legacyLaunchAgentLabel).Run()
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		_ = os.Remove(filepath.Join(home, "Library", "LaunchAgents", legacyLaunchAgentLabel+".plist"))
+	}
+}
+
 type darwinService struct{ generic }
 
 func newPlatformService(binaryPath string, port int) Service {

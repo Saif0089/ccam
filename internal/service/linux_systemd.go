@@ -14,6 +14,28 @@ import (
 
 const serviceUnitName = "clawdh.service"
 
+// legacyUnitName is the pre-clawdh (ccam) systemd user unit, removed on upgrade
+// so it does not start a second daemon that fights for the port.
+const legacyUnitName = "ccam.service"
+
+// removeLegacyPlatform stops, disables and deletes the old ccam systemd user
+// unit and XDG autostart entry, if any. All best-effort.
+func removeLegacyPlatform() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	unit := filepath.Join(home, ".config", "systemd", "user", legacyUnitName)
+	if _, statErr := os.Stat(unit); statErr == nil {
+		_ = exec.Command("systemctl", "--user", "stop", legacyUnitName).Run()
+		_ = exec.Command("systemctl", "--user", "disable", legacyUnitName).Run()
+		_ = os.Remove(filepath.Join(filepath.Dir(unit), "default.target.wants", legacyUnitName))
+		_ = os.Remove(unit)
+		_ = exec.Command("systemctl", "--user", "daemon-reload").Run()
+	}
+	_ = os.Remove(filepath.Join(home, ".config", "autostart", "ccam.desktop"))
+}
+
 type linuxService struct{ generic }
 
 func newPlatformService(binaryPath string, port int) Service {
