@@ -47,6 +47,14 @@ func hookUserPromptSubmit() int {
 		return 0 // the overwhelmingly common case: an ordinary prompt
 	}
 
+	// A shared (gateway) session runs on a key, not a local login, so there is
+	// nothing to switch in place. Say that, by name, rather than the misleading
+	// "this session was not started by ccam".
+	if shared := os.Getenv(sharedSessionEnvVar); shared != "" {
+		return block("This is a shared session (" + shared + "), and a shared session can't change accounts in place. " +
+			"Exit it, then run `ccam " + name + "` for an account on this machine or `ccam shared <name>` for a shared one. `ccam list` shows both.")
+	}
+
 	list, err := loadAccounts()
 	if err != nil {
 		return 0

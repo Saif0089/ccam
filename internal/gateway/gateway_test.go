@@ -95,6 +95,9 @@ func TestGatewayReports502WhenTheLoginIsUnusable(t *testing.T) {
 	if resp.StatusCode != 502 {
 		t.Errorf("a valid key with an unusable login -> %d, want 502", resp.StatusCode)
 	}
+	if resp.Header.Get("x-should-retry") != "false" {
+		t.Error("a definitive gateway error must tell Claude Code not to retry it")
+	}
 }
 
 // brokenUpstream stands for a share whose subscription login cannot be refreshed

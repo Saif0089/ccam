@@ -5,9 +5,6 @@ import (
 	"net/http"
 
 	"ccam/internal/accounts"
-	"ccam/internal/config"
-	"ccam/internal/shellrc"
-	"ccam/panel"
 )
 
 type accountsResponse struct {
@@ -87,42 +84,11 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// syncAliases rewrites every rc file's managed block to match the
-// current account list. Called after every mutation so a fresh
-// terminal always has an up-to-date alias.
+// syncAliases rewrites every rc file's managed block. Accounts no longer get
+// shell aliases — every account runs as `ccam <name>` or `ccam shared <name>`,
+// one command shape on every OS — so the block carries only the `claude`
+// wrapper that makes a plain `claude` session switchable. Syncing with no
+// entries is also what removes aliases written by earlier versions.
 func (s *Server) syncAliases() error {
-	list, err := s.manager.List()
-	if err != nil {
-		return err
-	}
-	entries := make([]shellrc.AliasEntry, 0, len(list))
-	for _, a := range list {
-		// The default account is reached by typing `claude`; writing an
-		// `alias claude=...` would be redundant and a good way to break
-		// the user's actual claude command.
-		if a.IsDefault() {
-			continue
-		}
-		entries = append(entries, shellrc.AliasEntry{Alias: a.Alias, ConfigDir: a.ConfigDir, Account: a.Slug})
-	}
-	return s.syncer.Sync(append(entries, gatewayAliasEntries()...))
-}
-
-// gatewayAliasEntries turns the gateway shares this machine holds into
-// `claude-<slug>` aliases that run `ccam shared <slug>`. It is how a shared
-// account becomes a command you can type, the same way a local one is.
-func gatewayAliasEntries() []shellrc.AliasEntry {
-	path, err := config.SharesFile()
-	if err != nil {
-		return nil
-	}
-	shares, err := panel.LoadShares(path)
-	if err != nil {
-		return nil
-	}
-	entries := make([]shellrc.AliasEntry, 0, len(shares))
-	for _, sh := range shares {
-		entries = append(entries, shellrc.AliasEntry{Alias: "claude-" + sh.Slug, Account: sh.Slug, Shared: true})
-	}
-	return entries
+	return s.syncer.Sync(nil)
 }

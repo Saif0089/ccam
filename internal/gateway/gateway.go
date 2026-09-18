@@ -12,6 +12,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httputil"
@@ -70,31 +71,57 @@ func New(up Upstream) http.Handler {
 			// and add exactly what a first-party subscription request carries.
 			r.Header.Set("Authorization", "Bearer "+token)
 			r.Header.Del("x-api-key")
-			r.Header.Set("anthropic-version", anthropicVersion)
+			// The compatibility guide says to forward anthropic-version and
+			// anthropic-beta unchanged; the version is only filled in when the
+			// client sent none, and the beta list keeps everything the client
+			// asked for plus the OAuth capability a subscription token needs.
+			if r.Header.Get("anthropic-version") == "" {
+				r.Header.Set("anthropic-version", anthropicVersion)
+			}
 			r.Header.Set("anthropic-beta", withBeta(r.Header.Get("anthropic-beta"), oauthBeta))
 		},
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := memberKey(r)
 		if key == "" {
-			http.Error(w, `{"type":"error","error":{"type":"authentication_error","message":"no gateway key"}}`, http.StatusUnauthorized)
+			deny(w, http.StatusUnauthorized, "authentication_error",
+				"No gateway key was sent. Run this account through ccam (`ccam shared <name>`), which supplies your key.")
 			return
 		}
 		token, _, err := up.Resolve(key)
 		switch {
 		case errors.Is(err, ErrUnknownKey):
-			http.Error(w, `{"type":"error","error":{"type":"authentication_error","message":"this access has been withdrawn"}}`, http.StatusUnauthorized)
+			deny(w, http.StatusUnauthorized, "authentication_error",
+				"Your access to this shared account was removed, or this key is not one the gateway knows. Ask whoever shared it to give you access again; `ccam list` shows what you can run.")
 			return
 		case err != nil:
 			// The share is real but its shared login can't be used right now —
 			// almost always because the same account is still signed in and in
 			// use first-party somewhere, which rotates the login's refresh token
-			// out from under the gateway. Say so, and let the client retry.
-			http.Error(w, `{"type":"error","error":{"type":"api_error","message":"the shared login needs to be re-added — it is being used somewhere else at the same time"}}`, http.StatusBadGateway)
+			// out from under the gateway. Nothing the member does will fix it, so
+			// say what will, and don't have the client retry into it.
+			deny(w, http.StatusBadGateway, "api_error",
+				"The shared login for this account stopped working — usually because the same account is also being used directly on another machine, which invalidates the copy the gateway holds. The account's owner needs to add its login to the panel again.")
 			return
 		}
 		proxy.ServeHTTP(w, r.WithContext(withToken(r.Context(), token)))
 	})
+}
+
+// deny answers with the Anthropic error envelope Claude Code expects, and with
+// x-should-retry: false. Every gateway-issued error here is definitive — a
+// missing or revoked key, a login that needs re-adding — so retrying is pure
+// delay; without the header Claude Code retries a 5xx up to ten times with
+// backoff before the person ever sees the message.
+func deny(w http.ResponseWriter, status int, errType, message string) {
+	body, _ := json.Marshal(map[string]any{
+		"type":  "error",
+		"error": map[string]string{"type": errType, "message": message},
+	})
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("x-should-retry", "false")
+	w.WriteHeader(status)
+	_, _ = w.Write(body)
 }
 
 // memberKey pulls the caller's gateway key from where Claude Code puts it in

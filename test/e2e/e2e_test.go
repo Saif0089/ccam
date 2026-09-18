@@ -131,12 +131,10 @@ func TestFullLifecycle(t *testing.T) {
 
 	// --- full account lifecycle over the real HTTP API. ---
 	account := h.createAccount("Work")
-	rcContentBefore := h.readAnyRcFile()
-	if !strings.Contains(rcContentBefore, account.Alias) {
-		t.Fatalf("expected alias %q in rc file, got:\n%s", account.Alias, rcContentBefore)
-	}
-	if strings.Count(rcContentBefore, "ccam accounts") != 2 { // begin + end marker
-		t.Errorf("expected exactly one managed block, rc file:\n%s", rcContentBefore)
+	// Accounts no longer get a shell alias — they run as `ccam <name>` on every
+	// OS — so creating one writes no managed rc block.
+	if data, err := os.ReadFile(h.anyRcPath()); err == nil && strings.Contains(string(data), "Managed by ccam") {
+		t.Errorf("creating an account wrote a shell alias block, want none:\n%s", data)
 	}
 
 	h.driveLoginToLinked(account.ID)

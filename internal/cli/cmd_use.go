@@ -8,8 +8,13 @@ import (
 
 	"ccam/internal/claudebin"
 	"ccam/internal/config"
+	"ccam/internal/switching"
 	"ccam/panel"
 )
+
+// sharedSessionEnvVar marks a Claude Code process as a shared (gateway) session
+// and carries the shared account's name, for the switch hook to read.
+const sharedSessionEnvVar = "CCAM_SHARED_SESSION"
 
 // cmdUse runs Claude Code through a ccam gateway: it points Claude at the
 // gateway (ANTHROPIC_BASE_URL) and presents the person's key
@@ -23,12 +28,12 @@ func cmdUse(args []string) int {
 		fmt.Fprintln(os.Stderr, "usage: ccam use <gateway-url> <key> [claude args...]")
 		return 2
 	}
-	return runGateway(strings.TrimRight(args[0], "/"), args[1], args[2:])
+	return runGateway(strings.TrimRight(args[0], "/"), args[1], "a shared account", args[2:])
 }
 
 // cmdShared runs a gateway-shared account by its slug, reading the gateway URL
 // and this person's key from ccam's shares cache — so nobody has to copy a key
-// around, and the shell alias `claude-<slug>` is all that a shared account needs.
+// around. Everything after the slug goes to Claude Code unchanged.
 //
 //	ccam shared <slug> [claude args...]
 func cmdShared(args []string) int {
@@ -50,7 +55,7 @@ func cmdShared(args []string) int {
 	}
 	for _, sh := range shares {
 		if strings.EqualFold(sh.Slug, slug) {
-			return runGateway(strings.TrimRight(sh.Gateway, "/"), sh.Key, rest)
+			return runGateway(strings.TrimRight(sh.Gateway, "/"), sh.Key, sh.Slug, rest)
 		}
 	}
 	fmt.Fprintf(os.Stderr, "ccam: no shared account called %q on this machine.\n", slug)
@@ -70,14 +75,22 @@ func cmdShared(args []string) int {
 // gateway (ANTHROPIC_BASE_URL) and presents the key (ANTHROPIC_AUTH_TOKEN).
 // CLAUDE_CONFIG_DIR and the securestorage var are stripped so a stray local
 // login can't take precedence over the gateway.
-func runGateway(url, key string, rest []string) int {
+//
+// label names the shared account for the switch hook: a shared session cannot
+// change accounts in place, and the hook says so by name instead of telling the
+// person their session "was not started by ccam". Any supervisor handoff
+// inherited from an enclosing `ccam <account>` session is dropped for the same
+// reason — a `ccam <name>` typed in here must not switch that outer session.
+func runGateway(url, key, label string, rest []string) int {
 	name, argv := claudebin.Invocation(claudebin.Resolve(), rest)
 	cmd := exec.Command(name, argv...)
-	cmd.Env = append(os.Environ(),
+	env := accountsEnvWithout(os.Environ(),
+		"CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR", switching.HandoffEnvVar, sharedSessionEnvVar)
+	cmd.Env = append(env,
 		"ANTHROPIC_BASE_URL="+url,
 		"ANTHROPIC_AUTH_TOKEN="+key,
+		sharedSessionEnvVar+"="+label,
 	)
-	cmd.Env = accountsEnvWithout(cmd.Env, "CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
 		return exitCodeOf(err)

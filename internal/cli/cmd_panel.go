@@ -232,27 +232,14 @@ func panelClient() (*panel.Client, error) {
 		Accounts:   mgr,
 		SharesPath: sharesPath,
 		AfterChange: func() {
-			// An account gained or given back — or a share added or revoked —
-			// changes which shell commands exist, so the rc blocks follow it.
+			// Nothing per-account is written to shell rc files any more — every
+			// account runs as `ccam <name>` / `ccam shared <name>` — but the
+			// managed block is re-synced so aliases from earlier versions go.
 			home, err := os.UserHomeDir()
 			if err != nil {
 				return
 			}
-			list, err := mgr.List()
-			if err != nil {
-				return
-			}
-			entries := make([]shellrc.AliasEntry, 0, len(list))
-			for _, a := range list {
-				if a.IsDefault() {
-					continue // `claude` is already that account
-				}
-				entries = append(entries, shellrc.AliasEntry{Alias: a.Alias, ConfigDir: a.ConfigDir, Account: a.Slug})
-			}
-			for _, sh := range gatewaySharesFor(sharesPath) {
-				entries = append(entries, shellrc.AliasEntry{Alias: "claude-" + sh.Slug, Account: sh.Slug, Shared: true})
-			}
-			_ = shellrc.NewSyncer(home).Sync(entries)
+			_ = shellrc.NewSyncer(home).Sync(nil)
 		},
 	}, nil
 }
@@ -297,7 +284,7 @@ func panelCheck(_ []string) int {
 
 	change, err := c.CheckIn(ctx)
 	for _, name := range change.Gained {
-		fmt.Printf("You can now use %s — run it with `claude-%s` (or `ccam shared %s`).\n", name, slugifyName(name), slugifyName(name))
+		fmt.Printf("You can now use %s — run it with `ccam shared %s`.\n", name, slugifyName(name))
 	}
 	for _, name := range change.Lost {
 		fmt.Printf("%s is no longer shared with you.\n", name)
@@ -413,7 +400,7 @@ func watchPanel(ctx context.Context) {
 		}
 		change, err := c.CheckIn(ctx)
 		for _, name := range change.Gained {
-			fmt.Printf("ccam: %s is now shared with this machine — run it with `claude-%s`.\n", name, slugifyName(name))
+			fmt.Printf("ccam: %s is now shared with this machine — run it with `ccam shared %s`.\n", name, slugifyName(name))
 		}
 		for _, name := range change.Lost {
 			fmt.Printf("ccam: %s is no longer shared with this machine.\n", name)
@@ -490,7 +477,7 @@ func panelStatusCmd() int {
 	} else {
 		fmt.Println("Shared with you:")
 		for _, sh := range shares {
-			fmt.Printf("    %-16s run it with:  claude-%s\n", sh.Account, sh.Slug)
+			fmt.Printf("    %-24s ccam shared %s\n", sh.Account, sh.Slug)
 		}
 	}
 	return 0

@@ -46,6 +46,8 @@ func Run(args []string) int {
 		return cmdUse(args[1:])
 	case "shared":
 		return cmdShared(args[1:])
+	case "list", "ls", "accounts":
+		return cmdList(args[1:])
 	case "join":
 		return cmdJoin(args[1:])
 	case "panel":
@@ -99,19 +101,12 @@ func Run(args []string) int {
 }
 
 func printUsage(w *os.File) {
-	// The shell shortcut for an account only exists where ccam writes shell rc
-	// aliases; on Windows it usually does not, so the portable `ccam <name>`
-	// form is named first and the shortcut is shown as the extra it is.
-	shortcut := "or the `claude-<name>` shortcut your shell sets up"
-	if runtime.GOOS == "windows" {
-		shortcut = "the `claude-<name>` shortcut is not set up on Windows"
-	}
 	fmt.Fprint(w, `ccam — run and share Claude Code accounts
 
 EVERYDAY
-  ccam                       Show this help
-  ccam <name> [args...]      Run Claude as an account (`+shortcut+`)
-  ccam use <gateway> <key>   Run Claude on a shared account, through a gateway
+  ccam list                  Every account you can run here, and the command for each
+  ccam <name> [args...]      Run Claude as one of your accounts (args go to claude)
+  ccam shared <name> [args]  Run Claude on an account someone shared with you
   ccam status                Is the ccam service running, and on what URL
 
 ACCOUNTS live on the web page ccam opens — add, connect, and remove them there:
@@ -122,6 +117,7 @@ ACCOUNTS live on the web page ccam opens — add, connect, and remove them there
 
 SHARING one account with other people (needs a panel + gateway):
   ccam join <invite-link>    Connect this machine to a panel from an invite link
+  ccam use <gateway> <key>   Run Claude on a shared account by hand, without joining
   ccam panel <command>       Run or manage the panel — see `+"`ccam panel help`"+`
 
 OTHER

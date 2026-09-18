@@ -20,13 +20,8 @@ const connectedNote = document.getElementById("connected-note");
 // press a button and wonder whether they had to.
 const POLL_MS = 5000;
 
-// Which command runs an account depends on the machine ccam is on — where the
-// shell aliases live — not on the browser, which may be a different computer.
-// So the server tells us its OS; Windows gets no `claude-<name>` alias, so
-// there the page shows the portable `ccam <name>` instead. Defaults to the
-// alias form until the first status reply, which is right everywhere but
-// Windows and self-corrects on the first poll.
-let serverIsWindows = false;
+// Every account runs through `ccam` — no shell aliases to install, keep in
+// sync, or get wrong on Windows. One command shape, the same everywhere.
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -49,11 +44,10 @@ async function api(path, opts) {
 // always matches what their shell actually has.
 function runCommand(account) {
   if (account.kind === "default") return "claude";
-  if (serverIsWindows) return `ccam ${account.slug}`;
-  return account.alias || `claude-${account.slug}`;
+  return `ccam ${account.slug}`;
 }
 function sharedRunCommand(slug) {
-  return serverIsWindows ? `ccam shared ${slug}` : `claude-${slug}`;
+  return `ccam shared ${slug}`;
 }
 
 // --- time formatting --------------------------------------------------
@@ -705,13 +699,6 @@ async function loadServerInfo() {
   try {
     const status = await api("/api/status");
     if (status && status.tag) buildTag.textContent = status.tag;
-    if (status && status.os) {
-      const win = status.os === "windows";
-      if (win !== serverIsWindows) {
-        serverIsWindows = win;
-        renderedSignature = null; // the shown commands change, so redraw
-      }
-    }
   } catch (_) {}
 }
 

@@ -223,7 +223,7 @@ test("adds an account, shows the full OAuth URL, and links it", async ({ page })
 
   await page.click("#login-close");
   await expect(page.locator(".status-pill")).toHaveText("Ready");
-  await expect(page.locator(".run-cmd")).toHaveText("claude-work");
+  await expect(page.locator(".run-cmd")).toHaveText("ccam work");
 });
 
 test("shows plan usage and reset countdowns", async ({ page }) => {
@@ -539,7 +539,7 @@ test("can start another login after closing one mid-flight", async ({ page }) =>
   await page.waitForTimeout(1000);
 });
 
-test("renames an account and updates its alias", async ({ page }) => {
+test("renames an account and updates its run command", async ({ page }) => {
   await page.goto(baseURL);
 
   await page.click(".rename-btn");
@@ -547,7 +547,7 @@ test("renames an account and updates its alias", async ({ page }) => {
   await page.click("#rename-form button[type=submit]");
 
   await expect(page.locator(".account-name")).toHaveText("Side Project");
-  await expect(page.locator(".run-cmd")).toHaveText("claude-side-project");
+  await expect(page.locator(".run-cmd")).toHaveText("ccam side-project");
 });
 
 test("rejects a whitespace-only name instead of silently doing nothing", async ({ page }) => {
