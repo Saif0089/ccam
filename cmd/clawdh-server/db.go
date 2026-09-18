@@ -114,8 +114,11 @@ func (u *dbUpstream) Resolve(memberKey string) (gateway.Resolution, error) {
 	if err != nil {
 		// The login can't be rolled forward — its refresh token is dead, which
 		// happens when the same account is still being used first-party
-		// somewhere. Drop the cached manager so a re-added login is picked up.
+		// somewhere. Drop the cached manager so a re-added login is picked up,
+		// and record the collision so the panel can warn that this account is
+		// being used outside the gateway.
 		u.forget(acct.ID)
+		u.recordCollision(acct.ID)
 		return gateway.Resolution{}, fmt.Errorf("refreshing the shared login for %s: %w", acct.Name, err)
 	}
 	return gateway.Resolution{
@@ -183,6 +186,17 @@ func (u *dbUpstream) OverLimit(personID string) (bool, int, string) {
 	u.limitCache[personID] = limitCacheEntry{over: st.Over, retry: retry, message: st.Message, at: time.Now()}
 	u.mu.Unlock()
 	return st.Over, retry, st.Message
+}
+
+// recordCollision notes, best-effort, that an account's shared login just failed
+// to refresh — the panel turns this into a "used outside the gateway" warning.
+func (u *dbUpstream) recordCollision(accountID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := u.pg.RecordCollision(ctx, accountID,
+		"the shared login failed to refresh — the account is likely being used first-party outside the gateway"); err != nil {
+		log.Printf("health: recording collision for account %s: %v", accountID, err)
+	}
 }
 
 // forget drops an account's cached token manager, so the next request rebuilds

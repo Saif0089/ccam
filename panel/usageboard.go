@@ -53,6 +53,8 @@ type UsageReader interface {
 	ListLimits(ctx context.Context) ([]Limit, error)
 	SetLimit(ctx context.Context, l Limit) error
 	DeleteLimit(ctx context.Context, id string) error
+	// Health: accounts whose shared login recently broke (used outside the gateway).
+	RecentCollisions(ctx context.Context, since time.Time) (map[string]time.Time, error)
 }
 
 // windowSince maps a window name to a real time-based start (not a calendar-day

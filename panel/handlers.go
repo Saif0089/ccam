@@ -28,6 +28,9 @@ type accountView struct {
 	Email    string `json:"email,omitempty"`
 	Plan     string `json:"plan,omitempty"`
 	HasLogin bool   `json:"hasLogin"`
+	// Warning is set when this account's shared login recently failed to refresh
+	// — a sign it is being used first-party outside the gateway.
+	Warning string `json:"warning,omitempty"`
 	// Shared is everyone with gateway access to this account right now — many
 	// people can share one login, so this is a list, not one holder.
 	Shared []shareView `json:"shared,omitempty"`
@@ -76,6 +79,18 @@ func (s *Server) handlePanel(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		accounts = append(accounts, v)
+	}
+
+	// Flag any account whose shared login broke in the last day — a sign it is
+	// being used first-party, outside the gateway.
+	if s.usage != nil {
+		if col, err := s.usage.RecentCollisions(r.Context(), s.now().Add(-24*time.Hour)); err == nil {
+			for i := range accounts {
+				if _, hit := col[accounts[i].ID]; hit {
+					accounts[i].Warning = "This account's shared login recently failed to refresh — it's likely being used directly (a raw login) on a machine outside the gateway, which invalidates the copy the gateway holds. Close that session and re-add the login to the panel."
+				}
+			}
+		}
 	}
 
 	people := make([]personView, 0, len(d.People))

@@ -150,6 +150,7 @@
   .limit-row { grid-template-columns:150px 1fr auto; }
   .lcap { color:var(--muted); font-size:15px; }
   button.sm { font-size:13px; padding:5px 11px; }
+  .warn-icon { margin-left:8px; color:var(--warn); cursor:help; font-size:15px; }
 </style>
 </head>
 <body>
@@ -411,7 +412,11 @@ function renderAccounts() {
 
   const rows = state.accounts.map((a) => {
     const tr = el("tr");
-    tr.append(cell(a.name, a.email || (a.plan ? a.plan + " plan" : "")));
+    const nameCell = cell(a.name, a.email || (a.plan ? a.plan + " plan" : ""));
+    if (a.warning) {
+      nameCell.append(el("span", { className: "warn-icon", title: a.warning, textContent: "⚠" }));
+    }
+    tr.append(nameCell);
 
     const st = el("td");
     if (!a.hasLogin) {
