@@ -102,6 +102,19 @@ type Event struct {
 	What string    `json:"what"`
 }
 
+// Share is one account made available to one person through the gateway. Unlike
+// the old one-holder assignment, an account can have many shares at once — that
+// is the whole point of the gateway: many people, one login, together. Each
+// share carries the hash of a gateway key the person's Claude Code presents; the
+// gateway maps that key to this account's live token.
+type Share struct {
+	ID        string    `json:"id"`
+	AccountID string    `json:"accountId"`
+	PersonID  string    `json:"personId"`
+	KeyHash   string    `json:"keyHash"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
 // JoinCode is a one-shot code that enrols a machine as a given person.
 type JoinCode struct {
 	CodeHash  string    `json:"codeHash"`

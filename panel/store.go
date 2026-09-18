@@ -36,6 +36,7 @@ type Data struct {
 	Accounts    []Account    `json:"accounts,omitempty"`
 	Assignments []Assignment `json:"assignments,omitempty"`
 	JoinCodes   []JoinCode   `json:"joinCodes,omitempty"`
+	Shares      []Share      `json:"shares,omitempty"`
 	Activity    []Event      `json:"activity,omitempty"`
 }
 
@@ -228,6 +229,18 @@ func (d *Data) Device(id string) (*Device, bool) {
 	return nil, false
 }
 
+// ShareByKeyHash returns the share a gateway key belongs to, for the gateway to
+// resolve a member key to an account. A key with no live share is unknown, which
+// the gateway turns into a 401 — instant revocation.
+func (d *Data) ShareByKeyHash(keyHash string) (Share, bool) {
+	for _, sh := range d.Shares {
+		if sh.KeyHash == keyHash {
+			return sh, true
+		}
+	}
+	return Share{}, false
+}
+
 // HolderOf returns the assignment in force for an account, if any.
 func (d *Data) HolderOf(accountID string, now time.Time) (Assignment, bool) {
 	for _, a := range d.Assignments {
@@ -328,6 +341,59 @@ func (s *Store) TakeBack(assignmentID, why, who string) error {
 			return nil
 		}
 		return fmt.Errorf("no assignment with id %q", assignmentID)
+	})
+}
+
+// IssueShare makes an account available to a person through the gateway and
+// returns the gateway key to hand out (stored only as a hash). Issuing it again
+// for the same pair replaces the key, so a lost key is rotated by re-issuing.
+func (s *Store) IssueShare(accountID, personID string) (key string, err error) {
+	key, hash, err := NewToken()
+	if err != nil {
+		return "", err
+	}
+	err = s.Mutate(func(d *Data) error {
+		if _, ok := d.Account(accountID); !ok {
+			return fmt.Errorf("no account with id %q", accountID)
+		}
+		if _, ok := d.Person(personID); !ok {
+			return fmt.Errorf("no person with id %q", personID)
+		}
+		out := d.Shares[:0]
+		for _, sh := range d.Shares {
+			if !(sh.AccountID == accountID && sh.PersonID == personID) {
+				out = append(out, sh)
+			}
+		}
+		d.Shares = append(out, Share{ID: newID(), AccountID: accountID, PersonID: personID, KeyHash: hash, CreatedAt: s.now()})
+		d.Log(s.now(), "You", fmt.Sprintf("gave %s access to %s", d.personName(personID), d.accountName(accountID)))
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return key, nil
+}
+
+// RevokeShare withdraws a person's gateway access to an account; their key stops
+// working at the gateway on the next request.
+func (s *Store) RevokeShare(shareID string) error {
+	return s.Mutate(func(d *Data) error {
+		out := d.Shares[:0]
+		var removed *Share
+		for i := range d.Shares {
+			if d.Shares[i].ID == shareID {
+				removed = &d.Shares[i]
+				continue
+			}
+			out = append(out, d.Shares[i])
+		}
+		if removed == nil {
+			return nil
+		}
+		d.Shares = out
+		d.Log(s.now(), "You", fmt.Sprintf("took %s's access to %s away", d.personName(removed.PersonID), d.accountName(removed.AccountID)))
+		return nil
 	})
 }
 

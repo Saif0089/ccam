@@ -82,6 +82,20 @@ func refresh(ctx context.Context, httpc *http.Client, refreshToken string) (Cred
 	}, nil
 }
 
+// Manager keeps one account's credential fresh and hands out usable access
+// tokens. It is the exported handle the DB-backed gateway builds one of per
+// shared account.
+type Manager = tokenManager
+
+// NewManager builds a token manager for one account's credential. onRefresh
+// persists a rotated credential (in practice, sealed back into the database).
+func NewManager(access, refreshTok string, expiresAt time.Time, onRefresh func(Credential)) *Manager {
+	return newTokenManager(Credential{AccessToken: access, RefreshToken: refreshTok, ExpiresAt: expiresAt}, onRefresh)
+}
+
+// Token returns a currently-valid access token, refreshing first if needed.
+func (m *Manager) Token(ctx context.Context) (string, error) { return m.get(ctx) }
+
 // tokenManager keeps one account's credential fresh. Get returns a usable access
 // token, refreshing first if it is close to expiry, and persists a refreshed
 // credential through onRefresh so a restart does not lose the rotation.
