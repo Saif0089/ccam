@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -320,6 +321,43 @@ func (s *Server) handleRemoveDevice(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------- lending
+
+// handleShare gives a person gateway access to an account and returns the
+// gateway key to hand to their machine (shown once). Many people can be shared
+// one account — that is the gateway model.
+func (s *Server) handleShare(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		PersonID string `json:"personId"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		fail(w, http.StatusBadRequest, "That request could not be read.")
+		return
+	}
+	id := r.PathValue("id")
+	if d, err := s.store.Load(); err == nil {
+		if a, ok := d.Account(id); ok && !a.HasLogin() {
+			fail(w, http.StatusBadRequest, a.Name+" has no login yet — authenticate it before sharing.")
+			return
+		}
+	}
+	key, err := s.store.IssueShare(id, in.PersonID)
+	if err != nil {
+		fail(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"key": key, "gateway": gatewayURL()})
+}
+
+func (s *Server) handleRevokeShare(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.RevokeShare(r.PathValue("id")); err != nil {
+		fail(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// gatewayURL is where members route their Claude Code, set on the panel's env.
+func gatewayURL() string { return strings.TrimRight(os.Getenv("CCAM_GATEWAY_URL"), "/") }
 
 func (s *Server) handleAssign(w http.ResponseWriter, r *http.Request) {
 	var in struct {

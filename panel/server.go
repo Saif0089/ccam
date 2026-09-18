@@ -59,6 +59,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/people/{id}/code", s.admin(s.handleJoinCode))
 	mux.HandleFunc("DELETE /api/devices/{id}", s.admin(s.handleRemoveDevice))
 	mux.HandleFunc("POST /api/assign", s.admin(s.handleAssign))
+	mux.HandleFunc("POST /api/accounts/{id}/share", s.admin(s.handleShare))
+	mux.HandleFunc("POST /api/shares/{id}/revoke", s.admin(s.handleRevokeShare))
 	mux.HandleFunc("POST /api/assignments/{id}/takeback", s.admin(s.handleTakeBack))
 
 	// What an enrolled machine speaks.
@@ -103,6 +105,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"needsSetup":   d.Admin == nil,
 		"signedIn":     s.sessionValid(r),
 		"canonicalUrl": strings.TrimRight(os.Getenv("CCAM_PANEL_URL"), "/"),
+		"gatewayUrl":   gatewayURL(),
 	})
 }
 

@@ -205,3 +205,61 @@ func TestHowLongReadsTheWayAPersonWouldSayIt(t *testing.T) {
 		}
 	}
 }
+
+// A share makes one account usable by a person through the gateway, and many
+// shares can exist for one account at once — the gateway model. The gateway
+// resolves a presented key by its hash.
+func TestSharesAreManyPerAccountAndResolveByKey(t *testing.T) {
+	s, _ := newTestStore(t)
+	account, alice, bob := seed(t, s)
+	if err := s.Mutate(func(d *Data) error {
+		d.Accounts[0].Credential = []byte("sealed") // pretend it has a login
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	aliceKey, err := s.IssueShare(account, alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobKey, err := s.IssueShare(account, bob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aliceKey == bobKey {
+		t.Fatal("two people got the same gateway key")
+	}
+
+	d, _ := s.Load()
+	// Both shares live at once — no one-holder limit.
+	if len(d.Shares) != 2 {
+		t.Fatalf("%d shares, want 2 (one account, two people, together)", len(d.Shares))
+	}
+	// The gateway resolves a key by its hash to the right account.
+	sh, ok := d.ShareByKeyHash(HashToken(aliceKey))
+	if !ok || sh.AccountID != account || sh.PersonID != alice {
+		t.Error("Alice's key did not resolve to her share")
+	}
+	if _, ok := d.ShareByKeyHash(HashToken("not-a-key")); ok {
+		t.Error("a bogus key resolved")
+	}
+
+	// Revoking Alice's share stops her key; Bob's still works.
+	var aliceShareID string
+	for _, x := range d.Shares {
+		if x.PersonID == alice {
+			aliceShareID = x.ID
+		}
+	}
+	if err := s.RevokeShare(aliceShareID); err != nil {
+		t.Fatal(err)
+	}
+	d, _ = s.Load()
+	if _, ok := d.ShareByKeyHash(HashToken(aliceKey)); ok {
+		t.Error("Alice's key still resolves after revoke")
+	}
+	if _, ok := d.ShareByKeyHash(HashToken(bobKey)); !ok {
+		t.Error("Bob's key stopped working when Alice's was revoked")
+	}
+}
