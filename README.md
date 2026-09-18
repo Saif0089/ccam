@@ -20,9 +20,8 @@ hash, so moving to the narrower one keeps every existing login working. ccam:
 
 - lets you add a new account by logging in right from the browser (no manual
   `CLAUDE_CONFIG_DIR=... claude` typing),
-- keeps one shell alias per account (`claude-work`, `claude-personal`, ...) in
-  sync across bash, zsh, fish, and PowerShell — so opening *any* terminal and
-  running that alias launches `claude` scoped to that account,
+- runs any account with one command — `ccam <name>` — on every OS, with no shell
+  aliases to install, keep in sync, or get wrong (`ccam list` shows them all),
 - switches the account a running session is on: type `ccam <name>` at the
   prompt, or run `!ccam <name>` as a shell command, and the session comes back
   on the other account **with the conversation resumed**. It is a genuine
@@ -73,11 +72,10 @@ doesn't install Claude Code.
 
 ## Using it
 
-Open `http://127.0.0.1:47932`. Click **+ Add account**, give it a name, and
-open the URL it shows you to finish logging in — the account flips to
-"linked" automatically once you do. Each account's card shows its alias
-(`claude-work`, etc.); open a new terminal and that alias is ready to use, or
-click **Open terminal** to launch one already scoped to that account.
+Open `http://127.0.0.1:47932`. Click **Sign in another account**, give it a
+name, and open the URL it shows you to finish logging in — the account flips to
+"linked" automatically once you do. Each account's card shows the command that
+runs it (`ccam <name>`); type it in any terminal, or copy it from the card.
 
 Accounts are no longer isolated from each other beyond their login, and ccam
 never writes a credential store — it reads `<account dir>/.credentials.json`
@@ -121,7 +119,7 @@ The everyday flow lives in the web page, no terminal required:
   panel** on that account. Its login is sealed and stored on the panel.
 - On the panel, **Invite someone** — they get a link that expires in about an
   hour. They open it, connect in a click, and whatever you share appears on their
-  machine as `claude-<name>` on its own.
+  machine, ready to run as `ccam shared <name>`.
 - **Give access** shares an account with a person; the ⨯ next to their name takes
   it back. Access stops within seconds — the gateway simply stops honouring their
   key.
@@ -132,7 +130,7 @@ The same actions exist on the command line for anyone who prefers it:
 ccam panel serve                          # run the panel (or host it — see below)
 ccam panel push work http://host:47933    # add an account's login to the panel
 ccam join <invite-link>                   # connect a machine from an invite link
-ccam shared work                          # run a shared account (the claude-work alias)
+ccam shared work                          # run an account shared with you
 ```
 
 The panel deploys to Vercel as one serverless function with its state in
@@ -151,10 +149,9 @@ should be behind TLS.
 ## VS Code, Cursor, and the rest
 
 Nothing to run. If an editor has the Claude Code extension installed, ccam
-configures it the same way it manages your shell aliases — by setting the
-extension's `claudeCode.claudeProcessWrapper` to ccam, so ccam launches Claude
-on the extension's behalf. You open the editor as usual and start a chat as
-usual.
+configures it by setting the extension's `claudeCode.claudeProcessWrapper` to
+ccam, so ccam launches Claude on the extension's behalf. You open the editor as
+usual and start a chat as usual.
 
 What that buys is the same thing the terminal gets: **each conversation has a
 credential store of its own**, so typing `ccam <name>` in one chat moves that
@@ -246,7 +243,7 @@ ccam uninstall
 ```
 
 Stops the service, removes the autostart registration, strips every
-generated shell alias, and removes the installed binary. Your accounts'
+managed shell block, and removes the installed binary. Your accounts'
 login data under `~/.ccam/accounts` is left in place — remove `~/.ccam`
 yourself for a full wipe.
 
