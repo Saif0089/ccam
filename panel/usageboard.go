@@ -49,6 +49,10 @@ type UsageReader interface {
 	UsageBySubject(ctx context.Context, subjectType string, since time.Time) ([]SubjectUsage, error)
 	HourlyTotals(ctx context.Context, subjectType, subjectID string, since time.Time) ([]HourBucket, error)
 	LatestEventAt(ctx context.Context) (time.Time, error)
+	// Quotas.
+	ListLimits(ctx context.Context) ([]Limit, error)
+	SetLimit(ctx context.Context, l Limit) error
+	DeleteLimit(ctx context.Context, id string) error
 }
 
 // windowSince maps a window name to a real time-based start (not a calendar-day

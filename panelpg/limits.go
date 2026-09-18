@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"time"
+
+	"clawdh/panel"
 )
 
 // newHexID mints a short random id, matching the shape of the panel's own ids.
@@ -22,15 +24,9 @@ func newHexID() string {
 // checks the tightest applicable limit before serving; over it, the member gets
 // a definitive 429 with the window's reset time, exactly like a real spend cap.
 
-// Limit is one configured quota.
-type Limit struct {
-	ID          string   `json:"id"`
-	SubjectType string   `json:"subjectType"` // 'person' | 'org'
-	SubjectID   string   `json:"subjectId"`   // '' for org-wide
-	WindowKind  string   `json:"windowKind"`  // 'day' | 'week' | 'month'
-	MaxWeighted *float64 `json:"maxWeighted,omitempty"`
-	MaxCostUSD  *float64 `json:"maxCostUsd,omitempty"`
-}
+// The Limit type lives in the panel package (so the panel serves it without
+// importing this Postgres layer). LimitStatus is the enforcement result the
+// gateway consumes and stays here.
 
 // LimitStatus is a subject's standing against the tightest quota that applies:
 // how much of it is used (0..1+), when it resets, and a message for the 429 or a
@@ -142,21 +138,34 @@ func maxf(a, b float64) float64 {
 	return b
 }
 
-// SetLimit creates or replaces a limit. id "" makes a new one; a repeated
-// (subject_type, subject_id, window_kind) replaces the prior cap for that pair.
-func (b *Backend) SetLimit(ctx context.Context, l Limit) error {
+// SetLimit sets the cap for a subject+window, replacing any prior one for that
+// exact (subject_type, subject_id, window_kind) so a subject has one limit per
+// window rather than a pile of them.
+func (b *Backend) SetLimit(ctx context.Context, l panel.Limit) error {
 	if l.ID == "" {
 		l.ID = newHexID()
 	}
-	_, err := b.db.ExecContext(ctx, `
+	tx, err := b.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after commit
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM limits WHERE subject_type=$1 AND subject_id=$2 AND window_kind=$3`,
+		l.SubjectType, l.SubjectID, l.WindowKind); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO limits (id, subject_type, subject_id, window_kind, max_weighted_tokens, max_cost_usd)
 		VALUES ($1,$2,$3,$4,$5,$6)`,
-		l.ID, l.SubjectType, l.SubjectID, l.WindowKind, nullF(l.MaxWeighted), nullF(l.MaxCostUSD))
-	return err
+		l.ID, l.SubjectType, l.SubjectID, l.WindowKind, nullF(l.MaxWeighted), nullF(l.MaxCostUSD)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ListLimits returns every configured limit.
-func (b *Backend) ListLimits(ctx context.Context) ([]Limit, error) {
+func (b *Backend) ListLimits(ctx context.Context) ([]panel.Limit, error) {
 	rows, err := b.db.QueryContext(ctx, `
 		SELECT id, subject_type, subject_id, window_kind, max_weighted_tokens, max_cost_usd
 		  FROM limits ORDER BY subject_type, subject_id`)
@@ -164,9 +173,9 @@ func (b *Backend) ListLimits(ctx context.Context) ([]Limit, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Limit
+	var out []panel.Limit
 	for rows.Next() {
-		var l Limit
+		var l panel.Limit
 		var w, c sql.NullFloat64
 		if err := rows.Scan(&l.ID, &l.SubjectType, &l.SubjectID, &l.WindowKind, &w, &c); err != nil {
 			return nil, err

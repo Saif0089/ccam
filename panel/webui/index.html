@@ -143,6 +143,13 @@
   .legend .k { display:inline-flex; align-items:center; gap:6px; }
   .legend .sw { width:11px; height:11px; border-radius:3px; }
   .usage-empty { color:var(--faint); font-size:15px; padding:16px 0; }
+  .limit-form { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:14px; }
+  .limit-form select, .limit-form input { background:var(--sunken); border:1px solid var(--line); color:var(--ink);
+    font:inherit; font-size:15px; border-radius:8px; padding:8px 10px; }
+  .limit-form input { width:170px; }
+  .limit-row { grid-template-columns:150px 1fr auto; }
+  .lcap { color:var(--muted); font-size:15px; }
+  button.sm { font-size:13px; padding:5px 11px; }
 </style>
 </head>
 <body>
@@ -214,6 +221,21 @@
     <div id="usage-people" class="board"></div>
     <h2 class="board-h">Accounts</h2>
     <div id="usage-accounts" class="board"></div>
+
+    <h2 class="board-h">Quotas</h2>
+    <div id="usage-limits" class="board"></div>
+    <form id="limit-form" class="limit-form">
+      <select id="limit-subject" required></select>
+      <select id="limit-window">
+        <option value="day">per day</option>
+        <option value="week">per week</option>
+        <option value="month">per month</option>
+      </select>
+      <input id="limit-weighted" type="number" min="0" step="1000" placeholder="max weighted tokens" />
+      <input id="limit-cost" type="number" min="0" step="0.5" placeholder="max $ (optional)" />
+      <button class="ghost" type="submit">Set quota</button>
+    </form>
+    <div class="err" id="limit-err"></div>
   </section>
 
   <section id="tab-activity" class="hidden">
@@ -646,6 +668,60 @@ for (const b of document.querySelectorAll("#usage-metric button")) {
   });
 }
 
+// --- quotas ----------------------------------------------------------------
+async function renderLimits() {
+  let limits = [], people = [];
+  try {
+    const [ll, pn] = await Promise.all([api("GET", "/api/limits"), api("GET", "/api/panel")]);
+    limits = ll.limits || [];
+    people = pn.people || [];
+  } catch (e) {
+    $("#usage-limits").innerHTML = '<div class="usage-empty">' + e.message + "</div>";
+    return;
+  }
+  const el = $("#usage-limits");
+  el.innerHTML = limits.length ? "" : '<div class="usage-empty">No quotas set — everyone shares the subscription freely.</div>';
+  for (const x of limits) {
+    const l = x.limit, caps = [];
+    if (l.maxWeighted) caps.push(fmtNum(l.maxWeighted) + " weighted");
+    if (l.maxCostUsd) caps.push("$" + l.maxCostUsd);
+    const row = document.createElement("div");
+    row.className = "urow limit-row";
+    row.innerHTML = `<div class="uname">${x.name}</div><div class="lcap">${caps.join(" / ")} · per ${l.windowKind}</div>`;
+    const del = document.createElement("button");
+    del.className = "danger sm";
+    del.textContent = "Remove";
+    del.addEventListener("click", async () => {
+      try { await api("DELETE", "/api/limits/" + l.id); renderLimits(); }
+      catch (e) { $("#limit-err").textContent = e.message; }
+    });
+    row.appendChild(del);
+    el.appendChild(row);
+  }
+  $("#limit-subject").innerHTML =
+    '<option value="org">The whole team</option>' +
+    people.map((p) => `<option value="person:${p.id}">${p.name}</option>`).join("");
+}
+
+$("#limit-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("#limit-err").textContent = "";
+  const subj = $("#limit-subject").value;
+  const body = { windowKind: $("#limit-window").value };
+  if (subj === "org") body.subjectType = "org";
+  else { body.subjectType = "person"; body.subjectId = subj.slice("person:".length); }
+  const wt = parseFloat($("#limit-weighted").value);
+  if (wt > 0) body.maxWeighted = wt;
+  const c = parseFloat($("#limit-cost").value);
+  if (c > 0) body.maxCostUsd = c;
+  try {
+    await api("POST", "/api/limits", body);
+    $("#limit-weighted").value = "";
+    $("#limit-cost").value = "";
+    renderLimits();
+  } catch (err) { $("#limit-err").textContent = err.message; }
+});
+
 function renderActivity() {
   const body = $("#activity-body");
   body.replaceChildren();
@@ -797,7 +873,7 @@ for (const b of document.querySelectorAll("nav button")) {
     for (const name of ["accounts", "people", "usage", "activity"]) {
       $("#tab-" + name).classList.toggle("hidden", name !== b.dataset.tab);
     }
-    if (b.dataset.tab === "usage") renderUsage();
+    if (b.dataset.tab === "usage") { renderUsage(); renderLimits(); }
   });
 }
 $("#add-account").addEventListener("click", addAccount);
