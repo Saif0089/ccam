@@ -121,6 +121,28 @@
     text-align:center; color:var(--muted); font-size:15px; line-height:1.6; }
   .ev { display:flex; gap:18px; padding:15px 0; border-top:1px solid var(--line); font-size:15px; }
   .ev time { color:var(--faint); flex:0 0 130px; font-variant-numeric:tabular-nums; }
+
+  /* --- usage boards --- */
+  .usage-controls { display:flex; gap:10px; justify-content:flex-end; align-items:center; flex-wrap:wrap; }
+  .seg { display:inline-flex; background:var(--sunken); border:1px solid var(--line); border-radius:9px; padding:3px; }
+  .seg button { background:none; border:none; font:inherit; font-size:14px; color:var(--muted); cursor:pointer;
+    padding:5px 12px; border-radius:6px; transition:background .15s ease, color .15s ease; }
+  .seg button[aria-current="true"] { background:var(--raised-2); color:var(--ink); }
+  .asof { font-variant-numeric:tabular-nums; }
+  .asof.stale { color:var(--warn); }
+  .board-h { font-size:14px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.06em;
+    margin:26px 0 10px; }
+  .board { display:flex; flex-direction:column; gap:2px; }
+  .urow { display:grid; grid-template-columns:150px 1fr 108px; gap:14px; align-items:center; padding:9px 0; }
+  .urow .uname { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ubar { height:20px; border-radius:6px; background:var(--sunken); overflow:hidden; display:flex; }
+  .ubar span { height:100%; display:block; transition:width .5s cubic-bezier(.2,.8,.2,1); }
+  .uval { text-align:right; font-variant-numeric:tabular-nums; color:var(--muted); font-size:15px; }
+  .uval b { color:var(--ink); font-weight:600; }
+  .legend { display:flex; gap:16px; flex-wrap:wrap; margin-top:6px; font-size:13px; color:var(--muted); }
+  .legend .k { display:inline-flex; align-items:center; gap:6px; }
+  .legend .sw { width:11px; height:11px; border-radius:3px; }
+  .usage-empty { color:var(--faint); font-size:15px; padding:16px 0; }
 </style>
 </head>
 <body>
@@ -146,6 +168,7 @@
     <nav>
       <button data-tab="accounts" aria-current="true">Accounts</button>
       <button data-tab="people">People</button>
+      <button data-tab="usage">Usage</button>
       <button data-tab="activity">Activity</button>
     </nav>
     <span class="signout"><button class="link plain" id="signout">Sign out</button></span>
@@ -165,6 +188,32 @@
       <div class="grow"><button class="fill" id="invite-someone">Invite someone</button></div>
     </div>
     <div id="people-body"></div>
+  </section>
+
+  <section id="tab-usage" class="hidden">
+    <div class="head">
+      <div>
+        <h1>Usage</h1>
+        <div class="sub">Who used what, and on which model — <span id="usage-asof" class="asof"></span></div>
+      </div>
+      <div class="grow usage-controls">
+        <div class="seg" id="usage-window">
+          <button data-w="5h">5h</button>
+          <button data-w="day" aria-current="true">Day</button>
+          <button data-w="week">Week</button>
+          <button data-w="month">Month</button>
+        </div>
+        <div class="seg" id="usage-metric">
+          <button data-m="weighted" aria-current="true">Weighted</button>
+          <button data-m="cost">Cost</button>
+        </div>
+      </div>
+    </div>
+    <div id="usage-legend" class="legend"></div>
+    <h2 class="board-h">People</h2>
+    <div id="usage-people" class="board"></div>
+    <h2 class="board-h">Accounts</h2>
+    <div id="usage-accounts" class="board"></div>
   </section>
 
   <section id="tab-activity" class="hidden">
@@ -473,6 +522,130 @@ function renderPeople() {
   body.append(table([{ label: "Person" }, { label: "Can use" }, { label: "Machines" }, { right: true }], rows));
 }
 
+// --- usage boards ----------------------------------------------------------
+const MODEL_COLORS = [
+  { test: /fable|mythos/, color: "#C77DFF", label: "Fable / Mythos" },
+  { test: /opus/,         color: "#6E8BFF", label: "Opus" },
+  { test: /sonnet/,       color: "#46C08A", label: "Sonnet" },
+  { test: /haiku/,        color: "#E0A83E", label: "Haiku" },
+  { test: /unknown/,      color: "#626D7C", label: "Unknown" },
+];
+function modelColor(m) {
+  const lm = (m || "").toLowerCase();
+  for (const c of MODEL_COLORS) if (c.test.test(lm)) return c;
+  return { color: "#8892A0", label: m || "?" };
+}
+let usageWindow = "day", usageMetric = "weighted";
+
+function fmtNum(n) {
+  n = Math.round(n);
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
+  return String(n);
+}
+const subjVal = (s) => usageMetric === "cost" ? s.costUsd : s.weighted;
+const modelVal = (m) => usageMetric === "cost" ? m.costUsd : m.weighted;
+const fmtMetric = (v) => usageMetric === "cost" ? "$" + (v || 0).toFixed(2) : fmtNum(v || 0);
+
+function renderBoard(el, subjects) {
+  el.innerHTML = "";
+  if (!subjects || !subjects.length) {
+    el.innerHTML = '<div class="usage-empty">Nothing in this window yet.</div>';
+    return;
+  }
+  const max = Math.max(...subjects.map(subjVal), 1);
+  for (const s of subjects) {
+    const total = subjVal(s);
+    const row = document.createElement("div");
+    row.className = "urow";
+
+    const name = document.createElement("div");
+    name.className = "uname";
+    name.textContent = s.name || s.id;
+    row.appendChild(name);
+
+    const bar = document.createElement("div");
+    bar.className = "ubar";
+    const fill = document.createElement("div");
+    fill.style.width = (total / max) * 100 + "%";
+    fill.style.height = "100%";
+    fill.style.display = "flex";
+    for (const m of (s.byModel || [])) {
+      const mv = modelVal(m);
+      if (mv <= 0) continue;
+      const seg = document.createElement("span");
+      seg.style.width = (mv / total) * 100 + "%";
+      seg.style.background = modelColor(m.model).color;
+      seg.title = modelColor(m.model).label + ": " + fmtMetric(mv);
+      fill.appendChild(seg);
+    }
+    bar.appendChild(fill);
+    row.appendChild(bar);
+
+    const val = document.createElement("div");
+    val.className = "uval";
+    val.innerHTML = "<b>" + fmtMetric(total) + "</b>";
+    row.appendChild(val);
+    el.appendChild(row);
+  }
+}
+
+function renderLegend(subjects) {
+  const labels = new Set();
+  for (const s of subjects) for (const m of (s.byModel || [])) labels.add(modelColor(m.model).label);
+  const shown = MODEL_COLORS.filter((c) => labels.has(c.label));
+  $("#usage-legend").innerHTML = shown
+    .map((c) => `<span class="k"><span class="sw" style="background:${c.color}"></span>${c.label}</span>`)
+    .join("");
+}
+
+function setAsOf(iso) {
+  const el = $("#usage-asof");
+  if (!iso || String(iso).startsWith("0001")) {
+    el.textContent = "no usage recorded yet"; el.classList.remove("stale"); return;
+  }
+  const mins = Math.round((Date.now() - new Date(iso)) / 60000);
+  el.textContent = "as of " + (mins < 1 ? "just now" : mins + "m ago");
+  el.classList.toggle("stale", mins > 2);
+}
+
+let usageLoading = false;
+async function renderUsage() {
+  if (usageLoading) return;
+  usageLoading = true;
+  try {
+    const [people, accounts] = await Promise.all([
+      api("GET", "/api/usage/people?window=" + usageWindow),
+      api("GET", "/api/usage/accounts?window=" + usageWindow),
+    ]);
+    setAsOf(people.asOf || accounts.asOf);
+    renderLegend([...(people.subjects || []), ...(accounts.subjects || [])]);
+    renderBoard($("#usage-people"), people.subjects);
+    renderBoard($("#usage-accounts"), accounts.subjects);
+  } catch (e) {
+    $("#usage-people").innerHTML = '<div class="usage-empty">Could not load usage: ' + e.message + "</div>";
+    $("#usage-accounts").innerHTML = "";
+  } finally {
+    usageLoading = false;
+  }
+}
+
+for (const b of document.querySelectorAll("#usage-window button")) {
+  b.addEventListener("click", () => {
+    for (const o of document.querySelectorAll("#usage-window button")) o.setAttribute("aria-current", String(o === b));
+    usageWindow = b.dataset.w;
+    renderUsage();
+  });
+}
+for (const b of document.querySelectorAll("#usage-metric button")) {
+  b.addEventListener("click", () => {
+    for (const o of document.querySelectorAll("#usage-metric button")) o.setAttribute("aria-current", String(o === b));
+    usageMetric = b.dataset.m;
+    renderUsage();
+  });
+}
+
 function renderActivity() {
   const body = $("#activity-body");
   body.replaceChildren();
@@ -621,9 +794,10 @@ $("#signout").addEventListener("click", async () => {
 for (const b of document.querySelectorAll("nav button")) {
   b.addEventListener("click", () => {
     for (const other of document.querySelectorAll("nav button")) other.setAttribute("aria-current", String(other === b));
-    for (const name of ["accounts", "people", "activity"]) {
+    for (const name of ["accounts", "people", "usage", "activity"]) {
       $("#tab-" + name).classList.toggle("hidden", name !== b.dataset.tab);
     }
+    if (b.dataset.tab === "usage") renderUsage();
   });
 }
 $("#add-account").addEventListener("click", addAccount);
