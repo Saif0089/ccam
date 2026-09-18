@@ -54,27 +54,14 @@ ACCOUNT=$(curl -fsS -X POST "http://127.0.0.1:$PORT/api/accounts" \
 echo "$ACCOUNT" | grep -q '"alias":"claude-work"' || fail "unexpected account payload: $ACCOUNT"
 ok "account created"
 
-# The alias has to be live in the shell rc files a Linux user actually has.
-grep -q "claude-work" "$HOME/.bashrc" || fail "alias missing from .bashrc"
-grep -q "claude-work" "$HOME/.zshrc" || fail "alias missing from .zshrc"
-grep -q "claude-work" "$HOME/.config/fish/config.fish" || fail "alias missing from fish config"
-ok "aliases written to bash, zsh and fish"
-
-# A fresh *interactive* bash must resolve the alias. Interactive is the
-# operative word: Debian's stock .bashrc returns immediately for
-# non-interactive shells, so sourcing it from a script proves nothing.
-bash -i -c 'type claude-work' </dev/null 2>/dev/null | grep -q "CLAUDE_CONFIG_DIR" \
-  || fail "claude-work alias does not set CLAUDE_CONFIG_DIR in a fresh interactive shell"
-ok "alias resolves in a fresh interactive bash"
-
-# And a login shell, which reads .bash_profile/.profile rather than
-# .bashrc, must get it too when the user has those files.
-touch "$HOME/.bash_profile"
-curl -fsS -X PATCH "http://127.0.0.1:$PORT/api/accounts/work" \
-  -H 'Content-Type: application/json' -d '{"name":"Work"}' -o /dev/null
-grep -q "claude-work" "$HOME/.bash_profile" \
-  || fail "alias missing from an existing .bash_profile (login shells would not see it)"
-ok "alias written to an existing .bash_profile"
+# Accounts no longer get a shell alias — they run as `clawdh <name>` — so no
+# managed block may be written to any shell rc file a Linux user has.
+for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.config/fish/config.fish"; do
+  if [ -f "$rc" ] && grep -q "Managed by clawdh" "$rc"; then
+    fail "a managed alias block was written to $rc; accounts run as 'clawdh <name>' now"
+  fi
+done
+ok "no shell alias block written (accounts run as 'clawdh <name>')"
 
 # --- login: URL then linked, over SSE ---
 curl -fsS -X POST "http://127.0.0.1:$PORT/api/accounts/work/login" -o /dev/null
@@ -136,10 +123,10 @@ ok "claude still resolves under the autostart environment"
 clawdh uninstall > /tmp/uninstall.log 2>&1 || { cat /tmp/uninstall.log; fail "clawdh uninstall"; }
 cat /tmp/uninstall.log
 [ -f "$DESKTOP" ] && fail "autostart entry survived uninstall"
-grep -q "claude-work" "$HOME/.bashrc" 2>/dev/null && fail "alias survived uninstall"
+grep -q "Managed by clawdh" "$HOME/.bashrc" 2>/dev/null && fail "a managed shell block survived uninstall"
 [ -f "$HOME/.local/bin/clawdh" ] && fail "binary survived uninstall"
 [ -d "$HOME/.clawdh/accounts/work" ] || fail "account data was deleted (it should be kept)"
-ok "uninstall removed the autostart entry, aliases and binary, and kept account data"
+ok "uninstall removed the autostart entry and binary, and kept account data"
 
 echo
 echo "ALL LINUX CHECKS PASSED"

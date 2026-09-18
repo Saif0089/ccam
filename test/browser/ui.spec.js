@@ -539,7 +539,7 @@ test("can start another login after closing one mid-flight", async ({ page }) =>
   await page.waitForTimeout(1000);
 });
 
-test("renames an account and updates its run command", async ({ page }) => {
+test("renaming an account changes its name but keeps its run command (the slug is stable)", async ({ page }) => {
   await page.goto(baseURL);
 
   await page.click(".rename-btn");
@@ -547,7 +547,10 @@ test("renames an account and updates its run command", async ({ page }) => {
   await page.click("#rename-form button[type=submit]");
 
   await expect(page.locator(".account-name")).toHaveText("Side Project");
-  await expect(page.locator(".run-cmd")).toHaveText("clawdh side-project");
+  // The run command is the account's slug, which never changes on rename: its
+  // directory (and, on macOS, its Keychain login) are keyed by it, so it can't
+  // move. The account is still run as `clawdh work`.
+  await expect(page.locator(".run-cmd")).toHaveText("clawdh work");
 });
 
 test("rejects a whitespace-only name instead of silently doing nothing", async ({ page }) => {
