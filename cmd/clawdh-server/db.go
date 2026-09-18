@@ -23,11 +23,23 @@ type dbUpstream struct {
 	pg     *panelpg.Backend // the concrete backend, for metering writes
 	secret *panel.Secret
 
-	mu       sync.Mutex
-	data     panel.Data
-	dataAt   time.Time
-	managers map[string]*gateway.Manager // accountID -> token manager
+	mu         sync.Mutex
+	data       panel.Data
+	dataAt     time.Time
+	managers   map[string]*gateway.Manager // accountID -> token manager
+	limitCache map[string]limitCacheEntry  // personID -> recent quota standing
 }
+
+// limitCacheEntry is a person's cached quota standing, so the gateway checks the
+// database at most every limitCacheTTL per person rather than every request.
+type limitCacheEntry struct {
+	over    bool
+	retry   int
+	message string
+	at      time.Time
+}
+
+const limitCacheTTL = 20 * time.Second
 
 func newDBUpstream(ctx context.Context, dsn, keyB64 string) (*dbUpstream, error) {
 	secret, err := panel.SecretFromBase64(keyB64)
@@ -138,6 +150,39 @@ func (u *dbUpstream) Record(ev gateway.Event) {
 	}); err != nil {
 		log.Printf("metering: recording usage for account %s: %v", ev.AccountID, err)
 	}
+}
+
+// OverLimit reports whether a person is over quota, cached briefly so it costs
+// at most one DB read per person per limitCacheTTL. It fails open: if the quota
+// check itself errors, the member is served — a metering hiccup must never lock
+// the whole team out of a subscription they are entitled to.
+func (u *dbUpstream) OverLimit(personID string) (bool, int, string) {
+	u.mu.Lock()
+	if e, ok := u.limitCache[personID]; ok && time.Since(e.at) < limitCacheTTL {
+		u.mu.Unlock()
+		return e.over, e.retry, e.message
+	}
+	u.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	st, err := u.pg.PersonLimitStatus(ctx, personID, time.Now())
+	if err != nil {
+		return false, 0, ""
+	}
+	retry := 0
+	if st.Over {
+		if retry = int(time.Until(st.ResetAt).Seconds()); retry < 1 {
+			retry = 1
+		}
+	}
+	u.mu.Lock()
+	if u.limitCache == nil {
+		u.limitCache = map[string]limitCacheEntry{}
+	}
+	u.limitCache[personID] = limitCacheEntry{over: st.Over, retry: retry, message: st.Message, at: time.Now()}
+	u.mu.Unlock()
+	return st.Over, retry, st.Message
 }
 
 // forget drops an account's cached token manager, so the next request rebuilds

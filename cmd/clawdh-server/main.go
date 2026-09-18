@@ -39,14 +39,15 @@ func main() {
 	flag.Parse()
 
 	var up gateway.Upstream
-	var rec gateway.Recorder // the DB upstream also meters; the static path does not
+	var rec gateway.Recorder // the DB upstream also meters and enforces quotas;
+	var lim gateway.Limiter  // the static path does neither.
 	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
 		u, err := newDBUpstream(context.Background(), dsn, config.Env("PANEL_KEY"))
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "gateway: connecting to the panel database:", err)
 			os.Exit(1)
 		}
-		up, rec = u, u
+		up, rec, lim = u, u, u
 		fmt.Println("clawdh-server: serving from the panel database")
 	} else {
 		token := config.Env("GW_TOKEN")
@@ -56,7 +57,7 @@ func main() {
 		}
 		up = staticUpstream{key: *memberKey, token: token}
 	}
-	h := gateway.New(up, rec)
+	h := gateway.New(up, rec, lim)
 	fmt.Printf("clawdh-server on http://%s (forwarding to api.anthropic.com)\n", *addr)
 	if err := http.ListenAndServe(*addr, h); err != nil {
 		fmt.Fprintln(os.Stderr, err)

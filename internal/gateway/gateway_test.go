@@ -37,7 +37,7 @@ func TestGatewayMetersAStreamedResponse(t *testing.T) {
 	defer anthropic.Close()
 
 	rec := &capRec{ch: make(chan Event, 1)}
-	h := New(fakeUpstream{key: "member-key", token: "T"}, rec)
+	h := New(fakeUpstream{key: "member-key", token: "T"}, rec, nil)
 	srv := httptest.NewServer(rewriteHost(h, anthropic.Listener.Addr().String()))
 	defer srv.Close()
 
@@ -69,6 +69,42 @@ func TestGatewayMetersAStreamedResponse(t *testing.T) {
 	}
 }
 
+// overLimiter reports every member as over quota, to test the 429 path.
+type overLimiter struct{}
+
+func (overLimiter) OverLimit(string) (bool, int, string) {
+	return true, 3600, "your clawdh daily quota is reached; it resets soon."
+}
+
+// An over-quota member is turned away with a 429 billing_error before the
+// request ever reaches Anthropic — the shape a real spend limit uses.
+func TestGatewayRejectsOverQuotaWith429(t *testing.T) {
+	h := New(fakeUpstream{key: "member-key", token: "T"}, nil, overLimiter{})
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/messages", nil)
+	req.Header.Set("Authorization", "Bearer member-key")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 429 {
+		t.Errorf("over quota -> %d, want 429", resp.StatusCode)
+	}
+	if resp.Header.Get("retry-after") != "3600" {
+		t.Errorf("retry-after = %q, want 3600", resp.Header.Get("retry-after"))
+	}
+	if resp.Header.Get("x-should-retry") != "false" {
+		t.Error("a quota 429 must tell Claude Code not to retry it")
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "billing_error") {
+		t.Errorf("body = %s, want a billing_error", body)
+	}
+}
+
 type fakeUpstream struct{ key, token string }
 
 func (f fakeUpstream) Resolve(k string) (Resolution, error) {
@@ -92,7 +128,7 @@ func TestGatewaySwapsInTheSubscriptionToken(t *testing.T) {
 	defer anthropic.Close()
 
 	// Point the gateway's target at the fake by overriding the host it dials.
-	h := New(fakeUpstream{key: "member-key", token: "REAL-SUB-TOKEN"}, nil)
+	h := New(fakeUpstream{key: "member-key", token: "REAL-SUB-TOKEN"}, nil, nil)
 	srv := httptest.NewServer(rewriteHost(h, anthropic.Listener.Addr().String()))
 	defer srv.Close()
 
@@ -120,7 +156,7 @@ func TestGatewaySwapsInTheSubscriptionToken(t *testing.T) {
 }
 
 func TestGatewayRejectsUnknownKey(t *testing.T) {
-	h := New(fakeUpstream{key: "good", token: "t"}, nil)
+	h := New(fakeUpstream{key: "good", token: "t"}, nil, nil)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -141,7 +177,7 @@ func TestGatewayRejectsUnknownKey(t *testing.T) {
 // 401: the member did nothing wrong, so telling them their access was withdrawn
 // would be a lie and a retry might succeed.
 func TestGatewayReports502WhenTheLoginIsUnusable(t *testing.T) {
-	h := New(brokenUpstream{}, nil)
+	h := New(brokenUpstream{}, nil, nil)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 

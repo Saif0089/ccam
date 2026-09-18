@@ -16,6 +16,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httputil"
+	"strconv"
 	"strings"
 )
 
@@ -54,9 +55,19 @@ type Upstream interface {
 	Resolve(memberKey string) (Resolution, error)
 }
 
-// New builds the gateway handler over an Upstream. rec, if non-nil, receives
-// each forwarded response's token usage (metering) off the hot path.
-func New(up Upstream, rec Recorder) http.Handler {
+// Limiter reports whether a member is over quota, so the gateway can answer 429
+// before forwarding — the same shape a real spend limit uses. Optional; nil
+// means no quotas are enforced.
+type Limiter interface {
+	// OverLimit returns whether this person is over quota now, and if so a
+	// message and how many seconds until the window resets (for retry-after).
+	OverLimit(personID string) (over bool, retryAfter int, message string)
+}
+
+// New builds the gateway handler over an Upstream. rec, if non-nil, meters each
+// forwarded response off the hot path; lim, if non-nil, is checked before each
+// forward and answers over-quota members with a 429.
+func New(up Upstream, rec Recorder, lim Limiter) http.Handler {
 	proxy := &httputil.ReverseProxy{
 		// -1 flushes every write immediately, which is what keeps streamed
 		// (SSE) responses streaming instead of buffering to the end.
@@ -117,10 +128,35 @@ func New(up Upstream, rec Recorder) http.Handler {
 				"The shared login for this account stopped working — usually because the same account is also being used directly on another machine, which invalidates the copy the gateway holds. The account's owner needs to add its login to the panel again.")
 			return
 		}
+		// Quota gate: an over-cap member is turned away here, before their request
+		// reaches Anthropic, with a definitive 429 pointing at the window reset.
+		if lim != nil && res.PersonID != "" {
+			if over, retryAfter, msg := lim.OverLimit(res.PersonID); over {
+				denyQuota(w, retryAfter, msg)
+				return
+			}
+		}
 		ctx := withToken(r.Context(), res.AccessToken)
 		ctx = context.WithValue(ctx, identKey, Event{AccountID: res.AccountID, PersonID: res.PersonID})
 		proxy.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// denyQuota answers an over-quota member with the shape a real spend limit uses:
+// 429, error.type billing_error, no retry, and a retry-after at the reset — so
+// Claude Code shows the message and stops rather than retrying into the cap.
+func denyQuota(w http.ResponseWriter, retryAfterSec int, message string) {
+	body, _ := json.Marshal(map[string]any{
+		"type":  "error",
+		"error": map[string]string{"type": "billing_error", "message": message},
+	})
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("x-should-retry", "false")
+	if retryAfterSec > 0 {
+		w.Header().Set("retry-after", strconv.Itoa(retryAfterSec))
+	}
+	w.WriteHeader(http.StatusTooManyRequests)
+	_, _ = w.Write(body)
 }
 
 // deny answers with the Anthropic error envelope Claude Code expects, and with
