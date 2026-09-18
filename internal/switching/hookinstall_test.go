@@ -57,17 +57,17 @@ func TestEnsureHookPreservesExistingHooks(t *testing.T) {
 	if len(cmds) != 2 {
 		t.Fatalf("want 2 UserPromptSubmit hooks (theirs + clawdh), got %d: %v", len(cmds), cmds)
 	}
-	foundFable, foundCcam := false, false
+	foundFable, foundClawdh := false, false
 	for _, c := range cmds {
 		if c == "/Users/me/.claude/hooks/fable-nudge.sh" {
 			foundFable = true
 		}
 		if c == HookCommand("/usr/local/bin/clawdh") {
-			foundCcam = true
+			foundClawdh = true
 		}
 	}
-	if !foundFable || !foundCcam {
-		t.Errorf("both hooks must be present: fable=%v clawdh=%v", foundFable, foundCcam)
+	if !foundFable || !foundClawdh {
+		t.Errorf("both hooks must be present: fable=%v clawdh=%v", foundFable, foundClawdh)
 	}
 }
 

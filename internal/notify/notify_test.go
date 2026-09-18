@@ -56,7 +56,7 @@ func TestNotifyCommandQuotesTheBody(t *testing.T) {
 	}
 }
 
-func TestNotifyCommandNamesCcam(t *testing.T) {
+func TestNotifyCommandNamesClawdh(t *testing.T) {
 	_, args, err := notifyCommand("hello")
 	if err != nil {
 		t.Skipf("no notification mechanism here: %v", err)

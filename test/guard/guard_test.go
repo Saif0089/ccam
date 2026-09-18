@@ -17,7 +17,7 @@ import (
 // repoRoot is this package's directory, two levels down from the module root.
 const repoRoot = "../.."
 
-// TestCcamNeverTouchesTheCredentialStore is the guard on the bug that cost two
+// TestClawdhNeverTouchesTheCredentialStore is the guard on the bug that cost two
 // real logins.
 //
 // clawdh used to keep a copy of each session's credentials so a switch could be a
@@ -36,7 +36,7 @@ const repoRoot = "../.."
 // Comments are exempt on purpose — internal/accounts/env.go documents the
 // derivation to explain why an empty CLAUDE_SECURESTORAGE_CONFIG_DIR is
 // dangerous, and that explanation is worth keeping.
-func TestCcamNeverWritesTheCredentialStore(t *testing.T) {
+func TestClawdhNeverWritesTheCredentialStore(t *testing.T) {
 	// The rule this enforces is narrower than "never touch the Keychain": it is
 	// "never WRITE a credential store". Writing is what destroyed real logins —
 	// `security -i` truncating a store at 4 KB, the mirror copying the fragment

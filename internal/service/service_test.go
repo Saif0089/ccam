@@ -11,8 +11,8 @@ import (
 	"time"
 )
 
-// buildCcam compiles cmd/clawdh once for this test process.
-func buildCcam(t *testing.T) string {
+// buildClawdh compiles cmd/clawdh once for this test process.
+func buildClawdh(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()
 	if err != nil {
@@ -63,7 +63,7 @@ func TestInstallStartStopUninstallLifecycle(t *testing.T) {
 	if testing.Short() {
 		t.Skip("spawns a real background process; skipped in -short")
 	}
-	binary := buildCcam(t)
+	binary := buildClawdh(t)
 	home := withFakeHome(t)
 
 	const port = 47999
