@@ -208,7 +208,10 @@ func (s *Server) handleStoreLogin(w http.ResponseWriter, r *http.Request) {
 		// share on this account, so re-pushing keeps their key instead of
 		// rotating it.
 		if pusher != "" {
-			p := d.ensurePerson(pusher, in.Email, s.now())
+			// No email: the account's email is the login's, not the pusher's, and
+			// a wrong one is worse than none. An enrolled pusher keeps the email
+			// they already have (ensurePerson only sets it when creating).
+			p := d.ensurePerson(pusher, "", s.now())
 			if _, has := d.shareFor(a.ID, p.ID); !has {
 				d.putShare(Share{ID: newID(), AccountID: a.ID, PersonID: p.ID, KeyHash: pusherHash, SealedKey: pusherSealed, CreatedAt: s.now()})
 				d.Log(s.now(), pusher, "added "+a.Name+" and was recorded with access to it")
