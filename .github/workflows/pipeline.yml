@@ -335,3 +335,31 @@ jobs:
           npm install --global vercel@latest
           vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
           vercel deploy --prod --token="${{ secrets.VERCEL_TOKEN }}"
+
+  # Ship the gateway (the shared-subscription data plane) to the VPS on every
+  # push to main — the server half that self-updates alongside the client
+  # release and the Vercel panel. Opt-in behind GATEWAY_DEPLOY + the VPS secrets.
+  deploy-gateway:
+    needs: build
+    if: ${{ github.event_name == 'push' && vars.GATEWAY_DEPLOY == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build the gateway for linux/amd64
+        run: GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o ccam-gateway ./cmd/ccam-gateway
+      - name: Ship it and restart the service
+        env:
+          KEY: ${{ secrets.VPS_SSH_KEY }}
+          HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          install -m 600 /dev/stdin key <<< "$KEY"
+          scp -i key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 ccam-gateway "root@$HOST:/opt/ccam-gateway/ccam-gateway.new"
+          ssh -i key -o StrictHostKeyChecking=accept-new "root@$HOST" '
+            mv /opt/ccam-gateway/ccam-gateway.new /opt/ccam-gateway/ccam-gateway &&
+            chmod +x /opt/ccam-gateway/ccam-gateway &&
+            systemctl restart ccam-gateway &&
+            sleep 1 && systemctl is-active ccam-gateway'
+          rm -f key
