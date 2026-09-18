@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ccam/internal/claudebin"
+	"clawdh/internal/claudebin"
 )
 
 // servicePATH is the PATH baked into the autostart entry at install

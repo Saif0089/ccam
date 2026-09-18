@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"ccam/internal/claudebin"
+	"clawdh/internal/claudebin"
 )
 
 // MarkOnboarded records that Claude Code's first-run wizard is done for

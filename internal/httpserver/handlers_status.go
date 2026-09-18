@@ -5,8 +5,8 @@ import (
 	"os"
 	"runtime"
 
-	"ccam/internal/buildinfo"
-	"ccam/internal/service"
+	"clawdh/internal/buildinfo"
+	"clawdh/internal/service"
 )
 
 type statusResponse struct {

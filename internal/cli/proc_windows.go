@@ -6,7 +6,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"ccam/internal/switching"
+	"clawdh/internal/switching"
 )
 
 // supervisorAlive reports whether the `ccam run` supervisor that exported

@@ -3,7 +3,7 @@ package httpserver
 import (
 	"sync"
 
-	"ccam/internal/ptyauth"
+	"clawdh/internal/ptyauth"
 )
 
 // loginBroadcast fans one account's login events out to every SSE

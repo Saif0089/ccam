@@ -6,7 +6,7 @@ package main
 import (
 	"os"
 
-	"ccam/internal/cli"
+	"clawdh/internal/cli"
 )
 
 func main() {

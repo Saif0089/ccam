@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"ccam/internal/accounts"
+	"clawdh/internal/accounts"
 )
 
 // setupSharing gets a harness to the point where "Work" has a login and Alice

@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ccam/internal/accounts"
+	"clawdh/internal/accounts"
 )
 
 // HandoffEnvVar names the file the hook writes and the supervisor reads. The

@@ -6,11 +6,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"ccam/internal/accounts"
-	"ccam/internal/config"
-	"ccam/internal/editors"
-	"ccam/internal/service"
-	"ccam/internal/switching"
+	"clawdh/internal/accounts"
+	"clawdh/internal/config"
+	"clawdh/internal/editors"
+	"clawdh/internal/service"
+	"clawdh/internal/switching"
 )
 
 // cmdEditor points VS Code and its relatives at a ccam account.

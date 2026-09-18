@@ -12,14 +12,14 @@ import (
 	"syscall"
 	"time"
 
-	"ccam/internal/accounts"
-	"ccam/internal/claudebin"
-	"ccam/internal/config"
-	"ccam/internal/httpserver"
-	"ccam/internal/notify"
-	"ccam/internal/service"
-	"ccam/internal/shellrc"
-	"ccam/internal/updater"
+	"clawdh/internal/accounts"
+	"clawdh/internal/claudebin"
+	"clawdh/internal/config"
+	"clawdh/internal/httpserver"
+	"clawdh/internal/notify"
+	"clawdh/internal/service"
+	"clawdh/internal/shellrc"
+	"clawdh/internal/updater"
 )
 
 func cmdServe(args []string) int {

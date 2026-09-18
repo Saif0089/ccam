@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ccam/internal/config"
+	"clawdh/internal/config"
 )
 
 const serviceUnitName = "ccam.service"

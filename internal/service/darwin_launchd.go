@@ -9,7 +9,7 @@ import (
 	"os/user"
 	"path/filepath"
 
-	"ccam/internal/config"
+	"clawdh/internal/config"
 )
 
 const launchAgentLabel = "com.ccam.agent"

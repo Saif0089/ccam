@@ -6,11 +6,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"ccam/internal/config"
-	"ccam/internal/editors"
-	"ccam/internal/service"
-	"ccam/internal/shellrc"
-	"ccam/internal/switching"
+	"clawdh/internal/config"
+	"clawdh/internal/editors"
+	"clawdh/internal/service"
+	"clawdh/internal/shellrc"
+	"clawdh/internal/switching"
 )
 
 func cmdUninstall(args []string) int {

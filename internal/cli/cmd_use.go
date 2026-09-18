@@ -6,10 +6,10 @@ import (
 	"os/exec"
 	"strings"
 
-	"ccam/internal/claudebin"
-	"ccam/internal/config"
-	"ccam/internal/switching"
-	"ccam/panel"
+	"clawdh/internal/claudebin"
+	"clawdh/internal/config"
+	"clawdh/internal/switching"
+	"clawdh/panel"
 )
 
 // sharedSessionEnvVar marks a Claude Code process as a shared (gateway) session

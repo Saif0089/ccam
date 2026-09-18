@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"ccam/internal/config"
-	"ccam/internal/service"
+	"clawdh/internal/config"
+	"clawdh/internal/service"
 )
 
 func cmdInstall(args []string) int {

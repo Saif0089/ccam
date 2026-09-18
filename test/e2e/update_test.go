@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"ccam/internal/updater"
+	"clawdh/internal/updater"
 )
 
 // TestAutoUpdateInstallsAndRestartsIntoIt drives the whole automatic

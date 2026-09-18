@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"ccam/internal/accounts"
-	"ccam/internal/config"
+	"clawdh/internal/accounts"
+	"clawdh/internal/config"
 )
 
 // cmdPrune reclaims the disk the de-isolation migration left behind: once an

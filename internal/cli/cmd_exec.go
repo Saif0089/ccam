@@ -7,8 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"ccam/internal/accounts"
-	"ccam/internal/config"
+	"clawdh/internal/accounts"
+	"clawdh/internal/config"
 )
 
 // cmdExec is what an editor runs instead of Claude Code.

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"ccam/internal/config"
+	"clawdh/internal/config"
 )
 
 // spawnDetached starts binaryPath as a new session leader (so it

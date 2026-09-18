@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"ccam/internal/config"
+	"clawdh/internal/config"
 )
 
 // StaleReportAge is how long a saved report is worth showing.

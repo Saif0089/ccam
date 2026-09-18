@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"ccam/internal/usage"
+	"clawdh/internal/usage"
 )
 
 const usagePayload = `{"limits":[

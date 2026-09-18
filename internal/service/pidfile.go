@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"ccam/internal/config"
+	"clawdh/internal/config"
 )
 
 func pidFilePath() (string, error) {

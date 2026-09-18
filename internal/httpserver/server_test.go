@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"ccam/internal/accounts"
-	"ccam/internal/ptyauth"
-	"ccam/internal/shellrc"
+	"clawdh/internal/accounts"
+	"clawdh/internal/ptyauth"
+	"clawdh/internal/shellrc"
 )
 
 func buildFakeClaude(t *testing.T) string {
@@ -82,11 +82,11 @@ func TestAccountsCRUDLifecycle(t *testing.T) {
 		t.Errorf("alias = %q, want claude-work", created.Alias)
 	}
 
-	// The alias must already be live in the rc file.
+	// Accounts no longer get a shell alias — they run as `ccam <name>` — so
+	// creating one writes no managed rc block.
 	rcPath := anyRcPath(home)
-	data, _ := os.ReadFile(rcPath)
-	if !strings.Contains(string(data), "claude-work") {
-		t.Errorf("expected alias in %s, got %q", rcPath, data)
+	if data, _ := os.ReadFile(rcPath); strings.Contains(string(data), "Managed by ccam") {
+		t.Errorf("creating an account wrote a shell alias block, want none: %q", data)
 	}
 
 	// List.
@@ -112,9 +112,8 @@ func TestAccountsCRUDLifecycle(t *testing.T) {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 	resp.Body.Close()
-	data, _ = os.ReadFile(rcPath)
-	if !strings.Contains(string(data), "claude-side-project") {
-		t.Errorf("expected renamed alias in %s, got %q", rcPath, data)
+	if data, _ := os.ReadFile(rcPath); strings.Contains(string(data), "Managed by ccam") {
+		t.Errorf("renaming an account wrote a shell alias block, want none: %q", data)
 	}
 
 	// Delete.

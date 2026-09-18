@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"os"
 
-	"ccam/internal/gateway"
+	"clawdh/internal/gateway"
 )
 
 type staticUpstream struct{ key, token string }

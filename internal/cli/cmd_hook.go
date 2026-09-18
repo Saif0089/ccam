@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"ccam/internal/accounts"
-	"ccam/internal/config"
-	"ccam/internal/switching"
+	"clawdh/internal/accounts"
+	"clawdh/internal/config"
+	"clawdh/internal/switching"
 )
 
 // cmdHook runs one of the hooks ccam installs into Claude Code. Today the only

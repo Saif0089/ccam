@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"ccam/internal/config"
+	"clawdh/internal/config"
 	"golang.org/x/sys/windows"
 )
 

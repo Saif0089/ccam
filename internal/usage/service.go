@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"ccam/internal/config"
+	"clawdh/internal/config"
 )
 
 // Snapshot is what the page shows for one account: whether the login

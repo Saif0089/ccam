@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"ccam/internal/accounts"
-	"ccam/internal/config"
-	"ccam/internal/switching"
+	"clawdh/internal/accounts"
+	"clawdh/internal/config"
+	"clawdh/internal/switching"
 )
 
 // seedRunEnv points HOME at a temp dir with a two-account ~/.ccam and a shared

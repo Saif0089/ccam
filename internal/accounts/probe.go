@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"time"
 
-	"ccam/internal/claudebin"
+	"clawdh/internal/claudebin"
 )
 
 // Prober reports whether an account's config directory holds a valid

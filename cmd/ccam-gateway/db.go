@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"ccam/internal/gateway"
-	"ccam/panel"
-	"ccam/panelpg"
+	"clawdh/internal/gateway"
+	"clawdh/panel"
+	"clawdh/panelpg"
 )
 
 // dbUpstream serves the gateway from the same database the admin panel manages.

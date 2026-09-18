@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"ccam/internal/accounts"
-	"ccam/panel"
+	"clawdh/internal/accounts"
+	"clawdh/panel"
 )
 
 // The client page shows the Claude logins already on this machine, by email, so

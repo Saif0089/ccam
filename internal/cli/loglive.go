@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"ccam/internal/config"
+	"clawdh/internal/config"
 )
 
 // logLive records something that happened while a Claude Code session was

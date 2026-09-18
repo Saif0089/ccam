@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"ccam/internal/accounts"
+	"clawdh/internal/accounts"
 )
 
 // defaultCheckInterval throttles how often the default account is

@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"ccam/internal/accounts"
-	"ccam/internal/ptyauth"
+	"clawdh/internal/accounts"
+	"clawdh/internal/ptyauth"
 )
 
 // loginRetentionAfterFinish is how long a finished login's events stay

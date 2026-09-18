@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"ccam/internal/accounts"
+	"clawdh/internal/accounts"
 )
 
 // ErrNotEnrolled means the panel no longer recognises this machine — it was

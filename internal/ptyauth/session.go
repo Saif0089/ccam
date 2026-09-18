@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"ccam/internal/accounts"
-	"ccam/internal/claudebin"
-	"ccam/internal/ptyio"
+	"clawdh/internal/accounts"
+	"clawdh/internal/claudebin"
+	"clawdh/internal/ptyio"
 
 	"github.com/hinshun/vt10x"
 )

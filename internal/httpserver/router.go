@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"ccam/internal/httpserver/webui"
+	"clawdh/internal/httpserver/webui"
 )
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {

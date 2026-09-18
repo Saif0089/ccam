@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"ccam/internal/config"
-	"ccam/panel"
+	"clawdh/internal/config"
+	"clawdh/panel"
 )
 
 // The local page's "Team panel" section talks to these. Enrolling a machine and

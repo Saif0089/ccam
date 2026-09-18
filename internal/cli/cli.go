@@ -11,8 +11,8 @@ import (
 	"runtime"
 	"strings"
 
-	"ccam/internal/buildinfo"
-	"ccam/internal/switching"
+	"clawdh/internal/buildinfo"
+	"clawdh/internal/switching"
 )
 
 // Run executes the subcommand named by args[0] and returns a process

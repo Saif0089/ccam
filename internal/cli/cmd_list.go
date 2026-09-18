@@ -5,9 +5,9 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"ccam/internal/accounts"
-	"ccam/internal/config"
-	"ccam/panel"
+	"clawdh/internal/accounts"
+	"clawdh/internal/config"
+	"clawdh/panel"
 )
 
 // cmdList prints every account this machine can run and the exact command for

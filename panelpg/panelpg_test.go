@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"ccam/panel"
+	"clawdh/panel"
 )
 
 // dsn is the test database, or the test is skipped. CI without a database, and

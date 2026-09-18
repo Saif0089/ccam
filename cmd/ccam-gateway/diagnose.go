@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"ccam/internal/gateway"
-	"ccam/panel"
+	"clawdh/internal/gateway"
+	"clawdh/panel"
 )
 
 // runDiagnose reports, for the live database and key this gateway is configured

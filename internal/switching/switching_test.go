@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"ccam/internal/accounts"
+	"clawdh/internal/accounts"
 )
 
 func TestParseTrigger(t *testing.T) {

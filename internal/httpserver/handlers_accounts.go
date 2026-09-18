@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"ccam/internal/accounts"
+	"clawdh/internal/accounts"
 )
 
 type accountsResponse struct {

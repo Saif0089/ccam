@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ccam/internal/accounts"
+	"clawdh/internal/accounts"
 )
 
 // envEntry is one {name, value} pair in the extension's setting.

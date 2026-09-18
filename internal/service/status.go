@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"ccam/internal/config"
+	"clawdh/internal/config"
 )
 
 // RunningInfo describes a live ccam server.

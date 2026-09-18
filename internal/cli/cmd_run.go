@@ -13,11 +13,11 @@ import (
 	"syscall"
 	"time"
 
-	"ccam/internal/accounts"
-	"ccam/internal/claudebin"
-	"ccam/internal/config"
-	"ccam/internal/service"
-	"ccam/internal/switching"
+	"clawdh/internal/accounts"
+	"clawdh/internal/claudebin"
+	"clawdh/internal/config"
+	"clawdh/internal/service"
+	"clawdh/internal/switching"
 )
 
 // switchPollInterval is how often the supervisor checks for a pending switch

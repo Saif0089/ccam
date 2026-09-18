@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"ccam/internal/config"
-	"ccam/internal/service"
+	"clawdh/internal/config"
+	"clawdh/internal/service"
 )
 
 func cmdStart(args []string) int {

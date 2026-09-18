@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"syscall"
 
-	"ccam/internal/switching"
+	"clawdh/internal/switching"
 )
 
 // supervisorAlive reports whether the `ccam run` supervisor that exported

@@ -4,7 +4,7 @@
 package httpserver
 
 import (
-	"ccam/internal/editors"
+	"clawdh/internal/editors"
 	"context"
 	"errors"
 	"fmt"
@@ -18,12 +18,12 @@ import (
 	"sync"
 	"time"
 
-	"ccam/internal/accounts"
-	"ccam/internal/config"
-	"ccam/internal/service"
-	"ccam/internal/shellrc"
-	"ccam/internal/termlauncher"
-	"ccam/internal/usage"
+	"clawdh/internal/accounts"
+	"clawdh/internal/config"
+	"clawdh/internal/service"
+	"clawdh/internal/shellrc"
+	"clawdh/internal/termlauncher"
+	"clawdh/internal/usage"
 )
 
 // Server holds every dependency the HTTP handlers need.

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"ccam/internal/ptyio"
+	"clawdh/internal/ptyio"
 
 	"github.com/hinshun/vt10x"
 )
