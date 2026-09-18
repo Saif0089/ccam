@@ -1,4 +1,4 @@
-// Command ccam-gateway runs the gateway data plane. This first cut serves one
+// Command clawdh-server runs the gateway data plane. This first cut serves one
 // subscription with a static member key, to prove the client->gateway->Anthropic
 // path end to end; the DB-backed multi-account version builds on it.
 package main
@@ -24,7 +24,7 @@ func (s staticUpstream) Resolve(k string) (string, string, error) {
 }
 
 func main() {
-	// `ccam-gateway diagnose` reports why shares do or don't resolve against the
+	// `clawdh-server diagnose` reports why shares do or don't resolve against the
 	// live DB, then exits. Handled before flag parsing so it needs no flags.
 	if len(os.Args) > 1 && os.Args[1] == "diagnose" {
 		if err := runDiagnose(context.Background(), os.Getenv("DATABASE_URL"), config.Env("PANEL_KEY")); err != nil {
@@ -46,7 +46,7 @@ func main() {
 			os.Exit(1)
 		}
 		up = u
-		fmt.Println("ccam-gateway: serving from the panel database")
+		fmt.Println("clawdh-server: serving from the panel database")
 	} else {
 		token := config.Env("GW_TOKEN")
 		if token == "" || *memberKey == "" {
@@ -56,7 +56,7 @@ func main() {
 		up = staticUpstream{key: *memberKey, token: token}
 	}
 	h := gateway.New(up)
-	fmt.Printf("ccam-gateway on http://%s (forwarding to api.anthropic.com)\n", *addr)
+	fmt.Printf("clawdh-server on http://%s (forwarding to api.anthropic.com)\n", *addr)
 	if err := http.ListenAndServe(*addr, h); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

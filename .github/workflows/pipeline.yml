@@ -349,17 +349,17 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Build the gateway for linux/amd64
-        run: GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o ccam-gateway ./cmd/ccam-gateway
+        run: GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o clawdh-server ./cmd/clawdh-server
       - name: Ship it and restart the service
         env:
           KEY: ${{ secrets.VPS_SSH_KEY }}
           HOST: ${{ secrets.VPS_HOST }}
         run: |
           install -m 600 /dev/stdin key <<< "$KEY"
-          scp -i key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 ccam-gateway "root@$HOST:/opt/ccam-gateway/ccam-gateway.new"
+          scp -i key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 clawdh-server "root@$HOST:/opt/clawdh-server/clawdh-server.new"
           ssh -i key -o StrictHostKeyChecking=accept-new "root@$HOST" '
-            mv /opt/ccam-gateway/ccam-gateway.new /opt/ccam-gateway/ccam-gateway &&
-            chmod +x /opt/ccam-gateway/ccam-gateway &&
-            systemctl restart ccam-gateway &&
-            sleep 1 && systemctl is-active ccam-gateway'
+            mv /opt/clawdh-server/clawdh-server.new /opt/clawdh-server/clawdh-server &&
+            chmod +x /opt/clawdh-server/clawdh-server &&
+            systemctl restart clawdh-server &&
+            sleep 1 && systemctl is-active clawdh-server'
           rm -f key

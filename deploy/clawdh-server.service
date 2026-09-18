@@ -1,0 +1,11 @@
+[Unit]
+Description=clawdh server (shares one Claude subscription among a team)
+After=network.target
+[Service]
+EnvironmentFile=/opt/clawdh-server/env
+ExecStart=/opt/clawdh-server/clawdh-server --addr 127.0.0.1:8787
+Restart=always
+RestartSec=2
+DynamicUser=yes
+[Install]
+WantedBy=multi-user.target

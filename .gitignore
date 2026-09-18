@@ -12,7 +12,7 @@ playwright-report/
 docs/mockups/
 
 # Build artifact (the gateway binary, built locally)
-/ccam-gateway
+/clawdh-server
 # Local Claude Code session state and command dumps
 .claude.json
 *-local-command-caveatcaveat-*.txt

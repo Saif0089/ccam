@@ -19,7 +19,7 @@ import (
 // it writes is a successfully refreshed credential, so testing the refresh never
 // throws away a good token (the refresh is single-use).
 //
-//	ccam-gateway diagnose
+//	clawdh-server diagnose
 func runDiagnose(ctx context.Context, dsn, keyB64 string) error {
 	u, err := newDBUpstream(ctx, dsn, keyB64)
 	if err != nil {
