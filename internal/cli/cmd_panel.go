@@ -335,11 +335,22 @@ func panelPush(args []string) int {
 		return 1
 	}
 
+	reader := bufio.NewReader(os.Stdin)
 	fmt.Fprint(os.Stderr, "Panel password: ")
-	pw, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	pw, err := reader.ReadString('\n')
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ccam:", err)
 		return 1
+	}
+
+	// Record who is adding this account, as a member — the person, not the
+	// account (many people can share one login, so this is who holds the access
+	// and whose access revoke takes back). Enter accepts the default: the name
+	// this machine enrolled as, or its hostname.
+	member := panel.PusherName(server)
+	fmt.Fprintf(os.Stderr, "Record this machine as a member — name [%s]: ", member)
+	if line, _ := reader.ReadString('\n'); strings.TrimSpace(line) != "" {
+		member = strings.TrimSpace(line)
 	}
 	jar := &oneHostJar{}
 	httpc := &http.Client{Jar: jar, Timeout: 30 * time.Second}
@@ -358,7 +369,7 @@ func panelPush(args []string) int {
 		fmt.Fprintln(os.Stderr, "ccam:", err)
 		return 1
 	}
-	if err := panel.PushLogin(ctx, httpc, server, id, base64.StdEncoding.EncodeToString(raw), panel.PusherName(server)); err != nil {
+	if err := panel.PushLogin(ctx, httpc, server, id, base64.StdEncoding.EncodeToString(raw), member); err != nil {
 		fmt.Fprintln(os.Stderr, "ccam:", err)
 		return 1
 	}
