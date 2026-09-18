@@ -22,20 +22,20 @@ import (
 // session.go about `claude`'s TUI ultimately traces back to what this
 // prints.
 //
-//	CCAM_REAL_CLAUDE=1 go test ./internal/ptyauth/ -run TestRealClaudeLoginScreens -v
+//	CLAWDH_REAL_CLAUDE=1 go test ./internal/ptyauth/ -run TestRealClaudeLoginScreens -v
 //
 // It never completes a login and sends no keystrokes; it only watches.
 func TestRealClaudeLoginScreens(t *testing.T) {
-	if os.Getenv("CCAM_REAL_CLAUDE") == "" {
-		t.Skip("manual probe; set CCAM_REAL_CLAUDE=1 to run against the real claude CLI")
+	if os.Getenv("CLAWDH_REAL_CLAUDE") == "" {
+		t.Skip("manual probe; set CLAWDH_REAL_CLAUDE=1 to run against the real claude CLI")
 	}
 
-	binary := os.Getenv("CCAM_CLAUDE_BIN")
+	binary := os.Getenv("CLAWDH_CLAUDE_BIN")
 	if binary == "" {
 		binary = "claude"
 	}
 	var args []string
-	if raw := os.Getenv("CCAM_CLAUDE_ARGS"); raw != "" {
+	if raw := os.Getenv("CLAWDH_CLAUDE_ARGS"); raw != "" {
 		args = strings.Fields(raw)
 	}
 	configDir := t.TempDir()

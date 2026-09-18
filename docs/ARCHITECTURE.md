@@ -27,7 +27,7 @@ amd64/arm64 (`CGO_ENABLED=0`).
   by launchd/systemd/a Startup entry, clawdh has almost no `PATH` (launchd
   hands out roughly `/usr/bin:/bin:/usr/sbin:/sbin`) while `claude` lives
   under the user's home, so `exec.LookPath` alone works from a terminal and
-  fails after every reboot. Checks `CCAM_CLAUDE_BIN`, then `PATH`, then the
+  fails after every reboot. Checks `CLAWDH_CLAUDE_BIN`, then `PATH`, then the
   known install locations.
 
 - **`internal/ptyauth`** — drives one login attempt: spawns
@@ -228,7 +228,7 @@ Four layers, because each one has a blind spot that let a real bug through:
 
 `testdata/fakeclaude` deliberately mirrors the *real* CLI's contract as
 verified by `internal/ptyauth/realclaude_test.go` (a manual probe, run with
-`CCAM_REAL_CLAUDE=1`): it implements `auth status --json` and
+`CLAWDH_REAL_CLAUDE=1`): it implements `auth status --json` and
 `auth login --claudeai`, prints a ~600-character URL so truncation is
 caught, offers a paste-a-code path, and — importantly — emulates the
 interactive theme picker for a bare `claude`, so that if clawdh ever goes back

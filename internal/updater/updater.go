@@ -15,7 +15,7 @@
 //   - Nothing is replaced by something older than what is running. The
 //     release has to have been published after this binary was written,
 //     which also means a build you just made by hand is left alone.
-//   - CCAM_AUTO_UPDATE=0 turns the whole thing off.
+//   - CLAWDH_AUTO_UPDATE=0 turns the whole thing off.
 package updater
 
 import (
@@ -101,8 +101,8 @@ func New(binaryPath string) *Updater {
 	}
 }
 
-// firstCheckDelay honours CCAM_UPDATE_DELAY, which exists for the same
-// reason CCAM_UPDATE_API does: so a test can drive the real update path
+// firstCheckDelay honours CLAWDH_UPDATE_DELAY, which exists for the same
+// reason CLAWDH_UPDATE_API does: so a test can drive the real update path
 // end to end instead of a mock of it.
 func firstCheckDelay() time.Duration {
 	if raw := config.Env("UPDATE_DELAY"); raw != "" {
@@ -119,7 +119,7 @@ func firstCheckDelay() time.Duration {
 	return FirstCheckDelay
 }
 
-// apiBase honours CCAM_UPDATE_API so the end-to-end tests can exercise
+// apiBase honours CLAWDH_UPDATE_API so the end-to-end tests can exercise
 // the whole path — check, download, verify, swap — against a stub.
 func apiBase() string {
 	if base := config.Env("UPDATE_API"); base != "" {
@@ -159,7 +159,7 @@ func AssetName() string {
 // line, not a reason to take the service down.
 func (u *Updater) Run(ctx context.Context, onUpdated func(Release)) {
 	if !Enabled() {
-		log.Print("automatic updates are off (CCAM_AUTO_UPDATE=0)")
+		log.Print("automatic updates are off (CLAWDH_AUTO_UPDATE=0)")
 		return
 	}
 

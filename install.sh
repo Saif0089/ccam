@@ -27,7 +27,7 @@ case "$arch_name" in
     ;;
 esac
 
-version="${CLAWDH_VERSION:-${CCAM_VERSION:-latest}}"
+version="${CLAWDH_VERSION:-latest}"
 asset="clawdh_${os}_${arch}"
 if [ "$version" = "latest" ]; then
   url="https://github.com/${REPO}/releases/latest/download/${asset}"
@@ -35,7 +35,7 @@ else
   url="https://github.com/${REPO}/releases/download/${version}/${asset}"
 fi
 
-install_dir="${CLAWDH_INSTALL_DIR:-${CCAM_INSTALL_DIR:-$HOME/.local/bin}}"
+install_dir="${CLAWDH_INSTALL_DIR:-$HOME/.local/bin}"
 mkdir -p "$install_dir"
 
 tmp="$(mktemp)"

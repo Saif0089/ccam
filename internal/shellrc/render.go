@@ -66,7 +66,7 @@ func RenderBody(shell Shell, entries []AliasEntry) string {
 		switch shell {
 		case Fish:
 			fmt.Fprintf(&b, `function %s
-    if set -q CLAUDECODE; or test "$CCAM_WRAP" = 0; or not isatty stdin; or not command -q clawdh
+    if set -q CLAUDECODE; or test "$CLAWDH_WRAP" = 0; or not isatty stdin; or not command -q clawdh
         env -u CLAUDE_CONFIG_DIR CLAUDE_SECURESTORAGE_CONFIG_DIR=%s claude $argv
     else
         command clawdh %s $argv
@@ -78,7 +78,7 @@ end
 			// branches on whether the name is present, so a variable
 			// left defined-but-empty is not the same as an absent one.
 			fmt.Fprintf(&b, `function %s {
-    if ($env:CLAUDECODE -or $env:CCAM_WRAP -eq '0' -or [Console]::IsInputRedirected -or
+    if ($env:CLAUDECODE -or $env:CLAWDH_WRAP -eq '0' -or [Console]::IsInputRedirected -or
         -not (Get-Command clawdh -CommandType Application -ErrorAction SilentlyContinue)) {
         Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue
         $env:CLAUDE_SECURESTORAGE_CONFIG_DIR = %s
@@ -90,7 +90,7 @@ end
 `, e.Alias, psQuote(e.ConfigDir), psQuote(e.Account))
 		default: // bash, zsh
 			fmt.Fprintf(&b, `%s() {
-    if [ -n "$CLAUDECODE" ] || [ "$CCAM_WRAP" = 0 ] || [ ! -t 0 ] || ! command -v clawdh >/dev/null 2>&1; then
+    if [ -n "$CLAUDECODE" ] || [ "$CLAWDH_WRAP" = 0 ] || [ ! -t 0 ] || ! command -v clawdh >/dev/null 2>&1; then
         env -u CLAUDE_CONFIG_DIR CLAUDE_SECURESTORAGE_CONFIG_DIR=%s command claude "$@"
     else
         command clawdh %s "$@"
@@ -127,7 +127,7 @@ func writeDirectEntry(b *strings.Builder, shell Shell, e AliasEntry) {
 //
 // It deliberately steps aside in the cases where supervising would be wrong or
 // impossible, falling through to Claude Code itself:
-//   - CCAM_WRAP=0, the escape hatch;
+//   - CLAWDH_WRAP=0, the escape hatch;
 //   - inside a Claude Code session (CLAUDECODE), where `claude` means a nested
 //     session, not a re-account of the session you are in;
 //   - no terminal on stdin — scripts, pipes, CI — where a supervisor has no
@@ -145,7 +145,7 @@ func claudeWrapper(shell Shell) string {
 # switches account without leaving the conversation. Falls through to Claude
 # Code itself when that cannot work.
 function claude
-    if set -q CLAUDECODE; or test "$CCAM_WRAP" = 0; or not isatty stdin; or not command -q clawdh
+    if set -q CLAUDECODE; or test "$CLAWDH_WRAP" = 0; or not isatty stdin; or not command -q clawdh
         command claude $argv
     else
         command clawdh run --auto $argv
@@ -159,7 +159,7 @@ end
 # above call through this one, so they are switchable too.
 function claude {
     $real = Get-Command claude -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($env:CLAUDECODE -or $env:CCAM_WRAP -eq '0' -or [Console]::IsInputRedirected -or
+    if ($env:CLAUDECODE -or $env:CLAWDH_WRAP -eq '0' -or [Console]::IsInputRedirected -or
         -not (Get-Command clawdh -CommandType Application -ErrorAction SilentlyContinue)) {
         if ($real) { & $real.Source @args } else { Write-Error 'claude is not installed' }
     } else {
@@ -173,7 +173,7 @@ function claude {
 # switches account without leaving the conversation. Falls through to Claude
 # Code itself when that cannot work.
 claude() {
-    if [ -n "$CLAUDECODE" ] || [ "$CCAM_WRAP" = 0 ] || [ ! -t 0 ] || ! command -v clawdh >/dev/null 2>&1; then
+    if [ -n "$CLAUDECODE" ] || [ "$CLAWDH_WRAP" = 0 ] || [ ! -t 0 ] || ! command -v clawdh >/dev/null 2>&1; then
         command claude "$@"
     else
         command clawdh run --auto "$@"

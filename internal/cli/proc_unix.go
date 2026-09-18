@@ -11,7 +11,7 @@ import (
 )
 
 // supervisorAlive reports whether the `clawdh run` supervisor that exported
-// CCAM_SUPERVISOR is still running. Signal 0 asks the kernel about the process
+// CLAWDH_SUPERVISOR is still running. Signal 0 asks the kernel about the process
 // without touching it: no such process means the session that would have
 // consumed a handoff is long gone. EPERM means it exists under another user,
 // which is not our supervisor either.

@@ -307,7 +307,7 @@ func removePortFile(port int) {
 // clawdh, so its conversations each get their own credential store.
 func configureEditors(home string) error {
 	// The one setting clawdh writes outside its own directory and the user's
-	// shell rc, so it takes an opt-out: CCAM_MANAGE_EDITORS=0 in the service's
+	// shell rc, so it takes an opt-out: CLAWDH_MANAGE_EDITORS=0 in the service's
 	// environment leaves every editor alone.
 	if config.Env("MANAGE_EDITORS") == "0" {
 		return nil

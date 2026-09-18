@@ -41,11 +41,11 @@ func TestAutoUpdateInstallsAndRestartsIntoIt(t *testing.T) {
 	}
 	beforeSum := sha256File(t, h.clawdhBin)
 
-	h.env = setEnv(h.env, "CCAM_UPDATE_API", release.URL)
+	h.env = setEnv(h.env, "CLAWDH_UPDATE_API", release.URL)
 	// Check straight away rather than after the minute a real machine
 	// waits, and never pop a desktop notification from a test run.
-	h.env = setEnv(h.env, "CCAM_UPDATE_DELAY", "0s")
-	h.env = setEnv(h.env, "CCAM_NOTIFY", "0")
+	h.env = setEnv(h.env, "CLAWDH_UPDATE_DELAY", "0s")
+	h.env = setEnv(h.env, "CLAWDH_NOTIFY", "0")
 
 	out, err := h.run("install", "--port", fmt.Sprint(h.port))
 	if err != nil {
@@ -120,9 +120,9 @@ func TestAutoUpdateLeavesANewerLocalBuildAlone(t *testing.T) {
 	release := startReleaseServer(t, published, time.Now().Add(-48*time.Hour))
 	beforeSum := sha256File(t, h.clawdhBin)
 
-	h.env = setEnv(h.env, "CCAM_UPDATE_API", release.URL)
-	h.env = setEnv(h.env, "CCAM_UPDATE_DELAY", "0s")
-	h.env = setEnv(h.env, "CCAM_NOTIFY", "0")
+	h.env = setEnv(h.env, "CLAWDH_UPDATE_API", release.URL)
+	h.env = setEnv(h.env, "CLAWDH_UPDATE_DELAY", "0s")
+	h.env = setEnv(h.env, "CLAWDH_NOTIFY", "0")
 
 	if out, err := h.run("install", "--port", fmt.Sprint(h.port)); err != nil {
 		t.Fatalf("clawdh install failed: %v\n%s", err, out)

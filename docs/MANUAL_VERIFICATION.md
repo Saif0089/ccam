@@ -40,8 +40,8 @@ For each of macOS, Linux, and Windows:
 screen every two seconds, without ever completing a login:
 
 ```sh
-CCAM_REAL_CLAUDE=1 go test ./internal/ptyauth/ -run TestRealClaudeLoginScreens -v
-CCAM_REAL_CLAUDE=1 CCAM_CLAUDE_ARGS="auth login --claudeai" \
+CLAWDH_REAL_CLAUDE=1 go test ./internal/ptyauth/ -run TestRealClaudeLoginScreens -v
+CLAWDH_REAL_CLAUDE=1 CLAWDH_CLAUDE_ARGS="auth login --claudeai" \
   go test ./internal/ptyauth/ -run TestRealClaudeLoginScreens -v
 ```
 

@@ -3,7 +3,7 @@ package accounts
 import "testing"
 
 // A live check that capture reads a real macOS Keychain login. Skipped unless
-// CCAM_CAPTURE_LIVE=1, because it depends on this machine actually having a
+// CLAWDH_CAPTURE_LIVE=1, because it depends on this machine actually having a
 // default Claude login in the Keychain.
 func TestCaptureReadsTheRealDefaultLogin(t *testing.T) {
 	if testing.Short() {

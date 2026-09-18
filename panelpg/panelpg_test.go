@@ -11,12 +11,12 @@ import (
 
 // dsn is the test database, or the test is skipped. CI without a database, and
 // a developer without one, both skip cleanly; the integration is proven wherever
-// CCAM_TEST_POSTGRES points at a real Postgres.
+// CLAWDH_TEST_POSTGRES points at a real Postgres.
 func dsn(t *testing.T) string {
 	t.Helper()
-	d := os.Getenv("CCAM_TEST_POSTGRES")
+	d := os.Getenv("CLAWDH_TEST_POSTGRES")
 	if d == "" {
-		t.Skip("set CCAM_TEST_POSTGRES to a Postgres DSN to run the database-backed tests")
+		t.Skip("set CLAWDH_TEST_POSTGRES to a Postgres DSN to run the database-backed tests")
 	}
 	return d
 }

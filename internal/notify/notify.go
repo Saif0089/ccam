@@ -27,7 +27,7 @@ const Timeout = 20 * time.Second
 
 // Enabled reports whether notifications should be shown at all.
 //
-// CCAM_NOTIFY=0 turns them off, which is how the test suite runs the
+// CLAWDH_NOTIFY=0 turns them off, which is how the test suite runs the
 // real update path without popping a notification on the desktop of
 // whoever happens to be running it.
 func Enabled() bool {

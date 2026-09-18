@@ -43,7 +43,7 @@ func runDiagnose(ctx context.Context, dsn, keyB64 string) error {
 		raw, err := u.secret.Open(a.Credential)
 		if err != nil {
 			fmt.Printf("  UNSEAL FAILED: %v\n", err)
-			fmt.Println("  -> the gateway's CCAM_PANEL_KEY does not match the key that sealed this (the panel's). This is the 401.")
+			fmt.Println("  -> the gateway's CLAWDH_PANEL_KEY does not match the key that sealed this (the panel's). This is the 401.")
 			fmt.Println()
 			continue
 		}

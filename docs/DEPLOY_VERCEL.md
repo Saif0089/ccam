@@ -12,7 +12,7 @@ seconds, obeys the panel, and self-updates from the GitHub `latest` release.
 The project is linked and deployed:
 
 - Project: `cc_account_manager` on Vercel, live at **https://ccaccountmanager.vercel.app**
-- `CCAM_PANEL_KEY` (the key that seals stored logins) is set in the Production
+- `CLAWDH_PANEL_KEY` (the key that seals stored logins) is set in the Production
   environment. Keep your copy — losing it makes every stored login unreadable.
 - Vercel's own authentication wall (SSO) is turned off for this project, so the
   panel's own password is the gate rather than a second Vercel login the client
@@ -57,7 +57,7 @@ clawdh panel push <account> https://ccaccountmanager.vercel.app
 
 ## What this defends against, and what it does not
 
-The panel keeps real logins in a Postgres row, sealed with `CCAM_PANEL_KEY`. A
+The panel keeps real logins in a Postgres row, sealed with `CLAWDH_PANEL_KEY`. A
 copy of the database alone is not a working set of logins; the key is needed too,
 and it lives only in Vercel's environment and wherever you kept it. It does not
 defend against someone who already controls the Vercel project or the database. A

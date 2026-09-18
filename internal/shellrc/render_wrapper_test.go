@@ -14,7 +14,7 @@ func TestRenderBodyWrapsPlainClaudeOnEveryShell(t *testing.T) {
 		for _, want := range []string{
 			"clawdh run --auto", // supervised, so `!clawdh <name>` can switch it
 			"CLAUDECODE",        // but not inside a session
-			"CCAM_WRAP",         // and there is an escape hatch
+			"CLAWDH_WRAP",       // and there is an escape hatch
 		} {
 			if !contains(body, want) {
 				t.Errorf("%s: wrapper missing %q: %s", shell, want, body)

@@ -50,7 +50,7 @@ func main() {
 	} else {
 		token := config.Env("GW_TOKEN")
 		if token == "" || *memberKey == "" {
-			fmt.Fprintln(os.Stderr, "set DATABASE_URL + CCAM_PANEL_KEY, or CCAM_GW_TOKEN + --member-key")
+			fmt.Fprintln(os.Stderr, "set DATABASE_URL + CLAWDH_PANEL_KEY, or CLAWDH_GW_TOKEN + --member-key")
 			os.Exit(2)
 		}
 		up = staticUpstream{key: *memberKey, token: token}

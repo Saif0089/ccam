@@ -18,12 +18,12 @@ import (
 // HandoffEnvVar names the file the hook writes and the supervisor reads. The
 // supervisor picks the path and exports it into Claude Code's environment, so
 // the hook (a child of claude) finds it without guessing.
-const HandoffEnvVar = "CCAM_HANDOFF"
+const HandoffEnvVar = "CLAWDH_HANDOFF"
 
 // SupervisorEnvVar carries the `clawdh run` supervisor's pid into the session it
 // runs, so a switch staged from a shell command can tell a live supervisor
 // from an inherited environment variable left over by one that has exited.
-const SupervisorEnvVar = "CCAM_SUPERVISOR"
+const SupervisorEnvVar = "CLAWDH_SUPERVISOR"
 
 // SessionIDEnvVar is the session Claude Code exports into every process it
 // spawns — hooks and the shell commands a user runs with `!`. It is how a

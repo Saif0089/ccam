@@ -38,7 +38,7 @@ func build() (http.Handler, error) {
 	}
 	keyEnc := config.Env("PANEL_KEY")
 	if keyEnc == "" {
-		return nil, errMissing("CCAM_PANEL_KEY", "the base64 key that seals stored logins")
+		return nil, errMissing("CLAWDH_PANEL_KEY", "the base64 key that seals stored logins")
 	}
 
 	secret, err := panel.SecretFromBase64(keyEnc)

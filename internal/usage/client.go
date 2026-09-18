@@ -95,7 +95,7 @@ type Client struct {
 
 // NewClient returns a Client with sensible defaults.
 //
-// CCAM_USAGE_ENDPOINT redirects it, so the end-to-end tests can exercise
+// CLAWDH_USAGE_ENDPOINT redirects it, so the end-to-end tests can exercise
 // the whole path — server, handler, page — against a stub instead of
 // calling Anthropic from CI.
 func NewClient() *Client {

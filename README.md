@@ -39,7 +39,7 @@ hash, so moving to the narrower one keeps every existing login working. clawdh:
   started by just typing `claude`: clawdh puts a small `claude` function in your
   shell rc that runs the same supervisor. It steps aside — running Claude Code
   directly — inside an existing session, with no terminal (scripts, pipes, CI),
-  when clawdh is not on PATH, or with `CCAM_WRAP=0` set.
+  when clawdh is not on PATH, or with `CLAWDH_WRAP=0` set.
 - runs as a per-user background service that starts at login and serves the
   UI at `http://127.0.0.1:47932`.
 
@@ -161,7 +161,7 @@ ones start on the account `clawdh editor <account>` last set, or your default
 login if it was never set.
 
 Editors without the extension are left alone, `settings.json` keeps its comments
-and formatting (one value is edited in place), and `CCAM_MANAGE_EDITORS=0` in the
+and formatting (one value is edited in place), and `CLAWDH_MANAGE_EDITORS=0` in the
 service's environment turns the whole thing off.
 
 Two things the wrapper changes, both from the extension's own code: it stops
@@ -187,7 +187,7 @@ on every request, so a switch lands on the next one, but it caches Keychain
 reads for thirty seconds, so on macOS the session may answer once or twice more
 as the old account before it flips. clawdh says so when it switches.
 
-Set `CCAM_CREDENTIALS_FILE=1` to keep clawdh out of the Keychain entirely and use
+Set `CLAWDH_CREDENTIALS_FILE=1` to keep clawdh out of the Keychain entirely and use
 the file store everywhere — which also makes switches immediate. Claude Code reads it when its keychain item is
 absent, so nothing breaks — the trade is that a copy of the token sits in a
 `0600` file for as long as that session or editor exists.
@@ -232,8 +232,8 @@ Two rules keep that safe to leave alone:
   never installed over it — so a build you made yourself from a working
   tree that is ahead of the release is left alone.
 
-Set `CCAM_AUTO_UPDATE=0` in the service's environment to turn it off, and
-`CCAM_NOTIFY=0` to keep the notifications quiet. To update by hand at any
+Set `CLAWDH_AUTO_UPDATE=0` in the service's environment to turn it off, and
+`CLAWDH_NOTIFY=0` to keep the notifications quiet. To update by hand at any
 time, re-run the install command above.
 
 ## Uninstalling
@@ -272,7 +272,7 @@ Windows, and if that's green, builds all 6 targets and republishes the
 rolling `latest` GitHub Release — the one `install.sh`/`install.ps1` pull
 from by default. So shipping a change is just `git push`. Pushing a
 `vX.Y.Z` tag instead builds the same way but creates a proper pinned
-release (`CCAM_VERSION=vX.Y.Z` selects it in either install script). A
+release (`CLAWDH_VERSION=vX.Y.Z` selects it in either install script). A
 pull request runs test + e2e only, as a pre-merge gate.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit

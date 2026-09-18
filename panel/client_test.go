@@ -58,7 +58,7 @@ func firstShareID(t *testing.T, h *harness) string {
 // disk — and disappears the moment it is revoked. That difference is the whole
 // point of the gateway: the login stays on the server.
 func TestCheckInCachesSharesAndDropsThemOnRevoke(t *testing.T) {
-	t.Setenv("CCAM_GATEWAY_URL", "https://gw.example")
+	t.Setenv("CLAWDH_GATEWAY_URL", "https://gw.example")
 	h := newHarness(t)
 	cfg, accountID, personID := setupSharing(t, h)
 
@@ -125,7 +125,7 @@ func TestCheckInCachesSharesAndDropsThemOnRevoke(t *testing.T) {
 // A machine that has been cut off forgets every shared account, without needing
 // to be told account by account.
 func TestACutOffMachineForgetsEverything(t *testing.T) {
-	t.Setenv("CCAM_GATEWAY_URL", "https://gw.example")
+	t.Setenv("CLAWDH_GATEWAY_URL", "https://gw.example")
 	h := newHarness(t)
 	cfg, accountID, personID := setupSharing(t, h)
 	sharesPath := filepath.Join(t.TempDir(), "shares.json")

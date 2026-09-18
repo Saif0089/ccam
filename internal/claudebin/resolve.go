@@ -18,7 +18,7 @@ import (
 )
 
 // EnvOverride lets a user point clawdh at a specific claude executable.
-const EnvOverride = "CCAM_CLAUDE_BIN"
+const EnvOverride = "CLAWDH_CLAUDE_BIN"
 
 // Resolve returns the path to the claude executable. It prefers an
 // explicit override, then PATH, then the known install locations. If

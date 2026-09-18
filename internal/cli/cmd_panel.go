@@ -435,7 +435,7 @@ func watchPanel(ctx context.Context) {
 
 // panelGenkey prints a fresh sealing key for a panel that runs somewhere with no
 // disk of its own — a serverless deployment. The value goes in that host's
-// environment as CCAM_PANEL_KEY, and is the only thing that can open the logins
+// environment as CLAWDH_PANEL_KEY, and is the only thing that can open the logins
 // the panel holds, so it is printed once and never kept by clawdh.
 func panelGenkey() int {
 	key, err := panel.GenerateKeyBase64()
@@ -444,7 +444,7 @@ func panelGenkey() int {
 		return 1
 	}
 	fmt.Println(key)
-	fmt.Fprintln(os.Stderr, "Set this as CCAM_PANEL_KEY in the panel's environment. Keep it — it cannot be recovered,")
+	fmt.Fprintln(os.Stderr, "Set this as CLAWDH_PANEL_KEY in the panel's environment. Keep it — it cannot be recovered,")
 	fmt.Fprintln(os.Stderr, "and losing it makes every stored login unreadable.")
 	return 0
 }

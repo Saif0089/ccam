@@ -401,7 +401,7 @@ async function giveAccess(a) {
     }
     await refresh();
     if (!lastGateway) {
-      await ask({ title: "Gateway not set", note: "There's no gateway configured (CCAM_GATEWAY_URL), so there's nowhere to point their access yet.", confirm: "Close", cancel: "" });
+      await ask({ title: "Gateway not set", note: "There's no gateway configured (CLAWDH_GATEWAY_URL), so there's nowhere to point their access yet.", confirm: "Close", cancel: "" });
       return;
     }
     const names = without.filter((p) => ids.includes(p.id)).map((p) => p.name).join(", ");

@@ -14,7 +14,7 @@ import (
 
 // sharedSessionEnvVar marks a Claude Code process as a shared (gateway) session
 // and carries the shared account's name, for the switch hook to read.
-const sharedSessionEnvVar = "CCAM_SHARED_SESSION"
+const sharedSessionEnvVar = "CLAWDH_SHARED_SESSION"
 
 // cmdUse runs Claude Code through a clawdh gateway: it points Claude at the
 // gateway (ANTHROPIC_BASE_URL) and presents the person's key

@@ -284,7 +284,7 @@ func TestRunStagesSwitchInsideSupervisedSession(t *testing.T) {
 	}
 }
 
-// CCAM_HANDOFF is inherited by anything a session spawned, including processes
+// CLAWDH_HANDOFF is inherited by anything a session spawned, including processes
 // that outlive it. Staging a handoff against a supervisor that has exited
 // printed "Switching…" and did nothing at all.
 func TestRunRefusesToStageForADeadSupervisor(t *testing.T) {

@@ -15,7 +15,7 @@ $arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArch
   default   { "amd64" }
 }
 
-$version = if ($env:CLAWDH_VERSION) { $env:CLAWDH_VERSION } elseif ($env:CCAM_VERSION) { $env:CCAM_VERSION } else { "latest" }
+$version = if ($env:CLAWDH_VERSION) { $env:CLAWDH_VERSION } else { "latest" }
 $asset = "clawdh_windows_$arch.exe"
 if ($version -eq "latest") {
   $url = "https://github.com/$Repo/releases/latest/download/$asset"
@@ -53,7 +53,7 @@ function Test-AccessDenied($errorRecord) {
 
 function ps1Quote([string]$s) { "'" + $s.Replace("'", "''") + "'" }
 
-$installDir = if ($env:CLAWDH_INSTALL_DIR) { $env:CLAWDH_INSTALL_DIR } elseif ($env:CCAM_INSTALL_DIR) { $env:CCAM_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "clawdh\bin" }
+$installDir = if ($env:CLAWDH_INSTALL_DIR) { $env:CLAWDH_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "clawdh\bin" }
 try {
   New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 } catch {

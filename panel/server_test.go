@@ -74,7 +74,7 @@ func (h *harness) do(method, path string, body any, bearer string) (int, map[str
 // machine is told about it, the account is taken back, and the next thing the
 // machine hears is that it has nothing.
 func TestAMachineIsToldWhatItCanUseAndWhenItStops(t *testing.T) {
-	t.Setenv("CCAM_GATEWAY_URL", "https://gw.example")
+	t.Setenv("CLAWDH_GATEWAY_URL", "https://gw.example")
 	h := newHarness(t)
 
 	if code, body := h.do("POST", "/api/setup", map[string]string{"password": "a-long-enough-one"}, ""); code != 200 {

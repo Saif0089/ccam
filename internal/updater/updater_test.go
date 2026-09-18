@@ -225,15 +225,15 @@ func TestRefusesAReleaseWithNoChecksums(t *testing.T) {
 
 func TestEnabledRespectsTheOptOut(t *testing.T) {
 	for _, value := range []string{"0", "false", "off", "no", "OFF"} {
-		t.Setenv("CCAM_AUTO_UPDATE", value)
+		t.Setenv("CLAWDH_AUTO_UPDATE", value)
 		if Enabled() {
-			t.Errorf("CCAM_AUTO_UPDATE=%q left automatic updates on", value)
+			t.Errorf("CLAWDH_AUTO_UPDATE=%q left automatic updates on", value)
 		}
 	}
 	for _, value := range []string{"", "1", "true", "yes", "anything else"} {
-		t.Setenv("CCAM_AUTO_UPDATE", value)
+		t.Setenv("CLAWDH_AUTO_UPDATE", value)
 		if !Enabled() {
-			t.Errorf("CCAM_AUTO_UPDATE=%q turned automatic updates off", value)
+			t.Errorf("CLAWDH_AUTO_UPDATE=%q turned automatic updates off", value)
 		}
 	}
 }

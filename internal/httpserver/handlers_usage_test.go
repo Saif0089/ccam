@@ -19,7 +19,7 @@ const usagePayload = `{"limits":[
 ],"extra_usage":{"is_enabled":false}}`
 
 func TestAccountUsage(t *testing.T) {
-	t.Setenv("CCAM_CREDENTIALS_FILE", "1") // the file written below, never the Keychain
+	t.Setenv("CLAWDH_CREDENTIALS_FILE", "1") // the file written below, never the Keychain
 	srv, _ := newTestServer(t)
 
 	account, err := srv.manager.Add("Work")

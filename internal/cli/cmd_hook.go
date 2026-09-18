@@ -30,7 +30,7 @@ func cmdHook(args []string) int {
 //
 // It must be cheap: it runs before EVERY prompt in every session that shares
 // this settings.json, including a plain `claude`. So it returns immediately
-// unless CCAM_HANDOFF is set — i.e. unless a supervisor is actually there to
+// unless CLAWDH_HANDOFF is set — i.e. unless a supervisor is actually there to
 // hand off to — before doing any other work.
 func hookUserPromptSubmit() int {
 	input, _ := io.ReadAll(os.Stdin)

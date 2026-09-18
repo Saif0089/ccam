@@ -134,7 +134,7 @@ func cmdRun(args []string) int {
 	// Two things have to hold. Only the bare form is a switch: `clawdh ehti -p
 	// "..."` inside a session is a deliberate one-shot on another account, and
 	// staging a switch would kill the live session and throw those arguments
-	// away. And the supervisor has to still be there: CCAM_HANDOFF is
+	// away. And the supervisor has to still be there: CLAWDH_HANDOFF is
 	// inherited by anything a session spawned, including processes that
 	// outlive it, and staging a handoff nobody will read reported a switch
 	// that never happened.

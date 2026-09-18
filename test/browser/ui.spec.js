@@ -167,9 +167,9 @@ test.beforeAll(async () => {
       USERPROFILE: home,
       APPDATA: path.join(home, "AppData", "Roaming"),
       LOCALAPPDATA: path.join(home, "AppData", "Local"),
-      CCAM_CLAUDE_BIN: fakeClaude,
+      CLAWDH_CLAUDE_BIN: fakeClaude,
       // Never let the suite call Anthropic for real.
-      CCAM_USAGE_ENDPOINT: usageURL,
+      CLAWDH_USAGE_ENDPOINT: usageURL,
       // Keep the "here is your URL" state on screen long enough to be
       // asserted on; the fake otherwise finishes in ~300ms and the UI
       // races straight past it to "Connected".

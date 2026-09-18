@@ -19,7 +19,7 @@ import (
 // and out of the Keychain of whoever runs the suite.
 func fileCredentials(t *testing.T) {
 	t.Helper()
-	t.Setenv("CCAM_CREDENTIALS_FILE", "1")
+	t.Setenv("CLAWDH_CREDENTIALS_FILE", "1")
 }
 
 // writeCredsFile stores a login whose clocks are relative to now: fixed
