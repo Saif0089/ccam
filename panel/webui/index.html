@@ -151,6 +151,9 @@
   .lcap { color:var(--muted); font-size:15px; }
   button.sm { font-size:13px; padding:5px 11px; }
   .warn-icon { margin-left:8px; color:var(--warn); cursor:help; font-size:15px; }
+  .burn { margin-top:14px; }
+  .burn svg.spark { width:100%; height:52px; display:block; }
+  .burn-cap { font-size:12px; color:var(--faint); margin-top:4px; }
 </style>
 </head>
 <body>
@@ -218,6 +221,7 @@
       </div>
     </div>
     <div id="usage-legend" class="legend"></div>
+    <div id="usage-burn" class="burn"></div>
     <h2 class="board-h">People</h2>
     <div id="usage-people" class="board"></div>
     <h2 class="board-h">Accounts</h2>
@@ -637,6 +641,24 @@ function setAsOf(iso) {
   el.classList.toggle("stale", mins > 2);
 }
 
+async function renderBurn() {
+  let buckets = [];
+  try {
+    const b = await api("GET", "/api/usage/burn?window=" + usageWindow);
+    buckets = b.buckets || [];
+  } catch { /* the boards already surfaced any error */ }
+  const el = $("#usage-burn");
+  if (buckets.length < 2) { el.innerHTML = ""; return; }
+  const vals = buckets.map((b) => (usageMetric === "cost" ? b.costUsd : b.weighted));
+  const max = Math.max(...vals, 1), n = vals.length, W = 100, H = 30;
+  const line = vals.map((v, i) => `${(i / (n - 1)) * W},${(H - (v / max) * H).toFixed(2)}`).join(" ");
+  el.innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="spark">` +
+    `<polygon points="0,${H} ${line} ${W},${H}" fill="var(--primary)" opacity="0.12"></polygon>` +
+    `<polyline points="${line}" fill="none" stroke="var(--primary)" stroke-width="1.4" vector-effect="non-scaling-stroke"></polyline>` +
+    `</svg><div class="burn-cap">Team usage per hour over the window</div>`;
+}
+
 let usageLoading = false;
 async function renderUsage() {
   if (usageLoading) return;
@@ -650,6 +672,7 @@ async function renderUsage() {
     renderLegend([...(people.subjects || []), ...(accounts.subjects || [])]);
     renderBoard($("#usage-people"), people.subjects);
     renderBoard($("#usage-accounts"), accounts.subjects);
+    renderBurn();
   } catch (e) {
     $("#usage-people").innerHTML = '<div class="usage-empty">Could not load usage: ' + e.message + "</div>";
     $("#usage-accounts").innerHTML = "";
