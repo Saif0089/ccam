@@ -15,18 +15,30 @@ import (
 // what makes a code short enough to read out over a call safe to use at all.
 const joinCodeLife = 24 * time.Hour
 
+// inviteLife is how long an invite link works. Short on purpose: an invite is
+// sent through chat and sits in a history, so it stops being useful before it
+// stops being findable. Long enough that a person can act on it in one sitting.
+const inviteLife = 1 * time.Hour
+
 // ---------------------------------------------------------------- the panel
 
 type accountView struct {
-	ID           string     `json:"id"`
-	Name         string     `json:"name"`
-	Email        string     `json:"email,omitempty"`
-	Plan         string     `json:"plan,omitempty"`
-	HasLogin     bool       `json:"hasLogin"`
-	Holder       string     `json:"holder,omitempty"`
-	HolderID     string     `json:"holderId,omitempty"`
-	AssignmentID string     `json:"assignmentId,omitempty"`
-	ExpiresAt    *time.Time `json:"expiresAt,omitempty"`
+	ID       string      `json:"id"`
+	Name     string      `json:"name"`
+	Email    string      `json:"email,omitempty"`
+	Plan     string      `json:"plan,omitempty"`
+	HasLogin bool        `json:"hasLogin"`
+	// Shared is everyone with gateway access to this account right now — many
+	// people can share one login, so this is a list, not one holder.
+	Shared []shareView `json:"shared,omitempty"`
+}
+
+// shareView is one person's gateway access to an account, with the share id
+// needed to take it away.
+type shareView struct {
+	ShareID    string `json:"shareId"`
+	PersonID   string `json:"personId"`
+	PersonName string `json:"personName"`
 }
 
 type deviceView struct {
@@ -39,7 +51,8 @@ type personView struct {
 	ID      string       `json:"id"`
 	Name    string       `json:"name"`
 	Email   string       `json:"email,omitempty"`
-	Holds   []string     `json:"holds,omitempty"`
+	// Can is the accounts this person may use through the gateway.
+	Can     []string     `json:"can,omitempty"`
 	Devices []deviceView `json:"devices,omitempty"`
 }
 
@@ -53,16 +66,13 @@ func (s *Server) handlePanel(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, err.Error())
 		return
 	}
-	now := s.now()
 
 	accounts := make([]accountView, 0, len(d.Accounts))
 	for _, a := range d.Accounts {
 		v := accountView{ID: a.ID, Name: a.Name, Email: a.Email, Plan: a.Plan, HasLogin: a.HasLogin()}
-		if held, ok := d.HolderOf(a.ID, now); ok {
-			v.Holder, v.HolderID, v.AssignmentID = d.personName(held.PersonID), held.PersonID, held.ID
-			if !held.ExpiresAt.IsZero() {
-				exp := held.ExpiresAt
-				v.ExpiresAt = &exp
+		for _, sh := range d.Shares {
+			if sh.AccountID == a.ID {
+				v.Shared = append(v.Shared, shareView{ShareID: sh.ID, PersonID: sh.PersonID, PersonName: d.personName(sh.PersonID)})
 			}
 		}
 		accounts = append(accounts, v)
@@ -71,8 +81,10 @@ func (s *Server) handlePanel(w http.ResponseWriter, r *http.Request) {
 	people := make([]personView, 0, len(d.People))
 	for _, p := range d.People {
 		v := personView{ID: p.ID, Name: p.Name, Email: p.Email}
-		for _, h := range d.Holdings(p.ID, now) {
-			v.Holds = append(v.Holds, d.accountName(h.AccountID))
+		for _, sh := range d.Shares {
+			if sh.PersonID == p.ID {
+				v.Can = append(v.Can, d.accountName(sh.AccountID))
+			}
 		}
 		for _, dev := range d.Devices {
 			if dev.PersonID != p.ID {
@@ -185,14 +197,15 @@ func (s *Server) handleRemoveAccount(w http.ResponseWriter, r *http.Request) {
 			return errors.New("There is no such account.")
 		}
 		name := a.Name
-		// Anyone holding it loses it, and the log says why rather than leaving
-		// a machine wiping a login for no stated reason.
-		now := s.now()
-		for i := range d.Assignments {
-			if d.Assignments[i].AccountID == id && d.Assignments[i].Active(now) {
-				d.end(&d.Assignments[i], now, EndedTakenBack)
+		// Everyone sharing it loses access — dropping the shares stops their
+		// keys at the gateway on the next request.
+		shares := d.Shares[:0]
+		for _, sh := range d.Shares {
+			if sh.AccountID != id {
+				shares = append(shares, sh)
 			}
 		}
+		d.Shares = shares
 		out := d.Accounts[:0]
 		for _, acct := range d.Accounts {
 			if acct.ID != id {
@@ -200,7 +213,7 @@ func (s *Server) handleRemoveAccount(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		d.Accounts = out
-		d.Log(now, "You", "removed "+name)
+		d.Log(s.now(), "You", "removed "+name)
 		return nil
 	})
 	if err != nil {
@@ -241,12 +254,14 @@ func (s *Server) handleRemovePerson(w http.ResponseWriter, r *http.Request) {
 			return errors.New("There is no such person.")
 		}
 		name := p.Name
-		now := s.now()
-		for i := range d.Assignments {
-			if d.Assignments[i].PersonID == id && d.Assignments[i].Active(now) {
-				d.end(&d.Assignments[i], now, EndedPersonGone)
+		// Their shares go too, so their access ends everywhere at once.
+		shares := d.Shares[:0]
+		for _, sh := range d.Shares {
+			if sh.PersonID != id {
+				shares = append(shares, sh)
 			}
 		}
+		d.Shares = shares
 		devices := d.Devices[:0]
 		for _, dev := range d.Devices {
 			if dev.PersonID != id {
@@ -261,7 +276,7 @@ func (s *Server) handleRemovePerson(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		d.People = people
-		d.Log(now, "You", "removed "+name+", and everything they were holding came back")
+		d.Log(s.now(), "You", "removed "+name+", and their access ended")
 		return nil
 	})
 	if err != nil {
@@ -293,6 +308,86 @@ func (s *Server) handleJoinCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"code": code, "expiresAt": expires})
+}
+
+// handleInvite mints an invite link for a person: a single-use, one-hour link
+// that carries the join code, so setting someone up is "send them this link"
+// rather than "read this code down the phone". The link lands on the panel's own
+// /i/<code> page, which tells them what to do with it.
+func (s *Server) handleInvite(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	code, hash, err := NewInviteCode()
+	if err != nil {
+		fail(w, 500, err.Error())
+		return
+	}
+	expires := s.now().Add(inviteLife)
+	var who string
+	err = s.store.Mutate(func(d *Data) error {
+		p, ok := d.Person(id)
+		if !ok {
+			return errors.New("There is no such person.")
+		}
+		who = p.Name
+		d.JoinCodes = append(d.JoinCodes, JoinCode{CodeHash: hash, PersonID: id, ExpiresAt: expires})
+		d.Log(s.now(), "You", "made an invite link for "+p.Name)
+		return nil
+	})
+	if err != nil {
+		fail(w, 404, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"url":       s.baseURL(r) + "/i/" + code,
+		"code":      code,
+		"person":    who,
+		"expiresAt": expires,
+	})
+}
+
+// handleInvitePage is the public page an invite link opens. It never reveals
+// anything about the panel — only whether this particular code is still good and
+// what to do with it — so it is safe to serve without a session.
+func (s *Server) handleInvitePage(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	link := s.baseURL(r) + "/i/" + code
+
+	state := "unknown"
+	d, err := s.store.Load()
+	if err == nil {
+		want := HashToken(strings.TrimSpace(code))
+		for _, c := range d.JoinCodes {
+			if !SameToken(want, c.CodeHash) {
+				continue
+			}
+			switch {
+			case !c.UsedAt.IsZero():
+				state = "used"
+			case s.now().After(c.ExpiresAt):
+				state = "expired"
+			default:
+				state = "good"
+			}
+			break
+		}
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(200)
+	_, _ = w.Write([]byte(invitePageHTML(link, state)))
+}
+
+// baseURL is the panel's address as a visitor reaches it: the configured
+// canonical URL when it is set (behind a proxy the request's own host is the
+// internal one), otherwise derived from the request.
+func (s *Server) baseURL(r *http.Request) string {
+	if u := strings.TrimRight(os.Getenv("CCAM_PANEL_URL"), "/"); u != "" {
+		return u
+	}
+	scheme := "https"
+	if r.TLS == nil && !strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		scheme = "http"
+	}
+	return scheme + "://" + r.Host
 }
 
 func (s *Server) handleRemoveDevice(w http.ResponseWriter, r *http.Request) {
@@ -359,50 +454,6 @@ func (s *Server) handleRevokeShare(w http.ResponseWriter, r *http.Request) {
 // gatewayURL is where members route their Claude Code, set on the panel's env.
 func gatewayURL() string { return strings.TrimRight(os.Getenv("CCAM_GATEWAY_URL"), "/") }
 
-func (s *Server) handleAssign(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		AccountID string `json:"accountId"`
-		PersonID  string `json:"personId"`
-		Hours     int    `json:"hours"` // 0: until it is taken back
-		Move      bool   `json:"move"`
-	}
-	if err := readJSON(r, &in); err != nil {
-		fail(w, 400, "That request could not be read.")
-		return
-	}
-	var until time.Time
-	if in.Hours > 0 {
-		until = s.now().Add(time.Duration(in.Hours) * time.Hour)
-	}
-	// An account with no login is nothing to lend — refuse rather than hand a
-	// member an empty account, which is exactly the confusing state this had.
-	if d, err := s.store.Load(); err == nil {
-		if a, ok := d.Account(in.AccountID); ok && !a.HasLogin() {
-			fail(w, 400, a.Name+" has no login yet. Authenticate it first: on the machine where it is signed in, run `ccam panel push "+a.Name+" <panel-url>`.")
-			return
-		}
-	}
-	if _, err := s.store.Assign(in.AccountID, in.PersonID, until, in.Move); err != nil {
-		if errors.Is(err, ErrAccountBusy) {
-			// Not a failure so much as a question: the interface asks whether
-			// to move it, because moving it takes the account off someone.
-			fail(w, 409, "Someone else has that account. Moving it will end their access.")
-			return
-		}
-		fail(w, 400, err.Error())
-		return
-	}
-	writeJSON(w, 200, map[string]bool{"ok": true})
-}
-
-func (s *Server) handleTakeBack(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.TakeBack(r.PathValue("id"), EndedTakenBack, "You"); err != nil {
-		fail(w, 404, err.Error())
-		return
-	}
-	writeJSON(w, 200, map[string]bool{"ok": true})
-}
-
 // ---------------------------------------------------------------- machines
 
 func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
@@ -467,61 +518,31 @@ type clientShare struct {
 	Key     string `json:"key"`
 }
 
-// clientAssignment is one account a machine is entitled to right now.
-type clientAssignment struct {
-	AccountID  string     `json:"accountId"`
-	Name       string     `json:"name"`
-	ExpiresAt  *time.Time `json:"expiresAt,omitempty"`
-	Credential string     `json:"credential,omitempty"`
-}
-
-// handleCheckin is the whole of what a machine asks: what am I entitled to?
+// handleCheckin is the whole of what a machine asks: what may I use?
 //
-// The answer is a complete list, not a diff, so anything the machine holds and
-// is not told about here is something it must let go of. That is what makes
-// taking an account back work without the panel having to reach the machine:
-// the machine asks, every half minute, and acts on the answer.
+// The answer is the complete list of accounts shared with this person through
+// the gateway, each with its gateway URL and this person's key — never the
+// Claude login itself, which stays on the server. It is a complete list, not a
+// diff, so a key the machine holds and is not told about here is one it must
+// stop using; that is how taking access away works without the panel reaching
+// the machine. The machine asks every half minute and acts on the answer.
 //
-// It is deliberately flat. There is no notion here of who decided, or why —
-// the machine has no use for it, and a client that does not model the panel
-// cannot get the panel's rules wrong.
+// It is deliberately flat: no notion of who decided or why, so a client that
+// does not model the panel cannot get the panel's rules wrong.
 func (s *Server) handleCheckin(w http.ResponseWriter, r *http.Request, dev Device) {
-	var out []clientAssignment
-	err := s.store.Mutate(func(d *Data) error {
+	if err := s.store.Mutate(func(d *Data) error {
 		now := s.now()
 		for i := range d.Devices {
 			if d.Devices[i].ID == dev.ID {
 				d.Devices[i].LastSeen = now
 			}
 		}
-		for _, h := range d.Holdings(dev.PersonID, now) {
-			acct, ok := d.Account(h.AccountID)
-			if !ok {
-				continue
-			}
-			item := clientAssignment{AccountID: acct.ID, Name: acct.Name}
-			if !h.ExpiresAt.IsZero() {
-				exp := h.ExpiresAt
-				item.ExpiresAt = &exp
-			}
-			if acct.HasLogin() {
-				plain, err := s.secret.Open(acct.Credential)
-				if err != nil {
-					return err
-				}
-				item.Credential = base64.StdEncoding.EncodeToString(plain)
-			}
-			out = append(out, item)
-		}
 		return nil
-	})
-	if err != nil {
+	}); err != nil {
 		fail(w, 500, err.Error())
 		return
 	}
-	// Gateway shares: the accounts this person may use through the gateway, with
-	// their key. This is the model going forward — the credential never leaves
-	// the server; the client only learns where to route and its key.
+
 	var shares []clientShare
 	if gw := gatewayURL(); gw != "" {
 		d, _ := s.store.Load()
@@ -540,7 +561,7 @@ func (s *Server) handleCheckin(w http.ResponseWriter, r *http.Request, dev Devic
 			shares = append(shares, clientShare{Account: acct.Name, Slug: slugify(acct.Name), Gateway: gw, Key: string(plain)})
 		}
 	}
-	writeJSON(w, 200, map[string]any{"assignments": out, "gateway": shares})
+	writeJSON(w, 200, map[string]any{"gateway": shares})
 }
 
 // slugify makes a shell-safe short name for an account's alias.

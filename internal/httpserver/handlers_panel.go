@@ -21,10 +21,18 @@ import (
 // there is no cross-origin call and the device token never reaches the page.
 
 type panelStatus struct {
-	Enrolled   bool     `json:"enrolled"`
-	Server     string   `json:"server,omitempty"`
-	PersonName string   `json:"personName,omitempty"`
-	Holdings   []string `json:"holdings,omitempty"`
+	Enrolled   bool         `json:"enrolled"`
+	Server     string       `json:"server,omitempty"`
+	PersonName string       `json:"personName,omitempty"`
+	Shared     []sharedView `json:"shared,omitempty"`
+}
+
+// sharedView is one account this machine can run through the gateway, named for
+// the page: the account and the slug its `claude-<slug>` command is built from.
+// The key stays out of it — the page never needs it; `ccam shared` holds it.
+type sharedView struct {
+	Account string `json:"account"`
+	Slug    string `json:"slug"`
 }
 
 func (s *Server) currentPanelStatus() panelStatus {
@@ -37,10 +45,10 @@ func (s *Server) currentPanelStatus() panelStatus {
 		return panelStatus{}
 	}
 	st := panelStatus{Enrolled: true, Server: cfg.Server, PersonName: cfg.PersonName}
-	if list, err := s.manager.List(); err == nil {
-		for _, a := range list {
-			if a.PanelID != "" {
-				st.Holdings = append(st.Holdings, a.Name)
+	if sp, err := config.SharesFile(); err == nil {
+		if shares, err := panel.LoadShares(sp); err == nil {
+			for _, sh := range shares {
+				st.Shared = append(st.Shared, sharedView{Account: sh.Account, Slug: sh.Slug})
 			}
 		}
 	}
@@ -91,7 +99,8 @@ func (s *Server) handlePanelConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Pull anything already assigned, now, so the page fills immediately.
-	client := &panel.Client{Config: cfg, Accounts: s.manager, AfterChange: func() { _ = s.syncAliases() }}
+	sharesPath, _ := config.SharesFile()
+	client := &panel.Client{Config: cfg, Accounts: s.manager, SharesPath: sharesPath, AfterChange: func() { _ = s.syncAliases() }}
 	_, _ = client.CheckIn(ctx)
 
 	writeJSON(w, http.StatusOK, s.currentPanelStatus())

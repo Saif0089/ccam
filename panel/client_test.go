@@ -3,18 +3,16 @@ package panel
 import (
 	"context"
 	"encoding/base64"
-	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"ccam/internal/accounts"
-	"ccam/internal/config"
 )
 
-// setupLending gets a harness to the point where "Work" is escrowed and Alice
-// has a machine enrolled, and returns the machine's config plus Alice's id.
-func setupLending(t *testing.T, h *harness) (cfg ClientConfig, accountID, personID string) {
+// setupSharing gets a harness to the point where "Work" has a login and Alice
+// has a machine enrolled, and returns the machine's config plus the ids. It
+// does not share anything yet — each test decides that.
+func setupSharing(t *testing.T, h *harness) (cfg ClientConfig, accountID, personID string) {
 	t.Helper()
 	h.do("POST", "/api/setup", map[string]string{"password": "a-long-enough-one"}, "")
 	h.do("POST", "/api/accounts", map[string]string{"name": "Work"}, "")
@@ -45,32 +43,41 @@ func newTestManager(t *testing.T) *accounts.Manager {
 		filepath.Join(dir, "accounts"))
 }
 
-// Taking an account back has to reach the machine, and reaching it has to mean
-// the login is actually gone from the disk — not just a status somewhere.
-func TestCheckInTakesDeliveryAndThenGivesItBack(t *testing.T) {
-	// release() drops a revocation marker under ~/.ccam; keep it out of the
-	// real home and let us assert it.
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("USERPROFILE", t.TempDir())
-	h := newHarness(t)
-	cfg, accountID, personID := setupLending(t, h)
+// firstShareID reads the id of the single share on the first account.
+func firstShareID(t *testing.T, h *harness) string {
+	t.Helper()
+	_, panelBody := h.do("GET", "/api/panel", nil, "")
+	shared := panelBody["accounts"].([]any)[0].(map[string]any)["shared"].([]any)
+	if len(shared) == 0 {
+		t.Fatal("no share on the account")
+	}
+	return shared[0].(map[string]any)["shareId"].(string)
+}
 
+// A share reaches the machine as a cached gateway key — never a credential on
+// disk — and disappears the moment it is revoked. That difference is the whole
+// point of the gateway: the login stays on the server.
+func TestCheckInCachesSharesAndDropsThemOnRevoke(t *testing.T) {
+	t.Setenv("CCAM_GATEWAY_URL", "https://gw.example")
+	h := newHarness(t)
+	cfg, accountID, personID := setupSharing(t, h)
+
+	sharesPath := filepath.Join(t.TempDir(), "shares.json")
 	mgr := newTestManager(t)
-	// An account this machine's owner made themselves. The panel has no
-	// business touching it, whatever happens.
+	// An account this machine's owner made themselves. The panel has no business
+	// touching it, whatever happens.
 	mine, err := mgr.Add("Personal")
 	if err != nil {
 		t.Fatal(err)
 	}
+	c := &Client{Config: cfg, Accounts: mgr, SharesPath: sharesPath}
 
-	c := &Client{Config: cfg, Accounts: mgr}
-
-	// Nothing assigned yet.
+	// Nothing shared yet.
 	if change, err := c.CheckIn(context.Background()); err != nil || !change.Empty() {
 		t.Fatalf("first check-in: %+v %v", change, err)
 	}
 
-	h.do("POST", "/api/assign", map[string]any{"accountId": accountID, "personId": personID}, "")
+	h.do("POST", "/api/accounts/"+accountID+"/share", map[string]string{"personId": personID}, "")
 
 	change, err := c.CheckIn(context.Background())
 	if err != nil {
@@ -80,38 +87,23 @@ func TestCheckInTakesDeliveryAndThenGivesItBack(t *testing.T) {
 		t.Fatalf("gained %v, want [Work]", change.Gained)
 	}
 
-	list, err := mgr.List()
-	if err != nil {
-		t.Fatal(err)
+	shares, err := LoadShares(sharesPath)
+	if err != nil || len(shares) != 1 {
+		t.Fatalf("cached shares = %+v %v, want one", shares, err)
 	}
-	var lent accounts.Account
+	if shares[0].Account != "Work" || shares[0].Gateway != "https://gw.example" || shares[0].Key == "" {
+		t.Errorf("cached share = %+v, want Work on the gateway with a key", shares[0])
+	}
+	// The login never became a local account and never touched disk.
+	list, _ := mgr.List()
 	for _, a := range list {
-		if a.PanelID == accountID {
-			lent = a
-		}
-	}
-	if lent.ID == "" {
-		t.Fatal("the lent account was not created locally")
-	}
-	credPath := filepath.Join(lent.ConfigDir, ".credentials.json")
-	raw, err := os.ReadFile(credPath)
-	if err != nil {
-		t.Fatalf("the login was not written where Claude Code looks: %v", err)
-	}
-	if string(raw) != `{"claudeAiOauth":{"accessToken":"lent"}}` {
-		t.Errorf("written login = %s", raw)
-	}
-	// File permissions are a Unix concept; Windows reports 0666 for every file.
-	if runtime.GOOS != "windows" {
-		if info, err := os.Stat(credPath); err == nil && info.Mode().Perm() != 0o600 {
-			t.Errorf("the login is readable by others: mode %v", info.Mode().Perm())
+		if a.PanelID != "" {
+			t.Error("a gateway share should not create a local account")
 		}
 	}
 
-	// Now take it back.
-	_, panelBody := h.do("GET", "/api/panel", nil, "")
-	assignmentID := panelBody["accounts"].([]any)[0].(map[string]any)["assignmentId"].(string)
-	h.do("POST", "/api/assignments/"+assignmentID+"/takeback", nil, "")
+	// Take the access away.
+	h.do("POST", "/api/shares/"+firstShareID(t, h)+"/revoke", nil, "")
 
 	change, err = c.CheckIn(context.Background())
 	if err != nil {
@@ -120,18 +112,8 @@ func TestCheckInTakesDeliveryAndThenGivesItBack(t *testing.T) {
 	if len(change.Lost) != 1 || change.Lost[0] != "Work" {
 		t.Fatalf("lost %v, want [Work]", change.Lost)
 	}
-	if _, err := os.Stat(credPath); !os.IsNotExist(err) {
-		t.Error("the login is still on disk after the account was taken back")
-	}
-	// A live session on this account would be stopped by this marker.
-	if !config.IsRevoked(lent.ID) {
-		t.Error("take-back did not leave a revocation marker for a live session to see")
-	}
-	list, _ = mgr.List()
-	for _, a := range list {
-		if a.PanelID == accountID {
-			t.Error("the lent account is still registered after being taken back")
-		}
+	if shares, _ := LoadShares(sharesPath); len(shares) != 0 {
+		t.Errorf("shares still cached after revoke: %+v", shares)
 	}
 
 	// The account the user made is untouched throughout.
@@ -140,15 +122,17 @@ func TestCheckInTakesDeliveryAndThenGivesItBack(t *testing.T) {
 	}
 }
 
-// A machine that has been cut off gives everything back, without needing to be
-// told account by account.
-func TestACutOffMachineGivesEverythingBack(t *testing.T) {
+// A machine that has been cut off forgets every shared account, without needing
+// to be told account by account.
+func TestACutOffMachineForgetsEverything(t *testing.T) {
+	t.Setenv("CCAM_GATEWAY_URL", "https://gw.example")
 	h := newHarness(t)
-	cfg, accountID, personID := setupLending(t, h)
+	cfg, accountID, personID := setupSharing(t, h)
+	sharesPath := filepath.Join(t.TempDir(), "shares.json")
 	mgr := newTestManager(t)
-	c := &Client{Config: cfg, Accounts: mgr}
+	c := &Client{Config: cfg, Accounts: mgr, SharesPath: sharesPath}
 
-	h.do("POST", "/api/assign", map[string]any{"accountId": accountID, "personId": personID}, "")
+	h.do("POST", "/api/accounts/"+accountID+"/share", map[string]string{"personId": personID}, "")
 	if _, err := c.CheckIn(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -162,13 +146,10 @@ func TestACutOffMachineGivesEverythingBack(t *testing.T) {
 		t.Fatalf("check-in after being cut off = %v, want ErrNotEnrolled", err)
 	}
 	if len(change.Lost) != 1 {
-		t.Errorf("gave back %v, want the one account it held", change.Lost)
+		t.Errorf("forgot %v, want the one account it could use", change.Lost)
 	}
-	list, _ := mgr.List()
-	for _, a := range list {
-		if a.PanelID != "" {
-			t.Error("a cut-off machine is still holding a lent account")
-		}
+	if shares, _ := LoadShares(sharesPath); len(shares) != 0 {
+		t.Errorf("a cut-off machine still has cached shares: %+v", shares)
 	}
 }
 

@@ -19,8 +19,10 @@ import (
 // exit code.
 func Run(args []string) int {
 	if len(args) == 0 {
-		printUsage(os.Stderr)
-		return 1
+		// A bare `ccam` is someone asking what this is. Answer with the full
+		// help on stdout, not a terse error — this is the front door.
+		printUsage(os.Stdout)
+		return 0
 	}
 
 	switch args[0] {
@@ -42,6 +44,10 @@ func Run(args []string) int {
 		return cmdHook(args[1:])
 	case "use":
 		return cmdUse(args[1:])
+	case "shared":
+		return cmdShared(args[1:])
+	case "join":
+		return cmdJoin(args[1:])
 	case "panel":
 		return cmdPanel(args[1:])
 	case "prune":
@@ -93,24 +99,37 @@ func Run(args []string) int {
 }
 
 func printUsage(w *os.File) {
-	fmt.Fprint(w, `ccam - Claude Code Account Manager
+	// The shell shortcut for an account only exists where ccam writes shell rc
+	// aliases; on Windows it usually does not, so the portable `ccam <name>`
+	// form is named first and the shortcut is shown as the extra it is.
+	shortcut := "or the `claude-<name>` shortcut your shell sets up"
+	if runtime.GOOS == "windows" {
+		shortcut = "the `claude-<name>` shortcut is not set up on Windows"
+	}
+	fmt.Fprint(w, `ccam — run and share Claude Code accounts
 
-Usage:
-  ccam install [--port N]    Register the background service to start at login, and start it now
-  ccam uninstall             Stop the service, remove autostart registration and shell aliases
-  ccam start [--port N]      Start the background service now (without waiting for login)
-  ccam stop                  Stop the background service
-  ccam status                Report whether the service is running, and its URL
-  ccam serve [--port N]      Run the server in the foreground (this is what the service actually runs)
-  ccam <account> [args...]   Start a switchable Claude session for an account; inside it, type
-                             `+"`ccam <name>`"+` to switch accounts in place, keeping the conversation
-  ccam editor [account]      Point VS Code (and Cursor, VSCodium, ...) at an account;
-                             with no account, says which one each editor is on
-  ccam prune [--yes] [id...] Reclaim disk from migrated accounts (previews unless --yes)
-  ccam panel <command>       Lend accounts out and take them back (see: ccam panel help)
-  ccam version                Print the version
+EVERYDAY
+  ccam                       Show this help
+  ccam <name> [args...]      Run Claude as an account (`+shortcut+`)
+  ccam use <gateway> <key>   Run Claude on a shared account, through a gateway
+  ccam status                Is the ccam service running, and on what URL
 
-Once running, open the printed URL in a browser to manage accounts.
+ACCOUNTS live on the web page ccam opens — add, connect, and remove them there:
+  ccam install [--port N]    Start ccam at login and open the page (do this once)
+  ccam start | stop          Start or stop the ccam service now
+  ccam editor [name]         Point VS Code / Cursor at an account (blank: show which)
+  ccam prune [--yes] [id...] Reclaim disk from old accounts (previews unless --yes)
+
+SHARING one account with other people (needs a panel + gateway):
+  ccam join <invite-link>    Connect this machine to a panel from an invite link
+  ccam panel <command>       Run or manage the panel — see `+"`ccam panel help`"+`
+
+OTHER
+  ccam uninstall             Remove the service, autostart, and shell aliases
+  ccam serve [--port N]      Run the server in the foreground (what the service runs)
+  ccam version               Print the version
+
+The web page is where accounts are managed; the commands above are the shortcuts.
 `)
 }
 

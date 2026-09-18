@@ -1,7 +1,6 @@
 package panel
 
 import (
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -47,51 +46,42 @@ func (b *racingBackend) commit(raw []byte) {
 }
 
 // A serverless panel is several processes over one database. Two admins who
-// assign the same free account at the same moment must not both succeed — the
-// second write is refused, its decision re-runs against the first, and the
-// invariant catches it. This drives that path deterministically.
-func TestConcurrentAssignOfOneAccountLetsOnlyOneWin(t *testing.T) {
+// share the same account at the same moment must both land — the second write
+// is refused by the version check, its decision re-runs against the first, and
+// both shares survive. Shares are additive (that is the gateway: many people,
+// one login), so nothing is lost. This drives the retry path deterministically.
+func TestConcurrentShareIssueDuringAWriteStillLands(t *testing.T) {
 	back := &racingBackend{}
 	s := NewStoreWithBackend(back)
 	clock := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
 	s.now = func() time.Time { return clock }
 
 	account, alice, bob := seed(t, s)
+	seal := func(k string) []byte { return []byte(k) }
 
-	// The next Assign will, mid-save, discover that "the account was just given
-	// to Bob" — exactly a concurrent instance winning first. The retry must see
-	// Bob's hold and refuse Alice.
+	// Mid-save, a concurrent instance shares the account with Bob and commits
+	// first. Alice's IssueShare must lose the race, re-run against Bob's state,
+	// and land — leaving both shares.
 	back.onFirst = func() {
-		// Build the winning state directly: Bob holds the account.
 		d, _, _ := s.readLocked()
-		d.Assignments = append(d.Assignments, Assignment{
-			ID: newID(), AccountID: account, PersonID: bob, GrantedAt: clock,
-		})
-		raw := mustMarshal(t, d)
-		back.commit(raw)
+		_, hash, _ := NewToken()
+		d.Shares = append(d.Shares, Share{ID: newID(), AccountID: account, PersonID: bob, KeyHash: hash, CreatedAt: clock})
+		back.commit(mustMarshal(t, d))
 	}
 
-	_, err := s.Assign(account, alice, time.Time{}, false)
-	if err == nil {
-		t.Fatal("Alice was assigned an account another instance had just given to Bob")
-	}
-	if !strings.Contains(err.Error(), "already has") && err != ErrAccountBusy {
-		t.Fatalf("assign error = %v, want a refusal because Bob holds it", err)
+	if _, err := s.IssueShare(account, alice, seal); err != nil {
+		t.Fatalf("Alice's share was lost to a concurrent write: %v", err)
 	}
 
 	d, _ := s.Load()
-	holder, ok := d.HolderOf(account, clock)
-	if !ok || holder.PersonID != bob {
-		t.Fatal("after the race the account should be Bob's, and only Bob's")
-	}
-	active := 0
-	for _, a := range d.Assignments {
-		if a.AccountID == account && a.Active(clock) {
-			active++
+	people := map[string]bool{}
+	for _, sh := range d.Shares {
+		if sh.AccountID == account {
+			people[sh.PersonID] = true
 		}
 	}
-	if active != 1 {
-		t.Fatalf("%d active assignments for one account after a race, want 1", active)
+	if !people[alice] || !people[bob] {
+		t.Fatalf("after the race both Alice and Bob should share the account, got %v", people)
 	}
 }
 

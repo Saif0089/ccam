@@ -3,60 +3,79 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ccam — Claude Code Account Manager</title>
+<title>ccam — Claude Code accounts</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header>
-  <h1>ccam</h1>
-  <p class="subtitle">Claude Code Account Manager</p>
+  <div class="wordmark">
+    <span class="logo">ccam</span>
+    <span class="tagline">Claude Code accounts</span>
+  </div>
   <span class="spacer"></span>
+  <span id="refreshed" aria-live="polite"></span>
   <span id="build-tag" title="The build answering on this port"></span>
 </header>
 
 <main>
-  <section class="toolbar">
-    <button id="add-account-btn" class="primary">Add account</button>
-    <span class="spacer"></span>
-    <span id="refreshed" aria-live="polite"></span>
+  <!-- Accounts signed in on this machine. -->
+  <section class="block">
+    <div class="block-head">
+      <h2>On this machine</h2>
+      <p class="block-sub">Claude logins here. Sign one in, then add it to a panel to share it with other people.</p>
+    </div>
+    <div id="accounts-list"></div>
+    <p id="accounts-empty" class="empty" hidden>
+      No Claude login here yet. <button type="button" id="signin-first" class="inline-btn">Sign one in</button> to get started.
+    </p>
+    <div class="block-foot">
+      <button id="signin-btn" type="button">Sign in another account</button>
+    </div>
   </section>
 
-  <section id="team-panel" hidden></section>
+  <!-- Accounts shared with this machine through a gateway. -->
+  <section id="shared-block" class="block" hidden>
+    <div class="block-head">
+      <h2>Shared with you</h2>
+      <p class="block-sub">Accounts you can run through the gateway. Nothing is stored here — access ends the moment it's taken back.</p>
+    </div>
+    <div id="shared-list"></div>
+  </section>
 
-  <section id="accounts-list"></section>
-  <p id="empty-state" hidden>No accounts yet. Click "Add account" to link your first Claude Code login.</p>
+  <!-- Connect this machine to use shared accounts (only when not connected). -->
+  <section id="connect-block" class="block subtle" hidden>
+    <div class="block-head">
+      <h2>Got an invite?</h2>
+      <p class="block-sub">Paste your invite link to use an account someone shared with you.</p>
+    </div>
+    <div class="connect-row">
+      <input id="invite-input" type="text" placeholder="Paste your invite link" autocomplete="off" spellcheck="false">
+      <button id="connect-btn" class="primary" type="button">Connect</button>
+    </div>
+    <p id="connect-err" class="row-err"></p>
+  </section>
+
+  <!-- When connected: a quiet line, no management. -->
+  <section id="connected-note" class="connected-note" hidden></section>
 </main>
 
-<dialog id="add-dialog">
-  <form id="add-form">
-    <h2>Add account</h2>
-    <label>
-      Name
-      <input id="add-name" type="text" placeholder="e.g. Work, Personal" required pattern=".*\S.*" autofocus>
-    </label>
-    <div class="dialog-actions">
-      <button type="button" id="add-cancel">Cancel</button>
-      <button type="submit" class="primary">Create &amp; connect</button>
-    </div>
-  </form>
-</dialog>
-
+<!-- Sign in / reconnect a Claude account. -->
 <dialog id="login-dialog">
-  <h2>Connect account</h2>
-  <p id="login-status" aria-live="polite">Starting login…</p>
+  <h2 id="login-title">Sign in</h2>
+  <p id="login-status" aria-live="polite">Starting…</p>
 
   <div id="login-url-box" hidden>
     <a id="login-url" href="#" target="_blank" rel="noopener"></a>
-    <button type="button" id="login-copy">Copy URL</button>
+    <button type="button" id="login-copy">Copy link</button>
   </div>
 
   <form id="login-code-form" hidden>
     <label>
-      If the page gives you a code to paste, put it here:
-      <input id="login-code" type="text" placeholder="Paste authorization code" autocomplete="off">
+      If the page gives you a code, paste it here
+      <input id="login-code" type="text" placeholder="Authorization code" autocomplete="off">
     </label>
     <div class="dialog-actions">
-      <button type="submit" class="primary">Submit code</button>
+      <button type="submit" class="primary">Submit</button>
     </div>
   </form>
 
@@ -65,9 +84,26 @@
   </div>
 </dialog>
 
+<!-- Name a new account before signing it in. -->
+<dialog id="name-dialog">
+  <form id="name-form">
+    <h2>Sign in another account</h2>
+    <label>
+      What should this one be called?
+      <input id="name-input" type="text" placeholder="e.g. Personal, Ehtisham" required pattern=".*\S.*" autofocus>
+    </label>
+    <p class="dialog-note">A separate Claude login on this machine, kept apart from your main one.</p>
+    <div class="dialog-actions">
+      <button type="button" id="name-cancel">Cancel</button>
+      <button type="submit" class="primary">Sign in</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Rename an account. -->
 <dialog id="rename-dialog">
   <form id="rename-form">
-    <h2>Rename account</h2>
+    <h2>Rename</h2>
     <input type="hidden" id="rename-id">
     <label>
       Name
@@ -80,26 +116,65 @@
   </form>
 </dialog>
 
+<!-- Add a local login to a panel so it can be shared. -->
+<dialog id="share-dialog">
+  <form id="share-form">
+    <h2 id="share-title">Add to a panel</h2>
+    <p class="dialog-note" id="share-note"></p>
+    <label>
+      Panel address
+      <input id="share-panel" type="url" placeholder="https://your-panel.example.com" autocomplete="off">
+    </label>
+    <label>
+      Panel password
+      <input id="share-password" type="password" autocomplete="current-password">
+    </label>
+    <p id="share-err" class="row-err"></p>
+    <div class="dialog-actions">
+      <button type="button" id="share-cancel">Cancel</button>
+      <button type="submit" class="primary" id="share-go">Add it</button>
+    </div>
+  </form>
+</dialog>
+
 <template id="account-row-template">
-  <article class="account-card">
-    <div class="account-main">
-      <span class="account-name"></span>
-      <span class="status-badge"></span>
+  <article class="card">
+    <div class="card-top">
+      <div class="card-id">
+        <span class="account-name"></span>
+        <span class="account-email"></span>
+      </div>
+      <span class="status-pill"></span>
       <span class="plan-chip"></span>
     </div>
-    <div class="account-alias">
-      <code class="alias-text"></code>
-      <button class="copy-alias" type="button">Copy</button>
+    <div class="run-line">
+      <span class="run-label">Run</span>
+      <code class="run-cmd"></code>
+      <button class="copy-cmd" type="button">Copy</button>
     </div>
     <div class="meters"></div>
     <p class="usage-age" hidden></p>
     <p class="usage-note" hidden></p>
-    <div class="session"></div>
-    <div class="account-actions">
-      <button class="launch-terminal" type="button">Open terminal</button>
+    <p class="session-line" hidden></p>
+    <div class="card-actions">
       <button class="connect-btn" type="button">Connect</button>
-      <button class="rename-btn" type="button">Rename</button>
-      <button class="remove-btn danger" type="button">Remove</button>
+      <button class="share-btn" type="button">Add to panel</button>
+      <button class="rename-btn subtle-btn" type="button">Rename</button>
+      <button class="remove-btn subtle-btn danger" type="button">Remove</button>
+    </div>
+  </article>
+</template>
+
+<template id="shared-row-template">
+  <article class="card shared-card">
+    <div class="card-top">
+      <div class="card-id"><span class="account-name"></span></div>
+      <span class="status-pill ok">Ready</span>
+    </div>
+    <div class="run-line">
+      <span class="run-label">Run</span>
+      <code class="run-cmd"></code>
+      <button class="copy-cmd" type="button">Copy</button>
     </div>
   </article>
 </template>

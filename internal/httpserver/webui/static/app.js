@@ -1,34 +1,32 @@
-// ccam web UI — plain JS, no build step, no framework: this is a small
-// enough surface that a bundler would cost more than it saves.
+// ccam web UI — plain JS, no build step. Small enough that a framework
+// would cost more than it saves.
 "use strict";
 
 const accountsList = document.getElementById("accounts-list");
-const emptyState = document.getElementById("empty-state");
+const accountsEmpty = document.getElementById("accounts-empty");
 const rowTemplate = document.getElementById("account-row-template");
+const sharedRowTemplate = document.getElementById("shared-row-template");
 const meterTemplate = document.getElementById("meter-template");
 const refreshedLabel = document.getElementById("refreshed");
 const buildTag = document.getElementById("build-tag");
 
-// How often the page re-reads everything. The numbers on this page are
-// the reason it is open, so it keeps them current by itself rather than
-// making someone press a button and wonder whether they had to.
+const sharedBlock = document.getElementById("shared-block");
+const sharedList = document.getElementById("shared-list");
+const connectBlock = document.getElementById("connect-block");
+const connectedNote = document.getElementById("connected-note");
+
+// How often the page re-reads everything. The numbers here are the reason
+// it is open, so it keeps them current itself rather than making someone
+// press a button and wonder whether they had to.
 const POLL_MS = 5000;
 
-const addDialog = document.getElementById("add-dialog");
-const addForm = document.getElementById("add-form");
-const addNameInput = document.getElementById("add-name");
-
-const loginDialog = document.getElementById("login-dialog");
-const loginStatus = document.getElementById("login-status");
-const loginUrlBox = document.getElementById("login-url-box");
-const loginUrlLink = document.getElementById("login-url");
-const loginCodeForm = document.getElementById("login-code-form");
-const loginCodeInput = document.getElementById("login-code");
-
-const renameDialog = document.getElementById("rename-dialog");
-const renameForm = document.getElementById("rename-form");
-const renameIdInput = document.getElementById("rename-id");
-const renameNameInput = document.getElementById("rename-name");
+// Which command runs an account depends on the machine ccam is on — where the
+// shell aliases live — not on the browser, which may be a different computer.
+// So the server tells us its OS; Windows gets no `claude-<name>` alias, so
+// there the page shows the portable `ccam <name>` instead. Defaults to the
+// alias form until the first status reply, which is right everywhere but
+// Windows and self-corrects on the first poll.
+let serverIsWindows = false;
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -40,34 +38,25 @@ async function api(path, opts) {
     } catch (_) {}
     throw new Error(message);
   }
-  // Not every success carries a body: 202 (login accepted) and 204
-  // (cancel/remove/launch) are both empty. Parsing "" as JSON throws a
-  // confusing browser-specific error ("The string did not match the
-  // expected pattern." on Safari), so decide by what actually arrived
-  // rather than by status code.
   const text = await res.text();
   if (!text) return null;
   return JSON.parse(text);
 }
 
-// accountsGeneration counts changes this page made itself — add, rename,
-// remove. A list fetched before one of those landed describes a world
-// that no longer exists, and rendering it puts a removed account back on
-// screen until the next poll. Responses from an older generation are
-// dropped rather than drawn.
-let accountsGeneration = 0;
+// --- run commands -----------------------------------------------------
 
-async function loadAccounts() {
-  const generation = accountsGeneration;
-  const data = await api("/api/accounts");
-  if (generation !== accountsGeneration) return;
-  renderAccounts(data.accounts || []);
+// runCommand is what a person types to start an account, shown per OS so it
+// always matches what their shell actually has.
+function runCommand(account) {
+  if (account.kind === "default") return "claude";
+  if (serverIsWindows) return `ccam ${account.slug}`;
+  return account.alias || `claude-${account.slug}`;
+}
+function sharedRunCommand(slug) {
+  return serverIsWindows ? `ccam shared ${slug}` : `claude-${slug}`;
 }
 
 // --- time formatting --------------------------------------------------
-//
-// Every number on this page is a duration, and durations are what people
-// misread first. Two units, never three: "1d 6h", never "1d 6h 12m".
 
 function formatLeft(ms) {
   if (!(ms > 0)) return "now";
@@ -80,9 +69,6 @@ function formatLeft(ms) {
   if (hours > 0) return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
   return `${mins}m`;
 }
-
-// formatWhen answers "when exactly?" — the part a countdown alone can't
-// tell you when you're planning tomorrow morning's work.
 function formatWhen(date) {
   const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   const midnight = new Date();
@@ -90,14 +76,9 @@ function formatWhen(date) {
   const dayIndex = Math.floor((date - midnight) / 86400000);
   if (dayIndex === 0) return `today ${time}`;
   if (dayIndex === 1) return `tomorrow ${time}`;
-  if (dayIndex > 1 && dayIndex < 7) {
-    return `${date.toLocaleDateString([], { weekday: "long" })} ${time}`;
-  }
+  if (dayIndex > 1 && dayIndex < 7) return `${date.toLocaleDateString([], { weekday: "long" })} ${time}`;
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
-
-// formatAgo is the same two units looking back, worded the way the
-// server's notes word an age: "6 min ago", "1 h 5 min ago".
 function formatAgo(ms) {
   const minutes = Math.floor(ms / 60000);
   if (minutes < 1) return "less than a minute ago";
@@ -106,11 +87,11 @@ function formatAgo(ms) {
   if (hours === 0) return `${mins} min ago`;
   return mins > 0 ? `${hours} h ${mins} min ago` : `${hours} h ago`;
 }
+function fullDate(date) { return date.toLocaleDateString([], { month: "short", day: "numeric" }); }
 
 // Countdowns tick in the browser from the absolute timestamps the server
 // sent, so the page stays honest while it sits open without polling.
 const countdowns = [];
-
 function countdown(el, isoTime, render) {
   const at = new Date(isoTime);
   if (isNaN(at)) return false;
@@ -119,20 +100,13 @@ function countdown(el, isoTime, render) {
   tickOne(entry);
   return true;
 }
-
-function tickOne(entry) {
-  entry.el.textContent = entry.render(entry.at - Date.now(), entry.at);
-}
-
+function tickOne(entry) { entry.el.textContent = entry.render(entry.at - Date.now(), entry.at); }
 setInterval(() => {
   for (let i = countdowns.length - 1; i >= 0; i--) {
-    // Cards are replaced wholesale on every refresh; their countdowns
-    // leave with them.
     if (!countdowns[i].el.isConnected) countdowns.splice(i, 1);
     else tickOne(countdowns[i]);
   }
-  // Ages count up on the same beat, on whatever cards are on screen.
-  accountsList.querySelectorAll(".account-card").forEach(tickAge);
+  accountsList.querySelectorAll(".card").forEach(tickAge);
 }, 1000);
 
 function planLabel(plan) {
@@ -141,96 +115,103 @@ function planLabel(plan) {
   const key = plan.toLowerCase();
   return (known[key] || plan.charAt(0).toUpperCase() + plan.slice(1)) + " plan";
 }
-
-// levelFor decides the one thing colour is allowed to say here.
 function levelFor(percent, severity) {
   if (severity === "critical" || severity === "error" || percent >= 90) return "level-crit";
   if (severity === "warning" || severity === "warn" || percent >= 70) return "level-warn";
   return "level-ok";
 }
 
-// refreshAccounts is loadAccounts for the places that can't await it
-// and must never raise an unhandled rejection.
+// --- loading & rendering ---------------------------------------------
+
+// logins from discovery, keyed by configDir, so an account card can show the
+// email its login belongs to and know whether there's a login to share.
+let loginsByDir = {};
+
+async function loadLogins() {
+  try {
+    const data = await api("/api/logins");
+    const map = {};
+    for (const l of (data.logins || [])) map[l.configDir || ""] = l;
+    loginsByDir = map;
+  } catch (_) {
+    // Discovery is an enhancement (email, shareability); its absence must not
+    // stop the accounts themselves rendering.
+  }
+}
+
+let accountsGeneration = 0;
+async function loadAccounts() {
+  const generation = accountsGeneration;
+  const data = await api("/api/accounts");
+  if (generation !== accountsGeneration) return;
+  renderAccounts(data.accounts || []);
+}
 function refreshAccounts() {
   accountsGeneration++;
-  loadAccounts().catch((err) => {
+  Promise.all([loadLogins(), loadAccounts()]).catch((err) => {
     refreshedLabel.textContent = "could not refresh: " + err.message;
   });
 }
 
-// listSignature is what "the accounts changed" means: anything the card
-// itself is drawn from. The list is rebuilt only when one of these
-// moves, because rebuilding it every few seconds would throw away a
-// Copy button mid-"Copied" and restart every countdown on the page.
+// The list is rebuilt only when one of these moves, so a poll every few
+// seconds doesn't throw away a "Copied" button or restart a countdown.
 function listSignature(accounts) {
-  return JSON.stringify(
-    accounts.map((a) => [a.id, a.name, a.alias, a.status, a.kind])
-  );
+  return JSON.stringify(accounts.map((a) => {
+    const l = loginsByDir[a.configDir || ""] || {};
+    return [a.id, a.name, a.alias, a.slug, a.status, a.kind, l.email || ""];
+  }));
 }
-
 let renderedSignature = null;
 
 function renderAccounts(accounts) {
   const signature = listSignature(accounts);
   if (signature === renderedSignature && accountsList.children.length === accounts.length) {
-    // Same accounts as last time: leave the cards alone and let the
-    // usage requests update what is inside them.
     refreshVisibleUsage(accounts);
     return;
   }
   renderedSignature = signature;
-
   accountsList.innerHTML = "";
-  emptyState.hidden = accounts.length > 0;
+  accountsEmpty.hidden = accounts.length > 0;
 
   for (const account of accounts) {
     const node = rowTemplate.content.cloneNode(true);
-    const card = node.querySelector(".account-card");
+    const card = node.querySelector(".card");
     card.dataset.id = account.id;
+    const isDefault = account.kind === "default";
+    const login = loginsByDir[account.configDir || ""];
 
     node.querySelector(".account-name").textContent = account.name;
+    node.querySelector(".account-email").textContent = login && login.email ? login.email : "";
 
-    const isDefault = account.kind === "default";
-    if (isDefault) card.classList.add("default-account");
+    setStatus(node.querySelector(".status-pill"), account.status);
 
-    // The stored status is what ccam last saw; the usage request that
-    // follows replaces it with what is true right now.
-    const badge = node.querySelector(".status-badge");
-    setStatus(badge, account.status);
-
-    node.querySelector(".alias-text").textContent = account.alias;
-    if (isDefault) {
-      // There is no generated alias for this one: typing `claude` is
-      // how you run it, which is also why nothing was written to any
-      // shell rc file for it.
-      node.querySelector(".alias-text").title = "This is the account plain `claude` already uses";
-    }
+    const cmd = runCommand(account);
+    node.querySelector(".run-cmd").textContent = cmd;
+    const copyBtn = node.querySelector(".copy-cmd");
+    copyBtn.addEventListener("click", () => copyToClipboard(cmd, copyBtn));
 
     const connectBtn = node.querySelector(".connect-btn");
-    // Always offer Connect: a linked account's token can expire or be
-    // revoked, and re-adding the account (deleting its config dir) is
-    // not an acceptable way to recover from that.
     connectBtn.textContent = account.status === "linked" ? "Reconnect" : "Connect";
-
-    const copyBtn = node.querySelector(".copy-alias");
-    copyBtn.addEventListener("click", () => copyToClipboard(account.alias, copyBtn));
-
     connectBtn.addEventListener("click", () => startLogin(account));
-    node.querySelector(".launch-terminal").addEventListener("click", async () => {
-      try {
-        await api(`/api/accounts/${account.id}/launch-terminal`, { method: "POST" });
-      } catch (err) {
-        alert("Could not open a terminal: " + err.message);
-      }
-    });
+
+    // Add to panel: only meaningful once there is a login on this machine to
+    // hand over. Kept visible but disabled otherwise, so the path is
+    // discoverable without pretending an empty account can be shared.
+    const shareBtn = node.querySelector(".share-btn");
+    if (login) {
+      shareBtn.addEventListener("click", () => openShareDialog(account, login));
+    } else {
+      shareBtn.disabled = true;
+      shareBtn.title = "Sign this account in first, then it can be shared.";
+    }
+
     node.querySelector(".rename-btn").addEventListener("click", () => {
-      renameIdInput.value = account.id;
-      renameNameInput.value = account.name;
+      document.getElementById("rename-id").value = account.id;
+      document.getElementById("rename-name").value = account.name;
       renameDialog.showModal();
     });
+
     const removeBtn = node.querySelector(".remove-btn");
-    // ccam did not create the default account's directory and must
-    // never delete it, so the wording says what actually happens.
     removeBtn.textContent = isDefault ? "Forget" : "Remove";
     removeBtn.addEventListener("click", () => removeAccount(account, isDefault));
 
@@ -239,45 +220,38 @@ function renderAccounts(accounts) {
   }
 }
 
-// refreshVisibleUsage re-reads the numbers for cards that are already on
-// screen, which is every poll after the first.
 function refreshVisibleUsage(accounts) {
   for (const account of accounts) {
-    const card = accountsList.querySelector(`.account-card[data-id="${CSS.escape(account.id)}"]`);
+    const card = accountsList.querySelector(`.card[data-id="${CSS.escape(account.id)}"]`);
     if (card) refreshUsage(account, card);
   }
 }
 
-// --- usage ------------------------------------------------------------
+// --- status ------------------------------------------------------------
 
-const STATUS_TEXT = {
-  linked: "linked",
-  pending: "not connected",
-  expired: "login expired",
-  "signed-out": "signed out",
-  unknown: "unknown",
+// Each state maps to a word and a colour class. The words say whether the
+// account works right now, not how it is stored.
+const STATUS = {
+  linked: { text: "Ready", cls: "ok" },
+  unknown: { text: "Ready", cls: "ok" },
+  pending: { text: "Not signed in", cls: "" },
+  expired: { text: "Sign-in expired", cls: "crit" },
+  "signed-out": { text: "Signed out", cls: "crit" },
 };
-
-function setStatus(badge, status) {
-  badge.className = "status-badge " + status;
-  badge.textContent = STATUS_TEXT[status] || status;
+function setStatus(pill, status) {
+  const s = STATUS[status] || { text: status, cls: "" };
+  pill.className = "status-pill " + s.cls;
+  pill.textContent = s.text;
 }
 
-// Cards whose usage request has not come back yet.
-//
-// Nothing waits on these requests but the card they belong to. The poll
-// used to wait for every card's, so one account slow to answer — a cold
-// cache, a call to Anthropic that stalled — held back every other card
-// and made the poll skip its ticks until it returned. A card still
-// waiting is not asked again on top, so a slow answer never stacks up.
-const usageInFlight = new WeakSet();
+// --- usage ------------------------------------------------------------
 
+const usageInFlight = new WeakSet();
 function refreshUsage(account, card) {
   if (usageInFlight.has(card)) return;
   usageInFlight.add(card);
   loadUsage(account, card).finally(() => usageInFlight.delete(card));
 }
-
 async function loadUsage(account, card) {
   let snapshot;
   try {
@@ -285,113 +259,55 @@ async function loadUsage(account, card) {
   } catch (err) {
     snapshot = { error: "Could not read usage: " + err.message };
   }
-  // The list is re-rendered wholesale, so a slow response can arrive
-  // after its card is gone. Dropping it here is what keeps a stale
-  // account's numbers from reappearing under a live one.
   if (!card.isConnected) return;
   renderUsage(card, account, snapshot);
 }
 
-// usageSignature is everything a card actually draws. The poll runs
-// every few seconds and most of those answers are identical, so this is
-// what tells them apart — without it, every poll would rebuild the
-// meters and the bars would flick back to zero as they re-animated.
-//
-// usage.fetchedAt stays out of it on purpose. The server reads each
-// account once a minute, and a new read of the same numbers changes
-// nothing a meter draws; it only moves the age label, which follows it
-// separately (see noteReadAt).
-//
-// So does the note under the meters. On a card whose numbers have
-// stopped moving, the server's note says how many minutes old they are,
-// so it changes every minute while nothing else does. Counted here, it
-// rebuilt exactly those cards once a minute, and took any hover or
-// selection on them along (see showNote).
 function usageSignature(account, snapshot) {
-  const limits = ((snapshot.usage && snapshot.usage.limits) || []).map((l) => [
-    l.label,
-    l.percent,
-    l.severity,
-    l.resetsAt || "",
-  ]);
+  const limits = ((snapshot.usage && snapshot.usage.limits) || []).map((l) => [l.label, l.percent, l.severity, l.resetsAt || ""]);
   const session = snapshot.session || {};
-  return JSON.stringify([
-    liveStatus(account, snapshot),
-    session.plan || "",
-    session.accessExpiresAt || "",
-    session.sessionExpiresAt || "",
-    limits,
-  ]);
+  return JSON.stringify([liveStatus(account, snapshot), session.plan || "", session.accessExpiresAt || "", session.sessionExpiresAt || "", limits]);
 }
-
-// What each card was last drawn from, so an unchanged poll is a no-op.
-// Keyed by the element itself: a card that is replaced takes its entry
-// with it.
 const drawnFrom = new WeakMap();
 
 function renderUsage(card, account, snapshot) {
-  // Ahead of the signature check: an answer identical in every number
-  // can still be a newer read of them, or come with a newer note.
   noteReadAt(card, snapshot);
   showNote(card, snapshot.error);
   const signature = usageSignature(account, snapshot);
   if (drawnFrom.get(card) === signature) return;
-  // First paint for this card is the one that animates; later ones are
-  // updates to something already on screen and must not replay it.
   const firstPaint = !drawnFrom.has(card);
   drawnFrom.set(card, signature);
 
   const meters = card.querySelector(".meters");
-  const session = card.querySelector(".session");
   meters.innerHTML = "";
-  session.innerHTML = "";
 
   const state = liveStatus(account, snapshot);
-  setStatus(card.querySelector(".status-badge"), state);
+  setStatus(card.querySelector(".status-pill"), state);
+  card.querySelector(".plan-chip").textContent = planLabel(snapshot.session && snapshot.session.plan);
 
-  const plan = snapshot.session && snapshot.session.plan;
-  card.querySelector(".plan-chip").textContent = planLabel(plan);
-
-  const limits = (snapshot.usage && snapshot.usage.limits) || [];
-  for (const limit of limits) {
+  for (const limit of (snapshot.usage && snapshot.usage.limits) || []) {
     meters.appendChild(buildMeter(limit, firstPaint));
   }
-
-  buildSession(session, snapshot.session, state);
+  showSessionLine(card, state);
 }
 
-// showNote puts the server's note under a card's meters. The text is only
-// touched when it changed, so a note someone is reading or selecting is
-// not swapped out from under them by a poll that said the same thing.
 function showNote(card, text) {
   const note = card.querySelector(".usage-note");
   note.hidden = !text;
   if (text && note.textContent !== text) note.textContent = text;
 }
 
-// How old a card's numbers may get before the card says so. The server
-// reads each account once a minute, so numbers two minutes old have
-// missed a read — a rate limit, a token waiting on Claude Code, an
-// outage — and bars that stopped moving look just like bars that had
-// nothing to move.
 const STALE_AFTER_MS = 2 * 60_000;
-
-// When the numbers on each card were read, keyed by the card itself.
 const numbersReadAt = new WeakMap();
-
 function noteReadAt(card, snapshot) {
   const at = new Date(snapshot.usage ? snapshot.usage.fetchedAt : NaN);
   if (isNaN(at)) numbersReadAt.delete(card);
   else numbersReadAt.set(card, at);
   tickAge(card);
 }
-
-// tickAge shows a card's age label once its numbers are old enough to
-// need one, and keeps it counting: it runs every second with the
-// countdowns, so "6 min ago" turns into "7 min ago" on a card nothing
-// has redrawn.
 function tickAge(card) {
   const label = card.querySelector(".usage-age");
+  if (!label) return;
   const at = numbersReadAt.get(card);
   const age = at ? Date.now() - at : 0;
   label.hidden = !(age > STALE_AFTER_MS);
@@ -403,9 +319,6 @@ function tickAge(card) {
   label.textContent = `as of ${when} · ${formatAgo(age)}`;
 }
 
-// liveStatus is the one word that says whether this account will work if
-// you run it right now. The server decides it; the page only falls back
-// to the stored status when the request itself failed.
 function liveStatus(account, snapshot) {
   return snapshot.state || (account.status === "linked" ? "unknown" : account.status);
 }
@@ -414,138 +327,228 @@ function buildMeter(limit, animate) {
   const node = meterTemplate.content.cloneNode(true);
   const meter = node.querySelector(".meter");
   const percent = Math.max(0, Math.min(100, limit.percent || 0));
-
   meter.classList.add(levelFor(percent, limit.severity));
   node.querySelector(".meter-label").textContent = limit.label;
   node.querySelector(".meter-pct").textContent = Math.round(percent) + "% used";
-
   const bar = node.querySelector(".bar");
   bar.setAttribute("aria-valuenow", Math.round(percent));
   bar.setAttribute("aria-label", limit.label);
   const fill = node.querySelector(".bar-fill");
-  if (animate) {
-    // Painted after the frame so the width transitions in from zero:
-    // motion here reports that a number arrived, which is the one thing
-    // on this page worth animating.
-    requestAnimationFrame(() => {
-      fill.style.width = percent + "%";
-    });
-  } else {
-    // A number that changed while you were looking at it just changes.
-    fill.style.width = percent + "%";
-  }
-
+  if (animate) requestAnimationFrame(() => { fill.style.width = percent + "%"; });
+  else fill.style.width = percent + "%";
   const reset = node.querySelector(".meter-reset");
   if (limit.resetsAt) {
-    countdown(reset, limit.resetsAt, (ms, at) =>
-      ms > 0 ? `resets in ${formatLeft(ms)} (${formatWhen(at)})` : "resetting now"
-    );
+    countdown(reset, limit.resetsAt, (ms, at) => (ms > 0 ? `resets in ${formatLeft(ms)} (${formatWhen(at)})` : "resetting now"));
   } else {
     reset.remove();
   }
   return node;
 }
 
-// buildSession answers "how long am I signed in for?" — two clocks that
-// are easy to confuse, so each is named for what it actually does.
-function buildSession(container, info, state) {
-  if (!info) return;
-
-  // A login that is over has no clocks left to run. Showing them ticking
-  // would contradict the note right above. Only the date that has
-  // actually passed may be called "ended": a rejected login whose
-  // window is still open would otherwise be reported as ending on a day
-  // that has not happened yet.
-  if (state === "expired") {
-    const end = new Date(info.sessionExpiresAt);
-    if (isNaN(end)) return;
-    const over = end.getTime() <= Date.now();
-    sessionItem(container, "Login session", "").textContent =
-      (over ? "ended " : "until ") + fullDate(end);
-    return;
+// showSessionLine replaces the old pair of easily-confused clocks (a long
+// "login session" one and a short "access token" one) with a single line that
+// only appears when the sign-in needs attention. When it's fine, the Ready
+// pill already said so, and a ticking countdown was only ever a distraction.
+function showSessionLine(card, state) {
+  const line = card.querySelector(".session-line");
+  if (state === "expired" || state === "signed-out") {
+    line.hidden = false;
+    line.className = "session-line crit";
+    line.textContent = "Reconnect to use this account again.";
+  } else {
+    line.hidden = true;
   }
-
-  if (info.sessionExpiresAt) {
-    const end = new Date(info.sessionExpiresAt);
-    const item = sessionItem(container, "Login session", isNaN(end) ? "" : "until " + fullDate(end));
-    countdown(item, info.sessionExpiresAt, (ms) => `${formatLeft(ms)} left`);
-  }
-  if (info.accessExpiresAt) {
-    // Named for what it does, because this is the short clock that makes
-    // people think they are about to be signed out. They aren't: Claude
-    // Code renews this one on its own.
-    const item = sessionItem(container, "Access token", "renews on its own");
-    countdown(item, info.accessExpiresAt, (ms) => (ms > 0 ? `${formatLeft(ms)} left` : "renewing"));
-  }
-}
-
-function sessionItem(container, label, detail) {
-  const wrap = document.createElement("span");
-  wrap.className = "session-item";
-  const name = document.createElement("span");
-  name.className = "detail";
-  name.textContent = label + " ";
-  const value = document.createElement("b");
-  wrap.append(name, value);
-  if (detail) {
-    const tail = document.createElement("span");
-    tail.className = "detail";
-    tail.textContent = " " + detail;
-    wrap.append(tail);
-  }
-  container.appendChild(wrap);
-  return value;
-}
-
-function fullDate(date) {
-  return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 async function copyToClipboard(text, button) {
   const original = button.textContent;
-  try {
-    await navigator.clipboard.writeText(text);
-    button.textContent = "Copied";
-  } catch (_) {
-    button.textContent = "Copy failed";
-  }
-  setTimeout(() => {
-    button.textContent = original;
-  }, 1500);
+  try { await navigator.clipboard.writeText(text); button.textContent = "Copied"; }
+  catch (_) { button.textContent = "Copy failed"; }
+  setTimeout(() => { button.textContent = original; }, 1500);
 }
 
 async function removeAccount(account, isDefault) {
   const question = isDefault
-    ? `Stop showing "${account.name}" here? Your ~/.claude login is left completely untouched — ccam just forgets about it.`
-    : `Remove "${account.name}"? This deletes its local login state.`;
+    ? `Stop showing "${account.name}" here? Your main ~/.claude login is left untouched — ccam just forgets it.`
+    : `Remove "${account.name}"? This deletes its local login on this machine.`;
   if (!confirm(question)) return;
-  try {
-    await api(`/api/accounts/${account.id}`, { method: "DELETE" });
-  } catch (err) {
-    alert("Could not remove account: " + err.message);
-  }
-  // Refresh either way: some failures (e.g. alias sync) happen after
-  // the account itself was already removed, and leaving the old list
-  // on screen would contradict what the server now holds.
+  try { await api(`/api/accounts/${account.id}`, { method: "DELETE" }); }
+  catch (err) { alert("Could not remove account: " + err.message); }
   refreshAccounts();
 }
 
-document.getElementById("add-account-btn").addEventListener("click", () => {
-  addNameInput.value = "";
-  addDialog.showModal();
-});
-document.getElementById("add-cancel").addEventListener("click", () => addDialog.close());
+// --- shared accounts ---------------------------------------------------
 
-addForm.addEventListener("submit", async (e) => {
-  // Not method="dialog": the dialog must stay open until the request
-  // resolves, or a failure alerts over a dismissed dialog and throws
-  // away what the user typed.
-  e.preventDefault();
-  const name = addNameInput.value.trim();
-  if (!name) {
-    alert("Name cannot be empty.");
-    return;
+function renderShared(shares) {
+  sharedBlock.hidden = !(shares && shares.length);
+  sharedList.innerHTML = "";
+  for (const sh of shares || []) {
+    const node = sharedRowTemplate.content.cloneNode(true);
+    node.querySelector(".account-name").textContent = sh.account;
+    const cmd = sharedRunCommand(sh.slug);
+    node.querySelector(".run-cmd").textContent = cmd;
+    const copyBtn = node.querySelector(".copy-cmd");
+    copyBtn.addEventListener("click", () => copyToClipboard(cmd, copyBtn));
+    sharedList.appendChild(node);
   }
+}
+
+// --- join / connected --------------------------------------------------
+
+async function refreshPanel() {
+  let st;
+  try { st = await api("/api/panel"); }
+  catch { return; }
+  renderShared(st.shared);
+  if (st.enrolled) {
+    connectBlock.hidden = true;
+    connectedNote.hidden = false;
+    connectedNote.replaceChildren();
+    const who = st.personName ? ` — you are ` : "";
+    const line = document.createElement("span");
+    line.append(document.createTextNode("Connected to "));
+    const host = document.createElement("b");
+    host.textContent = prettyURL(st.server);
+    line.append(host);
+    if (st.personName) {
+      line.append(document.createTextNode(who));
+      const b = document.createElement("b");
+      b.textContent = st.personName;
+      line.append(b);
+    }
+    const spacer = document.createElement("span");
+    spacer.className = "spacer";
+    const dc = document.createElement("button");
+    dc.textContent = "Disconnect";
+    dc.addEventListener("click", disconnectFromPanel);
+    connectedNote.append(line, spacer, dc);
+  } else {
+    connectedNote.hidden = true;
+    connectBlock.hidden = false;
+  }
+}
+
+async function connectWithInvite() {
+  const raw = document.getElementById("invite-input").value.trim();
+  const err = document.getElementById("connect-err");
+  err.textContent = "";
+  const parsed = parseInvite(raw);
+  if (!parsed) { err.textContent = "Paste the whole invite link you were sent."; return; }
+  const btn = document.getElementById("connect-btn");
+  btn.disabled = true; btn.textContent = "Connecting…";
+  try {
+    await api("/api/panel/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ server: parsed.server, code: parsed.code }),
+    });
+    document.getElementById("invite-input").value = "";
+    await refreshPanel();
+    refreshAccounts();
+  } catch (e) {
+    err.textContent = e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = "Connect";
+  }
+}
+
+// parseInvite pulls the panel URL and code out of a pasted invite link. It also
+// accepts a bare "url code" for anyone who has them separately.
+function parseInvite(text) {
+  if (!text) return null;
+  const parts = text.split(/\s+/);
+  if (parts.length === 2 && /^https?:\/\//i.test(parts[0])) {
+    return { server: parts[0].replace(/\/+$/, ""), code: parts[1] };
+  }
+  try {
+    const u = new URL(text);
+    const origin = u.origin;
+    const q = u.searchParams.get("code");
+    if (q) return { server: origin, code: q };
+    if (u.hash) return { server: origin, code: u.hash.slice(1) };
+    const segs = u.pathname.split("/").filter(Boolean);
+    if (segs.length >= 2 && (segs[segs.length - 2] === "i" || segs[segs.length - 2] === "join")) {
+      return { server: origin, code: segs[segs.length - 1] };
+    }
+  } catch (_) {}
+  return null;
+}
+
+async function disconnectFromPanel() {
+  if (!confirm("Disconnect this machine? Shared accounts stop appearing here.")) return;
+  try { await api("/api/panel/disconnect", { method: "POST" }); await refreshPanel(); }
+  catch (e) { alert("Could not disconnect: " + e.message); }
+}
+
+function prettyURL(u) { try { return new URL(u).host; } catch { return u; } }
+
+// --- add to panel (share) ---------------------------------------------
+
+const shareDialog = document.getElementById("share-dialog");
+let shareTarget = null;
+
+function openShareDialog(account, login) {
+  shareTarget = { account, login };
+  document.getElementById("share-title").textContent = `Share ${account.name}`;
+  document.getElementById("share-note").textContent =
+    "Adds this login to a panel so many people can use it at once, through the gateway. Nothing leaves your machine except the login itself.";
+  document.getElementById("share-err").textContent = "";
+  document.getElementById("share-password").value = "";
+  // Prefill the panel address from wherever this machine is already connected.
+  api("/api/panel").then((st) => {
+    if (st && st.server) document.getElementById("share-panel").value = st.server;
+  }).catch(() => {});
+  shareDialog.showModal();
+}
+
+document.getElementById("share-cancel").addEventListener("click", () => shareDialog.close());
+document.getElementById("share-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!shareTarget) return;
+  const panelURL = document.getElementById("share-panel").value.trim();
+  const password = document.getElementById("share-password").value;
+  const err = document.getElementById("share-err");
+  err.textContent = "";
+  if (!panelURL || !password) { err.textContent = "Enter the panel address and password."; return; }
+  const go = document.getElementById("share-go");
+  go.disabled = true; go.textContent = "Adding…";
+  try {
+    await api("/api/logins/add-to-panel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        configDir: shareTarget.account.configDir || "",
+        email: shareTarget.login.email || "",
+        plan: shareTarget.login.plan || "",
+        panel: panelURL,
+        password,
+      }),
+    });
+    shareDialog.close();
+    alert(`${shareTarget.account.name} is on the panel. Open the panel to give people access.`);
+  } catch (e2) {
+    err.textContent = e2.message;
+  } finally {
+    go.disabled = false; go.textContent = "Add it";
+  }
+});
+
+// --- sign in another / rename -----------------------------------------
+
+const nameDialog = document.getElementById("name-dialog");
+const renameDialog = document.getElementById("rename-dialog");
+
+function openNameDialog() {
+  document.getElementById("name-input").value = "";
+  nameDialog.showModal();
+}
+document.getElementById("signin-btn").addEventListener("click", openNameDialog);
+document.getElementById("signin-first").addEventListener("click", openNameDialog);
+document.getElementById("name-cancel").addEventListener("click", () => nameDialog.close());
+document.getElementById("name-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = document.getElementById("name-input").value.trim();
+  if (!name) return;
   let account;
   try {
     account = await api("/api/accounts", {
@@ -555,23 +558,20 @@ addForm.addEventListener("submit", async (e) => {
     });
   } catch (err) {
     refreshAccounts();
-    alert("Could not create account: " + err.message);
+    alert("Could not create the account: " + err.message);
     return;
   }
-  addDialog.close();
+  nameDialog.close();
   refreshAccounts();
   startLogin(account);
 });
 
 document.getElementById("rename-cancel").addEventListener("click", () => renameDialog.close());
-renameForm.addEventListener("submit", async (e) => {
+document.getElementById("rename-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const id = renameIdInput.value;
-  const name = renameNameInput.value.trim();
-  if (!name) {
-    alert("Name cannot be empty.");
-    return;
-  }
+  const id = document.getElementById("rename-id").value;
+  const name = document.getElementById("rename-name").value.trim();
+  if (!name) return;
   try {
     await api(`/api/accounts/${id}`, {
       method: "PATCH",
@@ -580,14 +580,27 @@ renameForm.addEventListener("submit", async (e) => {
     });
   } catch (err) {
     refreshAccounts();
-    alert("Could not rename account: " + err.message);
+    alert("Could not rename: " + err.message);
     return;
   }
   renameDialog.close();
   refreshAccounts();
 });
 
+document.getElementById("connect-btn").addEventListener("click", connectWithInvite);
+document.getElementById("invite-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") connectWithInvite();
+});
+
 // --- login flow -------------------------------------------------------
+
+const loginDialog = document.getElementById("login-dialog");
+const loginTitle = document.getElementById("login-title");
+const loginStatus = document.getElementById("login-status");
+const loginUrlBox = document.getElementById("login-url-box");
+const loginUrlLink = document.getElementById("login-url");
+const loginCodeForm = document.getElementById("login-code-form");
+const loginCodeInput = document.getElementById("login-code");
 
 let activeEventSource = null;
 let activeLoginAccountId = null;
@@ -596,7 +609,8 @@ let loginFinished = false;
 function startLogin(account) {
   activeLoginAccountId = account.id;
   loginFinished = false;
-  loginStatus.textContent = "Starting login…";
+  loginTitle.textContent = `Sign in ${account.name}`;
+  loginStatus.textContent = "Starting…";
   loginUrlBox.hidden = true;
   loginCodeForm.hidden = true;
   loginCodeInput.value = "";
@@ -604,36 +618,20 @@ function startLogin(account) {
 
   api(`/api/accounts/${account.id}/login`, { method: "POST" })
     .then(() => openLoginStream(account.id))
-    .catch((err) => {
-      loginStatus.textContent = "Could not start login: " + err.message;
-    });
+    .catch((err) => { loginStatus.textContent = "Could not start: " + err.message; });
 }
 
 function openLoginStream(accountId) {
-  // The POST that precedes this is async, so a slow start for account A
-  // can resolve after the user already closed that dialog and started
-  // account B. Without this guard A's stream would replace B's, and the
-  // dialog — showing B — would report A's cancelled session as a lost
-  // connection while B's URL never appeared.
   if (accountId !== activeLoginAccountId) return;
   if (activeEventSource) activeEventSource.close();
   const es = new EventSource(`/api/accounts/${accountId}/login/events`);
   activeEventSource = es;
-
   es.addEventListener("message", (e) => {
     let event;
-    try {
-      event = JSON.parse(e.data);
-    } catch (_) {
-      return;
-    }
+    try { event = JSON.parse(e.data); } catch (_) { return; }
     handleLoginEvent(event);
   });
-
   es.addEventListener("error", () => {
-    // EventSource retries transient drops on its own; only a CLOSED
-    // stream is final. Staying silent here is what used to leave the
-    // dialog spinning forever when the server went away.
     if (es.readyState === EventSource.CLOSED && !loginFinished) {
       loginStatus.textContent = "Lost the connection to ccam. Close this and try again.";
     }
@@ -643,21 +641,15 @@ function openLoginStream(accountId) {
 function handleLoginEvent(event) {
   switch (event.type) {
     case "url":
-      loginStatus.textContent = "Open this URL to finish signing in:";
+      loginStatus.textContent = "Open this link to finish signing in:";
       loginUrlBox.hidden = false;
       loginCodeForm.hidden = false;
       loginUrlLink.href = event.url;
       loginUrlLink.textContent = event.url;
       break;
-    case "linked":
-      finishLogin("Connected. This account is ready to use.");
-      break;
-    case "timeout":
-      finishLogin("Timed out waiting for the login to finish. You can try again.");
-      break;
-    case "failed":
-      finishLogin("Login failed: " + (event.message || "unknown error"));
-      break;
+    case "linked": finishLogin("Signed in. This account is ready."); break;
+    case "timeout": finishLogin("Timed out waiting for the sign-in. You can try again."); break;
+    case "failed": finishLogin("Sign-in failed: " + (event.message || "unknown error")); break;
   }
 }
 
@@ -680,7 +672,7 @@ loginCodeForm.addEventListener("submit", async (e) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code }),
     });
-    loginStatus.textContent = "Code submitted, finishing sign-in…";
+    loginStatus.textContent = "Code submitted, finishing…";
     loginCodeInput.value = "";
   } catch (err) {
     loginStatus.textContent = "Could not submit that code: " + err.message;
@@ -692,195 +684,56 @@ document.getElementById("login-copy").addEventListener("click", (e) => {
 });
 document.getElementById("login-close").addEventListener("click", () => loginDialog.close());
 
-// Closing the dialog — by button, Escape, or anything else — must also
-// end the login on the server. Otherwise an abandoned attempt leaves a
-// `claude` process running until it times out.
 loginDialog.addEventListener("close", () => {
-  if (activeEventSource) {
-    activeEventSource.close();
-    activeEventSource = null;
-  }
-  if (activeLoginAccountId && !loginFinished) {
-    cancelLogin(activeLoginAccountId);
-  }
+  if (activeEventSource) { activeEventSource.close(); activeEventSource = null; }
+  if (activeLoginAccountId && !loginFinished) cancelLogin(activeLoginAccountId);
   activeLoginAccountId = null;
 });
 
-// Closing a tab (or a headless browser at the end of a test) can tear
-// the page down before a plain fetch is flushed, leaving the `claude`
-// process running until its timeout. sendBeacon exists precisely for
-// this: the browser guarantees delivery after the page is gone.
 function cancelLogin(accountId) {
   const path = `/api/accounts/${accountId}/login/cancel`;
-  if (navigator.sendBeacon && navigator.sendBeacon(path, new Blob([], { type: "text/plain" }))) {
-    return;
-  }
+  if (navigator.sendBeacon && navigator.sendBeacon(path, new Blob([], { type: "text/plain" }))) return;
   api(path, { method: "POST", keepalive: true }).catch(() => {});
 }
-
-// Also cancel when the whole page goes away, not just the dialog.
 window.addEventListener("pagehide", () => {
   if (activeLoginAccountId && !loginFinished) cancelLogin(activeLoginAccountId);
 });
 
 // --- staying current --------------------------------------------------
 
-// loadBuildTag shows which build is answering. Read on every poll, not
-// just at load: an automatic update restarts the server underneath an
-// open page, and the tag changing is how that becomes visible instead
-// of mysterious.
-async function loadBuildTag() {
+async function loadServerInfo() {
   try {
     const status = await api("/api/status");
     if (status && status.tag) buildTag.textContent = status.tag;
-  } catch (_) {
-    // A poll that failed says nothing worth putting on screen; the
-    // usage poll below is what reports a server that has gone away.
-  }
+    if (status && status.os) {
+      const win = status.os === "windows";
+      if (win !== serverIsWindows) {
+        serverIsWindows = win;
+        renderedSignature = null; // the shown commands change, so redraw
+      }
+    }
+  } catch (_) {}
 }
 
 let polling = false;
-
-// poll is the whole refresh story: no button, no manual reload. It
-// waits on the account list and the build tag and nothing else — each
-// card asks for its own numbers, see refreshUsage. A slow answer must
-// not stack up behind the next tick, so a poll already in flight simply
-// skips this one.
 async function poll() {
   if (polling) return;
   polling = true;
   try {
+    await loadServerInfo();
+    await loadLogins();
     await loadAccounts();
-    await loadBuildTag();
-    await refreshTeamPanel();
-    // Stamped here, once the server has actually answered: the label is
-    // the only thing on the page that says the polling is still alive,
-    // so it must not tick while the answers are failing. A card whose
-    // own numbers have fallen behind says so on the card.
-    refreshedLabel.textContent =
-      "updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    await refreshPanel();
+    refreshedLabel.textContent = "updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   } catch (err) {
-    // A server that is restarting into an update is unreachable for a
-    // second or two. Say what is true — the numbers are from before —
-    // rather than blanking the page.
     refreshedLabel.textContent = "could not refresh: " + err.message;
   } finally {
     polling = false;
   }
 }
 
-poll().catch((err) => {
-  accountsList.textContent = "Could not load accounts: " + err.message;
-});
-
+poll().catch((err) => { accountsList.textContent = "Could not load accounts: " + err.message; });
 setInterval(poll, POLL_MS);
-
-// A hidden tab's timers are throttled — to once a minute, and after a
-// while less often still — so a page left behind another window comes
-// back out of date. Coming back is when someone is about to read it, so
-// read everything then rather than at whatever tick comes next.
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") poll();
 });
-
-// ---- Team panel ---------------------------------------------------------
-// Connect this machine to a ccam admin panel, and show who it is and what it
-// holds — the same thing `ccam panel join` does, on the page instead of a
-// terminal. The browser only ever talks to this local server, which talks to
-// the panel; the device token never reaches the page.
-const teamPanel = document.getElementById("team-panel");
-
-async function refreshTeamPanel() {
-  let st;
-  try {
-    st = await api("/api/panel");
-  } catch {
-    return; // an older server without the endpoint: just leave it hidden
-  }
-  teamPanel.hidden = false;
-  teamPanel.replaceChildren(st.enrolled ? enrolledView(st) : connectView());
-}
-
-function connectView() {
-  const wrap = document.createElement("div");
-  wrap.innerHTML = `
-    <div class="tp-head">
-      <span class="tp-title">Team panel</span>
-      <span class="tp-sub">Connect this machine to your team's ccam panel.</span>
-    </div>
-    <div class="tp-row">
-      <input id="tp-server" type="url" placeholder="https://your-panel.vercel.app" autocomplete="off">
-      <input id="tp-code" type="text" placeholder="join code" autocomplete="off">
-      <button id="tp-connect" class="primary">Connect</button>
-    </div>
-    <div class="tp-err" id="tp-err"></div>`;
-  wrap.querySelector("#tp-connect").addEventListener("click", connectToPanel);
-  return wrap;
-}
-
-function enrolledView(st) {
-  const wrap = document.createElement("div");
-  const holds = (st.holdings && st.holdings.length)
-    ? st.holdings.map((h) => `<b>${escapeHTML(h)}</b>`).join(", ")
-    : "nothing yet — the panel hasn't assigned this machine an account.";
-  const who = st.personName ? ` &middot; you are <b>${escapeHTML(st.personName)}</b>` : "";
-  wrap.innerHTML = `
-    <div class="tp-head">
-      <span class="tp-title">Team panel</span>
-      <span class="tp-sub">connected to
-        <a class="tp-link" href="${escapeAttr(st.server)}" target="_blank" rel="noopener">${escapeHTML(prettyURL(st.server))}</a>${who}</span>
-      <span class="tp-actions">
-        <button id="tp-manage" class="primary">Manage accounts</button>
-        <button id="tp-pop">Open in a tab</button>
-        <button id="tp-disconnect">Disconnect</button>
-      </span>
-    </div>
-    <div class="tp-holds">Holding: ${holds}</div>
-    <div id="tp-admin-embed" hidden>
-      <iframe id="tp-frame" title="Admin panel" src="about:blank"></iframe>
-    </div>`;
-  const embed = wrap.querySelector("#tp-admin-embed");
-  const frame = wrap.querySelector("#tp-frame");
-  wrap.querySelector("#tp-manage").addEventListener("click", (e) => {
-    const show = embed.hidden;
-    embed.hidden = !show;
-    e.target.textContent = show ? "Hide" : "Manage accounts";
-    // Load the proxied panel lazily, and only once.
-    if (show && frame.src === "about:blank") frame.src = "/panel/";
-  });
-  wrap.querySelector("#tp-pop").addEventListener("click", () => window.open("/panel/", "_blank", "noopener"));
-  wrap.querySelector("#tp-disconnect").addEventListener("click", disconnectFromPanel);
-  return wrap;
-}
-
-async function connectToPanel() {
-  const server = document.getElementById("tp-server").value.trim();
-  const code = document.getElementById("tp-code").value.trim();
-  const err = document.getElementById("tp-err");
-  err.textContent = "";
-  if (!server || !code) { err.textContent = "Enter the panel address and the join code."; return; }
-  const btn = document.getElementById("tp-connect");
-  btn.disabled = true; btn.textContent = "Connecting…";
-  try {
-    await api("/api/panel/connect", { method: "POST", body: JSON.stringify({ server, code }) });
-    await refreshTeamPanel();
-    refreshAccounts();
-  } catch (e) {
-    err.textContent = e.message;
-    btn.disabled = false; btn.textContent = "Connect";
-  }
-}
-
-async function disconnectFromPanel() {
-  if (!confirm("Forget this panel on this machine? Accounts it lent you go back the usual way, when the panel takes them.")) return;
-  try {
-    await api("/api/panel/disconnect", { method: "POST" });
-    await refreshTeamPanel();
-  } catch (e) {
-    alert("Could not disconnect: " + e.message);
-  }
-}
-
-function prettyURL(u) { try { return new URL(u).host; } catch { return u; } }
-function escapeHTML(x) { return String(x).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
-function escapeAttr(x) { return escapeHTML(x); }

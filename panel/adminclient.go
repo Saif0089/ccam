@@ -92,3 +92,22 @@ func adminCall(ctx context.Context, httpc *http.Client, method, url string, body
 	_ = json.NewDecoder(resp.Body).Decode(out)
 	return resp.StatusCode, nil
 }
+
+// CreateAccount creates an account on the panel (named for its email) and
+// returns its id, for the client's "add this login to the panel" flow.
+func CreateAccount(ctx context.Context, httpc *http.Client, server, name, email, plan string) (string, error) {
+	var out struct {
+		Error string `json:"error"`
+	}
+	code, err := adminCall(ctx, httpc, http.MethodPost, server+"/api/accounts",
+		map[string]string{"name": name, "email": email, "plan": plan}, &out)
+	if err != nil {
+		return "", err
+	}
+	// 409 means it already exists — fine, we just want its id.
+	if code != http.StatusCreated && code != 201 && code != http.StatusConflict && out.Error != "" &&
+		!strings.Contains(out.Error, "already") {
+		return "", errors.New(out.Error)
+	}
+	return FindAccountID(ctx, httpc, server, name)
+}

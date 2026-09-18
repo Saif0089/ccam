@@ -3,7 +3,6 @@ package panel
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,7 +13,6 @@ import (
 	"time"
 
 	"ccam/internal/accounts"
-	"ccam/internal/config"
 )
 
 // ErrNotEnrolled means the panel no longer recognises this machine — it was
@@ -88,9 +86,50 @@ type Client struct {
 	// AfterChange runs when something was gained or given back, so the caller
 	// can re-sync shell aliases. Optional.
 	AfterChange func()
+	// SharesPath, when set, is where the gateway shares this machine was granted
+	// are cached (0600), so `ccam shared <slug>` and the shell aliases can run a
+	// shared account without the key ever touching a dotfile. Empty on a machine
+	// that only ever runs its own accounts.
+	SharesPath string
 }
 
-// Change is what one check-in altered, for the caller to report.
+// GatewayShare is one shared account this machine may run through the gateway:
+// where to route, and this person's key. It mirrors the panel's check-in reply.
+type GatewayShare struct {
+	Account string `json:"account"`
+	Slug    string `json:"slug"`
+	Gateway string `json:"gateway"`
+	Key     string `json:"key"`
+}
+
+// LoadShares reads the cached gateway shares. A missing file is no shares.
+func LoadShares(path string) ([]GatewayShare, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var out []GatewayShare
+	return out, json.Unmarshal(raw, &out)
+}
+
+// SaveShares writes the cached gateway shares, readable only by this user: it
+// holds gateway keys.
+func SaveShares(path string, shares []GatewayShare) error {
+	raw, err := json.MarshalIndent(shares, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, raw, 0o600)
+}
+
+// Change is what one check-in altered, for the caller to report: the accounts
+// this machine can newly use, and the ones it can no longer use.
 type Change struct {
 	Gained []string
 	Lost   []string
@@ -99,19 +138,15 @@ type Change struct {
 // Empty reports whether the check-in changed nothing, which is the usual case.
 func (c Change) Empty() bool { return len(c.Gained) == 0 && len(c.Lost) == 0 }
 
-// CheckIn asks the panel what this machine is entitled to and makes that true.
+// CheckIn asks the panel which accounts are shared with this machine and makes
+// that true: it caches the gateway keys (so `ccam shared <slug>` and the shell
+// aliases can run them) and re-syncs aliases when the set changed.
 //
-// The panel's answer is a complete list, so anything held that is not in it is
-// given back. That is the whole mechanism: nothing has to reach the machine to
-// take an account away, because the machine asks and then acts on the answer.
-//
-// This writes a credentials file, which Part 1 of this work otherwise took ccam
-// out of the business of doing. The distinction is real and worth keeping
-// straight: what was removed was ccam *copying* logins between stores it did
-// not own, which is what destroyed two accounts. This writes a login an
-// administrator deliberately handed to this machine, into a directory ccam made
-// for it — the same thing `claude auth login` would put there. It never touches
-// an account the user made themselves, and it never touches a keychain.
+// Nothing here writes a Claude credential. That is the point of the gateway:
+// the login stays on the server, the machine only ever holds a scoped key, and
+// taking access away is the server dropping the share — the key simply stops
+// working on the next request. This is what makes sharing safe and switching
+// non-fragile, in place of the old model that copied logins onto disk.
 func (c *Client) CheckIn(ctx context.Context) (Change, error) {
 	var change Change
 	if !c.Config.Configured() {
@@ -123,14 +158,13 @@ func (c *Client) CheckIn(ctx context.Context) (Change, error) {
 	}
 
 	var out struct {
-		Assignments []clientAssignment `json:"assignments"`
-		Error       string             `json:"error"`
+		Gateway []GatewayShare `json:"gateway"`
+		Error   string         `json:"error"`
 	}
 	err := post(ctx, httpc, c.Config.Server+"/api/v1/checkin", c.Config.Token, struct{}{}, &out)
 	if errors.Is(err, errUnauthorized) {
-		// Cut off: give everything back, then say so.
-		change, _ = c.releaseAll()
-		return change, ErrNotEnrolled
+		// Cut off: forget every shared account, then say so.
+		return c.forgetShares(), ErrNotEnrolled
 	}
 	if err != nil {
 		return change, err
@@ -139,140 +173,61 @@ func (c *Client) CheckIn(ctx context.Context) (Change, error) {
 		return change, errors.New(out.Error)
 	}
 
-	local, err := c.Accounts.List()
-	if err != nil {
-		return change, err
-	}
-	held := map[string]accounts.Account{}
-	for _, a := range local {
-		if a.PanelID != "" {
-			held[a.PanelID] = a
-		}
-	}
-
-	for _, want := range out.Assignments {
-		acct, ok := held[want.AccountID]
-		if !ok {
-			made, err := c.Accounts.Add(want.Name)
-			if err != nil {
-				return change, fmt.Errorf("taking delivery of %s: %w", want.Name, err)
-			}
-			if acct, err = c.Accounts.SetPanelID(made.ID, want.AccountID); err != nil {
-				return change, err
-			}
-			// A previous revocation of this same account may have left a marker;
-			// clear it so the fresh grant's session is not stopped on sight.
-			_ = config.ClearRevoked(made.ID)
-			change.Gained = append(change.Gained, want.Name)
-		}
-		delete(held, want.AccountID)
-
-		if want.Credential == "" {
-			continue // the panel is not holding a login for this one yet
-		}
-		raw, err := base64.StdEncoding.DecodeString(want.Credential)
-		if err != nil {
-			return change, fmt.Errorf("the login sent for %s could not be read: %w", want.Name, err)
-		}
-		if err := writeCredential(acct.ConfigDir, raw); err != nil {
-			return change, err
-		}
-		if acct.Status != accounts.StatusLinked {
-			if _, err := c.Accounts.SetStatus(acct.ID, accounts.StatusLinked); err != nil {
-				return change, err
-			}
-		}
-	}
-
-	// Anything still here is something the panel did not mention.
-	for _, stale := range held {
-		if err := c.release(stale); err != nil {
-			return change, err
-		}
-		change.Lost = append(change.Lost, stale.Name)
-	}
-
+	change = c.applyShares(out.Gateway)
 	if !change.Empty() && c.AfterChange != nil {
 		c.AfterChange()
 	}
 	return change, nil
 }
 
-// releaseAll gives back everything the panel ever lent this machine.
-func (c *Client) releaseAll() (Change, error) {
+// applyShares caches the shares just fetched and reports what changed, by
+// account name, against what was cached — so an unchanged check-in reports
+// nothing and does not rewrite dotfiles.
+func (c *Client) applyShares(next []GatewayShare) Change {
 	var change Change
-	local, err := c.Accounts.List()
-	if err != nil {
-		return change, err
+	if c.SharesPath == "" {
+		return change
 	}
-	for _, a := range local {
-		if a.PanelID == "" {
-			continue
-		}
-		if err := c.release(a); err != nil {
-			return change, err
-		}
-		change.Lost = append(change.Lost, a.Name)
+	prev, _ := LoadShares(c.SharesPath)
+	change = diffShares(prev, next)
+	if !change.Empty() {
+		_ = SaveShares(c.SharesPath, next)
 	}
+	return change
+}
+
+// forgetShares drops every cached share, as when this machine is cut off.
+func (c *Client) forgetShares() Change {
+	change := c.applyShares(nil)
 	if !change.Empty() && c.AfterChange != nil {
 		c.AfterChange()
 	}
-	return change, nil
+	return change
 }
 
-// release gives one account back: the login goes first, so that a failure
-// halfway leaves a machine that cannot use the account rather than one that
-// still can.
-func (c *Client) release(a accounts.Account) error {
-	if a.PanelID == "" {
-		return fmt.Errorf("refusing to give back %s: it is not the panel's to take", a.Name)
+// diffShares reports which accounts are newly usable and which are gone, keyed
+// by the stable slug and reported by name.
+func diffShares(prev, next []GatewayShare) Change {
+	was := map[string]string{}
+	for _, s := range prev {
+		was[s.Slug] = s.Account
 	}
-	// Delete the login wherever it lives — the file, and on macOS the Keychain
-	// item Claude Code migrates it into on first refresh. Deleting only the file
-	// would leave the real credential behind after the member had used it once.
-	if a.ConfigDir != "" {
-		accounts.RemoveLogin(a.ConfigDir)
+	now := map[string]string{}
+	for _, s := range next {
+		now[s.Slug] = s.Account
 	}
-	// Tell any live session on this account to stop. The supervisor polls for
-	// this marker, so a running session ends within a poll tick rather than
-	// limping on its in-memory token. Best-effort.
-	_ = config.MarkRevoked(a.ID)
-	_, err := c.Accounts.Remove(a.ID)
-	return err
-}
-
-// writeCredential puts a login where Claude Code will look for it, via a temp
-// file and a rename so a crash cannot leave a half-written one — the failure
-// mode that started all of this.
-func writeCredential(configDir string, raw []byte) error {
-	if strings.TrimSpace(configDir) == "" {
-		return errors.New("refusing to write a login without an account directory to put it in")
+	var change Change
+	for slug, name := range now {
+		if _, had := was[slug]; !had {
+			change.Gained = append(change.Gained, name)
+		}
 	}
-	if err := os.MkdirAll(configDir, 0o700); err != nil {
-		return err
+	for slug, name := range was {
+		if _, still := now[slug]; !still {
+			change.Lost = append(change.Lost, name)
+		}
 	}
-	tmp, err := os.CreateTemp(configDir, ".credentials-*.json")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	defer os.Remove(name)
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(raw); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(name, filepath.Join(configDir, ".credentials.json"))
+	return change
 }
 
 var errUnauthorized = errors.New("unauthorized")

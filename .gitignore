@@ -10,3 +10,9 @@ test-results/
 playwright-report/
 .env.local
 docs/mockups/
+
+# Build artifact (the gateway binary, built locally)
+/ccam-gateway
+# Local Claude Code session state and command dumps
+.claude.json
+*-local-command-caveatcaveat-*.txt

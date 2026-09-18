@@ -66,9 +66,9 @@ function startUsageStub() {
   });
 }
 
-// writeCredentials plants a login for an account directly, which is how
-// a test picks the two clocks: the short access token and the long
-// refresh one that decides whether the login is over.
+// writeCredentials plants a login for an account directly, so a test can set
+// the short access token and the long refresh window independently — enough to
+// drive an account into "Ready" or "Sign-in expired".
 function writeCredentials(configDir, { accessToken, accessInHours, refreshInDays }) {
   fs.writeFileSync(
     path.join(configDir, ".credentials.json"),
@@ -202,15 +202,15 @@ test.beforeEach(async ({ page }) => {
 test("adds an account, shows the full OAuth URL, and links it", async ({ page }) => {
   await page.goto(baseURL);
 
-  await page.click("#add-account-btn");
-  await page.fill("#add-name", "Work");
-  await page.click("#add-form button[type=submit]");
+  await page.click("#signin-btn");
+  await page.fill("#name-input", "Work");
+  await page.click("#name-form button[type=submit]");
 
   // The regression this whole file exists for: the login dialog used to
   // show "Could not start login: The string did not match the expected
   // pattern." here, and later never rendered the URL at all because the
   // SSE payload's field names didn't match what app.js reads.
-  await expect(page.locator("#login-status")).toContainText("Open this URL");
+  await expect(page.locator("#login-status")).toContainText("Open this link");
 
   const url = await page.locator("#login-url").textContent();
   expect(url).toMatch(/^https:\/\//);
@@ -219,14 +219,14 @@ test("adds an account, shows the full OAuth URL, and links it", async ({ page })
   expect(url.length).toBeGreaterThan(400);
   expect(url).not.toContain(" ");
 
-  await expect(page.locator("#login-status")).toContainText("Connected");
+  await expect(page.locator("#login-status")).toContainText("Signed in");
 
   await page.click("#login-close");
-  await expect(page.locator(".status-badge")).toHaveText("linked");
-  await expect(page.locator(".alias-text")).toHaveText("claude-work");
+  await expect(page.locator(".status-pill")).toHaveText("Ready");
+  await expect(page.locator(".run-cmd")).toHaveText("claude-work");
 });
 
-test("shows plan usage, reset countdowns and how long the login lasts", async ({ page }) => {
+test("shows plan usage and reset countdowns", async ({ page }) => {
   await page.goto(baseURL);
 
   const meters = page.locator(".meter");
@@ -255,16 +255,14 @@ test("shows plan usage, reset countdowns and how long the login lasts", async ({
   await expect(meters.nth(0).locator(".meter-reset")).toHaveText(/resets in \d+h \d+m \(.+\)/);
   await expect(meters.nth(1).locator(".meter-reset")).toHaveText(/resets in 2d \d+h \(.+\)/);
 
-  // The two clocks people confuse: the login itself, and the short-lived
-  // access token that renews behind their back.
-  const session = page.locator(".session");
-  await expect(session).toContainText("Login session");
-  await expect(session).toContainText(/2\dd \d+h left/);
-  await expect(session).toContainText("Access token");
-  await expect(session).toContainText("renews on its own");
+  // A working login says so with the Ready pill and nothing more: the old
+  // pair of ticking clocks (a long "login session" and a short "access
+  // token") only ever got confused for each other, so a healthy account
+  // shows no countdown line at all.
+  await expect(page.locator(".session-line")).toBeHidden();
 
   await expect(page.locator(".plan-chip")).toHaveText("Max plan");
-  await expect(page.locator(".status-badge")).toHaveText("linked");
+  await expect(page.locator(".status-pill")).toHaveText("Ready");
 });
 
 // The page has no refresh button any more, so the only thing that keeps
@@ -283,7 +281,7 @@ test("re-reads usage on its own, with no button to press", async ({ page }) => {
   await page.goto(baseURL);
   await expect(page.locator("#refresh-btn")).toHaveCount(0);
 
-  const card = page.locator(".account-card", { hasText: "Polling" });
+  const card = page.locator(".card", { hasText: "Polling" });
   await expect(card.locator(".meter").first()).toBeVisible();
   const afterLoad = usageRequests.length;
   expect(afterLoad).toBeGreaterThan(0);
@@ -329,8 +327,8 @@ test("reports a signed-out account instead of claiming it is linked", async ({ p
   expect(created.ok).toBeTruthy();
 
   await page.goto(baseURL);
-  const card = page.locator(".account-card", { hasText: "Never Connected" });
-  await expect(card.locator(".status-badge")).toHaveText("signed out");
+  const card = page.locator(".card", { hasText: "Never Connected" });
+  await expect(card.locator(".status-pill")).toHaveText("Signed out");
   await expect(card.locator(".meter")).toHaveCount(0);
   await expect(card.locator(".usage-note")).toBeVisible();
 
@@ -352,30 +350,29 @@ test("calls an account with a stale access token linked, not expired", async ({ 
   writeCredentials(account.configDir, { accessToken: REJECTED_TOKEN, accessInHours: -1, refreshInDays: 27 });
 
   await page.goto(baseURL);
-  const card = page.locator(".account-card", { hasText: "Stale Token" });
-  await expect(card.locator(".status-badge")).toHaveText("linked");
+  const card = page.locator(".card", { hasText: "Stale Token" });
+  await expect(card.locator(".status-pill")).toHaveText("Ready");
   await expect(card.locator(".meter")).toHaveCount(0);
   await expect(card.locator(".usage-note")).toContainText("refreshes");
-  // The login clock is the one still running, and it must still run.
-  await expect(card.locator(".session")).toContainText(/2\dd \d+h left/);
-  await expect(card.locator(".session")).not.toContainText("ended");
+  // Ready, so nothing tells the person to reconnect — the login is fine, it
+  // is only the short-lived access token that lapsed, and that renews itself.
+  await expect(card.locator(".session-line")).toBeHidden();
 
   await deleteAccount(account.id);
 });
 
-// A login the API really does reject is expired — but its refresh
-// window can still have weeks left, and the card used to announce that
-// future date as the day the session "ended".
-test("never dates a rejected login as having ended in the future", async ({ page }) => {
+// A login the API really does reject is expired, and the card says so in one
+// actionable line rather than a confusing countdown to a future date.
+test("tells you to reconnect a login the API has rejected", async ({ page }) => {
   const account = await createAccount("Revoked Login");
   writeCredentials(account.configDir, { accessToken: REJECTED_TOKEN, accessInHours: 8, refreshInDays: 27 });
 
   await page.goto(baseURL);
-  const card = page.locator(".account-card", { hasText: "Revoked Login" });
-  await expect(card.locator(".status-badge")).toHaveText("login expired");
+  const card = page.locator(".card", { hasText: "Revoked Login" });
+  await expect(card.locator(".status-pill")).toHaveText("Sign-in expired");
   await expect(card.locator(".usage-note")).toContainText("rejected");
-  await expect(card.locator(".session")).toContainText("Login session");
-  await expect(card.locator(".session")).not.toContainText("ended");
+  await expect(card.locator(".session-line")).toBeVisible();
+  await expect(card.locator(".session-line")).toContainText("Reconnect");
 
   await deleteAccount(account.id);
 });
@@ -398,7 +395,7 @@ test("a slow account does not hold up the other cards", async ({ page }) => {
 
   const loaded = Date.now();
   await page.goto(baseURL);
-  const quickCard = page.locator(".account-card", { hasText: "Quick Answer" });
+  const quickCard = page.locator(".card", { hasText: "Quick Answer" });
   await expect(quickCard.locator(".meter").first()).toBeVisible();
 
   // The next tick asks the quick account again while the slow answer is
@@ -411,7 +408,7 @@ test("a slow account does not hold up the other cards", async ({ page }) => {
   await page.waitForTimeout(500);
   expect(slowRequests).toBe(1);
   expect(Date.now() - loaded).toBeLessThan(SLOW_ANSWER_MS);
-  await expect(page.locator(".account-card", { hasText: "Slow Answer" }).locator(".meter")).toHaveCount(0);
+  await expect(page.locator(".card", { hasText: "Slow Answer" }).locator(".meter")).toHaveCount(0);
   // And the poll itself finished without it.
   await expect(page.locator("#refreshed")).toContainText("updated", { timeout: 1000 });
 
@@ -445,7 +442,7 @@ test("says how old a card's numbers are once they fall behind", async ({ page })
 
   await page.clock.install();
   await page.goto(baseURL);
-  const card = page.locator(".account-card", { hasText: "Aging Numbers" });
+  const card = page.locator(".card", { hasText: "Aging Numbers" });
   const age = card.locator(".usage-age");
   await expect(card.locator(".meter").first()).toBeVisible();
   // Numbers just read need no caption.
@@ -528,14 +525,14 @@ test("can start another login after closing one mid-flight", async ({ page }) =>
   await page.goto(baseURL);
 
   await page.click(".connect-btn");
-  await expect(page.locator("#login-status")).toContainText("Open this URL");
+  await expect(page.locator("#login-status")).toContainText("Open this link");
   await page.click("#login-close");
   // Give the cancel time to actually leave the browser before teardown.
   await page.waitForTimeout(1000);
   await expect(page.locator("#login-dialog")).not.toBeVisible();
 
   await page.click(".connect-btn");
-  await expect(page.locator("#login-status")).toContainText("Open this URL");
+  await expect(page.locator("#login-status")).toContainText("Open this link");
   const url = await page.locator("#login-url").textContent();
   expect(url.length).toBeGreaterThan(400);
   await page.click("#login-close");
@@ -550,7 +547,7 @@ test("renames an account and updates its alias", async ({ page }) => {
   await page.click("#rename-form button[type=submit]");
 
   await expect(page.locator(".account-name")).toHaveText("Side Project");
-  await expect(page.locator(".alias-text")).toHaveText("claude-side-project");
+  await expect(page.locator(".run-cmd")).toHaveText("claude-side-project");
 });
 
 test("rejects a whitespace-only name instead of silently doing nothing", async ({ page }) => {
@@ -562,14 +559,14 @@ test("rejects a whitespace-only name instead of silently doing nothing", async (
     await dialog.dismiss();
   });
 
-  await page.click("#add-account-btn");
-  await page.fill("#add-name", "   ");
-  await page.click("#add-form button[type=submit]");
+  await page.click("#signin-btn");
+  await page.fill("#name-input", "   ");
+  await page.click("#name-form button[type=submit]");
 
   // Either the browser blocks it via the pattern, or our own check
   // alerts — what must NOT happen is the dialog closing with nothing
   // created and no explanation.
-  await expect(page.locator("#add-dialog")).toBeVisible();
+  await expect(page.locator("#name-dialog")).toBeVisible();
   if (alerted) expect(alerted).toContain("empty");
 });
 
@@ -579,6 +576,6 @@ test("removes an account and returns to the empty state", async ({ page }) => {
   page.on("dialog", (dialog) => dialog.accept());
   await page.click(".remove-btn");
 
-  await expect(page.locator("#empty-state")).toBeVisible();
-  await expect(page.locator(".account-card")).toHaveCount(0);
+  await expect(page.locator("#accounts-empty")).toBeVisible();
+  await expect(page.locator(".card")).toHaveCount(0);
 });

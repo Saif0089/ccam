@@ -184,3 +184,16 @@ func NewJoinCode() (code, hash string, err error) {
 	code = hex.EncodeToString(b)
 	return code, HashToken(code), nil
 }
+
+// NewInviteCode mints the code carried inside an invite link. It is never typed
+// by hand — it rides in a URL — so it is long enough to be unguessable while it
+// sits in someone's chat history, and short-lived on top of that. Same hashing
+// as any other code, so enrolment treats them identically.
+func NewInviteCode() (code, hash string, err error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", "", err
+	}
+	code = hex.EncodeToString(b)
+	return code, HashToken(code), nil
+}

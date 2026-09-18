@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	neturl "net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -71,14 +73,15 @@ func (h *harness) do(method, path string, body any, bearer string) (int, map[str
 // The whole point, end to end: an account is lent to a person's machine, the
 // machine is told about it, the account is taken back, and the next thing the
 // machine hears is that it has nothing.
-func TestAMachineIsToldWhatItHoldsAndWhenItStops(t *testing.T) {
+func TestAMachineIsToldWhatItCanUseAndWhenItStops(t *testing.T) {
+	t.Setenv("CCAM_GATEWAY_URL", "https://gw.example")
 	h := newHarness(t)
 
 	if code, body := h.do("POST", "/api/setup", map[string]string{"password": "a-long-enough-one"}, ""); code != 200 {
 		t.Fatalf("setup = %d %v", code, body)
 	}
 
-	// An account with a login to lend, and someone to lend it to.
+	// An account with a login to share, and someone to share it with.
 	if code, _ := h.do("POST", "/api/accounts", map[string]string{"name": "Work"}, ""); code != 201 {
 		t.Fatalf("adding an account = %d", code)
 	}
@@ -108,43 +111,79 @@ func TestAMachineIsToldWhatItHoldsAndWhenItStops(t *testing.T) {
 		t.Fatal("enrolling returned no token")
 	}
 
-	// Nothing yet: enrolled is not the same as entitled.
-	if _, body := h.do("POST", "/api/v1/checkin", nil, token); body["assignments"] != nil {
-		t.Errorf("a machine with no assignment was told it holds %v", body["assignments"])
+	// Nothing yet: enrolled is not the same as shared-with.
+	if _, body := h.do("POST", "/api/v1/checkin", nil, token); body["gateway"] != nil {
+		t.Errorf("a machine with no share was told it can use %v", body["gateway"])
 	}
 
-	if code, body := h.do("POST", "/api/assign",
-		map[string]any{"accountId": accountID, "personId": personID, "hours": 24}, ""); code != 200 {
-		t.Fatalf("assigning = %d %v", code, body)
+	if code, body := h.do("POST", "/api/accounts/"+accountID+"/share",
+		map[string]string{"personId": personID}, ""); code != 200 {
+		t.Fatalf("sharing = %d %v", code, body)
 	}
 
 	_, body := h.do("POST", "/api/v1/checkin", nil, token)
-	list, _ := body["assignments"].([]any)
+	list, _ := body["gateway"].([]any)
 	if len(list) != 1 {
-		t.Fatalf("the machine was told it holds %d accounts, want 1", len(list))
+		t.Fatalf("the machine was told it can use %d accounts, want 1", len(list))
 	}
 	got := list[0].(map[string]any)
-	if got["name"] != "Work" {
-		t.Errorf("assignment name = %v, want Work", got["name"])
+	if got["account"] != "Work" || got["gateway"] != "https://gw.example" || got["key"] == "" {
+		t.Errorf("share handed to the machine = %v, want Work on the gateway with a key", got)
 	}
-	// The login travels with it, and is the one that was escrowed.
-	raw, err := base64.StdEncoding.DecodeString(got["credential"].(string))
-	if err != nil || string(raw) != string(login) {
-		t.Errorf("credential handed to the machine = %q (%v), want the stored login", raw, err)
+	// The login itself must never travel to the machine — that is the gateway.
+	if got["credential"] != nil {
+		t.Error("the check-in handed the machine a credential; only the server holds the login")
 	}
 
-	// Taken back.
-	_, panelBody = h.do("GET", "/api/panel", nil, "")
-	assignmentID := panelBody["accounts"].([]any)[0].(map[string]any)["assignmentId"].(string)
-	if code, _ := h.do("POST", "/api/assignments/"+assignmentID+"/takeback", nil, ""); code != 200 {
-		t.Fatalf("taking it back = %d", code)
+	// Access taken away.
+	_, pb2 := h.do("GET", "/api/panel", nil, "")
+	shareID := pb2["accounts"].([]any)[0].(map[string]any)["shared"].([]any)[0].(map[string]any)["shareId"].(string)
+	if code, _ := h.do("POST", "/api/shares/"+shareID+"/revoke", nil, ""); code != 200 {
+		t.Fatalf("taking access away = %d", code)
 	}
 
 	// The next check-in is the machine finding out. A complete list, so an
 	// empty one means "let go of everything".
 	_, body = h.do("POST", "/api/v1/checkin", nil, token)
-	if list, _ := body["assignments"].([]any); len(list) != 0 {
-		t.Errorf("after being taken back the machine still holds %v", list)
+	if list, _ := body["gateway"].([]any); len(list) != 0 {
+		t.Errorf("after access was taken away the machine can still use %v", list)
+	}
+}
+
+// An invite is a single link that carries a join code and lands on a public
+// page explaining what to do with it — the no-terminal way to set someone up.
+func TestInviteLinkOpensAWelcomePage(t *testing.T) {
+	h := newHarness(t)
+	h.do("POST", "/api/setup", map[string]string{"password": "a-long-enough-one"}, "")
+	h.do("POST", "/api/people", map[string]string{"name": "Ehtisham"}, "")
+	_, pb := h.do("GET", "/api/panel", nil, "")
+	personID := pb["people"].([]any)[0].(map[string]any)["id"].(string)
+
+	code, body := h.do("POST", "/api/people/"+personID+"/invite", nil, "")
+	if code != 200 {
+		t.Fatalf("making an invite = %d %v", code, body)
+	}
+	url, _ := body["url"].(string)
+	if url == "" || !strings.Contains(url, "/i/") {
+		t.Fatalf("invite url = %q, want one containing /i/", url)
+	}
+	if body["expiresAt"] == nil {
+		t.Error("an invite must say when it expires")
+	}
+
+	// The link is public — anyone the admin sends it to can open it without a
+	// session — and it explains itself.
+	resp, err := http.Get(h.srv.URL + "/i/" + body["code"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	page, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		t.Fatalf("opening the invite = %d", resp.StatusCode)
+	}
+	if !strings.Contains(string(page), "invited") {
+		t.Error("the invite page does not welcome the person")
 	}
 }
 
@@ -207,9 +246,9 @@ type cookieJar struct{ cookies []*http.Cookie }
 func (j *cookieJar) SetCookies(_ *neturl.URL, cookies []*http.Cookie) { j.cookies = cookies }
 func (j *cookieJar) Cookies(_ *neturl.URL) []*http.Cookie             { return j.cookies }
 
-// An account with no login is nothing to lend; assigning one is the confusing
-// state that made a member hold an empty account.
-func TestCannotAssignAnAccountWithNoLogin(t *testing.T) {
+// An account with no login is nothing to share; sharing one is the confusing
+// state that would hand a member an empty account.
+func TestCannotShareAnAccountWithNoLogin(t *testing.T) {
 	h := newHarness(t)
 	h.do("POST", "/api/setup", map[string]string{"password": "a-long-enough-one"}, "")
 	h.do("POST", "/api/accounts", map[string]string{"name": "Empty"}, "")
@@ -218,9 +257,9 @@ func TestCannotAssignAnAccountWithNoLogin(t *testing.T) {
 	acct := pb["accounts"].([]any)[0].(map[string]any)["id"].(string)
 	person := pb["people"].([]any)[0].(map[string]any)["id"].(string)
 
-	code, body := h.do("POST", "/api/assign", map[string]any{"accountId": acct, "personId": person}, "")
+	code, body := h.do("POST", "/api/accounts/"+acct+"/share", map[string]string{"personId": person}, "")
 	if code != 400 {
-		t.Fatalf("assigning a login-less account returned %d, want 400", code)
+		t.Fatalf("sharing a login-less account returned %d, want 400", code)
 	}
 	if body["error"] == nil {
 		t.Error("expected an explanation of why it was refused")

@@ -4,91 +4,98 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ccam</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
     color-scheme: dark;
-    --ground:#14110E; --raised:#1D1916; --sunken:#100D0B;
-    --line:#2C2621; --chalk:#F2EDE6; --ash:#A79C90; --faint:#8D8276;
-    --ok:#4FB286; --brass:#D9A441; --rust:#D4573F;
+    --ground:#0F1216; --raised:#171B21; --raised-2:#1E242D; --sunken:#0B0E12; --line:#262C34;
+    --ink:#E7EBF0; --muted:#9AA4B2; --faint:#626D7C;
+    --primary:#6E8BFF; --primary-ink:#0B0E12;
+    --ok:#46C08A; --warn:#E0A83E; --crit:#E05C53;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
-  * { box-sizing: border-box; }
-  body {
-    margin:0; background:var(--ground); color:var(--chalk);
-    font-family:Archivo, sans-serif; font-size:15px; line-height:1.55;
-    -webkit-font-smoothing:antialiased;
-  }
-  .wrap { max-width:1040px; margin:0 auto; padding:34px 28px 80px; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--ground); color:var(--ink);
+         font-family:var(--font); font-size:16px; line-height:1.5; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:1000px; margin:0 auto; padding:36px 28px 90px; }
   a { color:inherit; }
-  code, .mono { font-family:"IBM Plex Mono", monospace; }
+  code, .mono { font-family:var(--mono); }
 
-  .top { display:flex; align-items:baseline; gap:34px; border-bottom:1px solid var(--line); }
-  .brand { font-size:17px; font-weight:600; letter-spacing:-.02em; padding-bottom:14px; }
+  .top { display:flex; align-items:baseline; gap:32px; border-bottom:1px solid var(--line); }
+  .brand { font-size:22px; font-weight:700; letter-spacing:-.03em; padding-bottom:16px; }
   nav { display:flex; gap:26px; }
-  nav button {
-    background:none; border:none; font:inherit; font-size:13.5px; color:var(--ash);
-    padding:0 0 14px; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px;
-  }
-  nav button[aria-current="true"] { color:var(--chalk); font-weight:500; border-bottom-color:var(--brass); }
-  .signout { margin-left:auto; padding-bottom:14px; }
+  nav button { background:none; border:none; font:inherit; font-size:15px; color:var(--muted);
+    padding:0 0 16px; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; }
+  nav button[aria-current="true"] { color:var(--ink); font-weight:600; border-bottom-color:var(--primary); }
+  .signout { margin-left:auto; padding-bottom:16px; }
 
-  .head { display:flex; align-items:center; margin-top:30px; gap:14px; }
-  h1 { margin:0; font-size:21px; font-weight:600; letter-spacing:-.02em; }
-  .sub { margin-top:4px; font-size:12.5px; color:var(--faint); }
+  .head { display:flex; align-items:flex-end; margin-top:32px; gap:14px; }
+  h1 { margin:0; font-size:24px; font-weight:680; letter-spacing:-.02em; }
+  .sub { margin-top:5px; font-size:14px; color:var(--muted); }
+  .head .grow { margin-left:auto; }
 
-  table { width:100%; border-collapse:collapse; margin-top:26px; }
-  th {
-    text-align:left; padding:0 0 12px; font-size:12px; font-weight:400; color:var(--faint);
-  }
-  td { padding:16px 0; border-top:1px solid var(--line); font-size:13.5px; vertical-align:middle; }
+  table { width:100%; border-collapse:collapse; margin-top:24px; }
+  th { text-align:left; padding:0 0 12px; font-size:13px; font-weight:500; color:var(--faint); }
+  td { padding:18px 0; border-top:1px solid var(--line); font-size:15px; vertical-align:middle; }
   td.right, th.right { text-align:right; }
-  .name { font-weight:500; }
-  .under { margin-top:3px; font-size:11.8px; color:var(--faint); }
+  .name { font-weight:560; font-size:15.5px; }
+  .under { margin-top:3px; font-size:13px; color:var(--faint); }
   .free { color:var(--faint); }
 
+  .pill { display:inline-flex; align-items:center; gap:7px; font-size:13px;
+    border:1px solid var(--line); border-radius:999px; padding:4px 11px 4px 9px; white-space:nowrap; }
+  .pill::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--faint); }
+  .pill.ready { color:var(--ok); border-color:color-mix(in srgb, var(--ok) 35%, var(--line)); }
+  .pill.ready::before { background:var(--ok); }
+  .pill.need { color:var(--warn); border-color:color-mix(in srgb, var(--warn) 35%, var(--line)); }
+  .pill.need::before { background:var(--warn); }
+
+  .people-tags { display:flex; flex-wrap:wrap; gap:6px; }
+  .tag { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--ink);
+    background:var(--raised-2); border:1px solid var(--line); border-radius:7px; padding:4px 8px; }
+  .tag button { background:none; border:none; color:var(--faint); cursor:pointer; padding:0; font-size:15px; line-height:1; }
+  .tag button:hover { color:var(--crit); }
+
   button.fill, button.ghost, button.danger {
-    font:inherit; font-size:12.9px; border-radius:6px; padding:10px 16px; cursor:pointer;
-  }
-  button.fill { background:var(--sunken); border:1px solid #3A322B; color:var(--chalk); font-weight:500; }
-  button.ghost { background:none; border:1px solid var(--line); color:var(--ash); }
-  button.danger { background:var(--rust); border:1px solid var(--rust); color:#160908; font-weight:600; }
-  button.link {
-    background:none; border:none; font:inherit; font-size:13px; color:var(--ash);
-    padding:8px 0; cursor:pointer;
-  }
-  button.link.warn { color:var(--rust); }
-  button.link.brass { color:var(--brass); }
+    font:inherit; font-size:14px; border-radius:8px; padding:10px 16px; cursor:pointer; }
+  button.fill { background:var(--primary); border:1px solid var(--primary); color:var(--primary-ink); font-weight:600; }
+  button.fill:hover { filter:brightness(1.08); }
+  button.ghost { background:var(--raised-2); border:1px solid var(--line); color:var(--ink); }
+  button.ghost:hover { border-color:#3a4453; }
+  button.danger { background:none; border:1px solid color-mix(in srgb, var(--crit) 45%, var(--line)); color:var(--crit); }
+  button.link { background:none; border:none; font:inherit; font-size:14px; color:var(--primary); padding:8px 0; cursor:pointer; }
+  button.link.warn { color:var(--crit); }
+  button.link.plain { color:var(--muted); }
   button:focus-visible, input:focus-visible, select:focus-visible {
-    outline:2px solid var(--brass); outline-offset:2px; border-radius:3px;
-  }
+    outline:2px solid var(--primary); outline-offset:2px; border-radius:4px; }
 
-  label { display:block; font-size:12.5px; color:var(--ash); margin-bottom:7px; }
-  input, select {
-    width:100%; background:var(--sunken); border:1px solid #3A322B; color:var(--chalk);
-    border-radius:6px; padding:10px 12px; font:inherit; font-size:13.2px;
-  }
-  .field + .field { margin-top:14px; }
+  label { display:block; font-size:14px; color:var(--muted); margin-bottom:8px; }
+  input, select { width:100%; background:var(--sunken); border:1px solid var(--line); color:var(--ink);
+    border-radius:8px; padding:11px 12px; font:inherit; font-size:15px; }
+  .field + .field { margin-top:16px; }
 
-  dialog {
-    border:1px solid #3A322B; border-radius:10px; background:var(--raised); color:var(--chalk);
-    padding:26px 28px 22px; width:440px; max-width:92vw;
-  }
-  dialog::backdrop { background:rgba(10,8,6,.74); }
-  dialog h2 { margin:0; font-size:16px; font-weight:600; }
-  .actions { display:flex; gap:10px; justify-content:flex-end; margin-top:22px; }
-  .note { margin:16px 0 0; font-size:12.3px; color:var(--brass); }
+  .copybox { display:flex; gap:8px; margin-top:6px; }
+  .copybox code { flex:1; min-width:0; overflow-x:auto; white-space:nowrap; background:var(--sunken);
+    border:1px solid var(--line); border-radius:8px; padding:11px 12px; font-size:13.5px; }
+  .copybox button { flex:none; background:var(--primary); color:var(--primary-ink); border:none;
+    border-radius:8px; padding:0 15px; font:inherit; font-weight:600; cursor:pointer; }
 
-  .gate { max-width:360px; margin:16vh auto; }
-  .gate h1 { font-size:22px; }
-  .gate p { font-size:13px; color:var(--ash); margin:10px 0 24px; }
-  .err { margin-top:14px; font-size:12.6px; color:var(--rust); min-height:1.2em; }
-  .ok { color:var(--ok); }
+  dialog { border:1px solid var(--line); border-radius:14px; background:var(--raised); color:var(--ink);
+    padding:26px 28px 22px; width:480px; max-width:92vw; }
+  dialog::backdrop { background:rgba(6,8,11,.74); }
+  dialog h2 { margin:0; font-size:19px; font-weight:660; }
+  .actions { display:flex; gap:10px; justify-content:flex-end; margin-top:24px; }
+  .note { margin:16px 0 0; font-size:14px; color:var(--muted); line-height:1.55; }
+  .note.warn { color:var(--warn); }
+
+  .gate { max-width:380px; margin:16vh auto; }
+  .gate h1 { font-size:26px; }
+  .gate p { font-size:15px; color:var(--muted); margin:12px 0 26px; }
+  .err { margin-top:14px; font-size:14px; color:var(--crit); min-height:1.2em; }
   .hidden { display:none; }
-  .empty { margin-top:26px; padding:28px; border:1px dashed var(--line); border-radius:10px;
-           text-align:center; color:var(--faint); font-size:13px; }
-  .ev { display:flex; gap:18px; padding:13px 0; border-top:1px solid var(--line); font-size:13.4px; }
+  .empty { margin-top:26px; padding:34px 28px; border:1px dashed var(--line); border-radius:12px;
+    text-align:center; color:var(--muted); font-size:15px; line-height:1.6; }
+  .ev { display:flex; gap:18px; padding:15px 0; border-top:1px solid var(--line); font-size:15px; }
   .ev time { color:var(--faint); flex:0 0 130px; font-variant-numeric:tabular-nums; }
 </style>
 </head>
@@ -97,7 +104,7 @@
 <!-- Setting up, or signing in -->
 <div class="wrap gate hidden" id="gate">
   <h1 id="gate-title">Sign in</h1>
-  <p id="gate-blurb">This panel lends out Claude logins. Sign in to manage them.</p>
+  <p id="gate-blurb">Sign in to hand out and take back the Claude accounts you share.</p>
   <form id="gate-form">
     <div class="field">
       <label for="pw">Password</label>
@@ -108,7 +115,7 @@
   </form>
 </div>
 
-<!-- The panel -->
+<!-- The main view -->
 <div class="wrap hidden" id="panel">
   <div class="top">
     <span class="brand">ccam</span>
@@ -117,13 +124,13 @@
       <button data-tab="people">People</button>
       <button data-tab="activity">Activity</button>
     </nav>
-    <span class="signout"><button class="link" id="signout">Sign out</button></span>
+    <span class="signout"><button class="link plain" id="signout">Sign out</button></span>
   </div>
 
   <section id="tab-accounts">
     <div class="head">
       <div><h1>Accounts</h1><div class="sub" id="accounts-sub"></div></div>
-      <div style="margin-left:auto"><button class="fill" id="add-account">Add an account</button></div>
+      <div class="grow"><button class="ghost" id="add-account">Add an account</button></div>
     </div>
     <div id="accounts-body"></div>
   </section>
@@ -131,7 +138,7 @@
   <section id="tab-people" class="hidden">
     <div class="head">
       <div><h1>People</h1><div class="sub" id="people-sub"></div></div>
-      <div style="margin-left:auto"><button class="fill" id="add-person">Add someone</button></div>
+      <div class="grow"><button class="fill" id="invite-someone">Invite someone</button></div>
     </div>
     <div id="people-body"></div>
   </section>
@@ -177,7 +184,7 @@ async function api(method, path, body) {
   return data;
 }
 
-// --- when things happen, in words rather than timestamps -------------------
+// --- when things happen, in words ------------------------------------------
 function when(iso) {
   if (!iso) return "";
   const d = new Date(iso), now = new Date();
@@ -190,17 +197,18 @@ function when(iso) {
   if (days < 7) return `${days} ${days === 1 ? "day" : "days"} ago`;
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
-function until(iso) {
-  if (!iso) return "until it is taken back";
+function untilExpiry(iso) {
   const left = new Date(iso) - new Date();
-  if (left <= 0) return "over";
-  const hrs = Math.round(left / 3600000);
-  if (hrs < 48) return `${hrs} ${hrs === 1 ? "hour" : "hours"} left`;
-  return `${Math.round(hrs / 24)} days left`;
+  if (left <= 0) return "expired";
+  const mins = Math.round(left / 60000);
+  if (mins < 60) return `${mins} min left`;
+  return `${Math.round(mins / 60)} hr left`;
 }
 
 // --- the dialog, reused ----------------------------------------------------
-function ask({ title, fields = [], note = "", confirm = "OK", danger = false }) {
+// A field is { name, label, type|options|value|placeholder }, or
+// { name, label, copy: "<text>" } to show a copyable code box.
+function ask({ title, fields = [], note = "", noteClass = "", confirm = "OK", cancel = "Cancel", danger = false }) {
   return new Promise((resolve) => {
     $("#dlg-title").textContent = title;
     $("#dlg-err").textContent = "";
@@ -209,7 +217,16 @@ function ask({ title, fields = [], note = "", confirm = "OK", danger = false }) 
     for (const f of fields) {
       const wrap = el("div", { className: "field" });
       wrap.append(el("label", { htmlFor: "f-" + f.name, textContent: f.label }));
-      if (f.options) {
+      if (f.copy !== undefined) {
+        const box = el("div", { className: "copybox" });
+        const code = el("code", { id: "f-" + f.name, textContent: f.copy });
+        const btn = el("button", { type: "button", textContent: "Copy" });
+        btn.onclick = () => navigator.clipboard.writeText(f.copy).then(() => {
+          btn.textContent = "Copied"; setTimeout(() => (btn.textContent = "Copy"), 1500);
+        }).catch(() => (btn.textContent = "Copy failed"));
+        box.append(code, btn);
+        wrap.append(box);
+      } else if (f.options) {
         const sel = el("select", { id: "f-" + f.name, name: f.name });
         for (const o of f.options) sel.append(el("option", { value: o.value, textContent: o.label }));
         wrap.append(sel);
@@ -221,28 +238,27 @@ function ask({ title, fields = [], note = "", confirm = "OK", danger = false }) 
       }
       body.append(wrap);
     }
-    if (note) body.append(el("p", { className: "note", textContent: note }));
+    if (note) body.append(el("p", { className: "note " + noteClass, textContent: note }));
 
     const ok = $("#dlg-ok");
     ok.textContent = confirm;
     ok.className = danger ? "danger" : "fill";
+    const cancelBtn = $("#dlg-cancel");
+    cancelBtn.textContent = cancel;
+    cancelBtn.style.display = cancel ? "" : "none";
 
-    const close = (value) => {
-      ok.onclick = null; $("#dlg-cancel").onclick = null;
-      $("#dlg").close();
-      resolve(value);
-    };
+    const close = (value) => { ok.onclick = null; cancelBtn.onclick = null; $("#dlg").close(); resolve(value); };
     ok.onclick = () => {
       const out = {};
-      for (const f of fields) out[f.name] = $("#f-" + f.name).value;
+      for (const f of fields) { const node = $("#f-" + f.name); if (node && "value" in node) out[f.name] = node.value; }
       close(out);
     };
-    $("#dlg-cancel").onclick = () => close(null);
+    cancelBtn.onclick = () => close(null);
     $("#dlg").showModal();
   });
 }
 
-// --- rendering -------------------------------------------------------------
+// --- state + rendering -----------------------------------------------------
 let state = { accounts: [], people: [], activity: [] };
 let panelURL = location.origin;
 
@@ -266,171 +282,152 @@ function cell(main, under, cls = "") {
 function renderAccounts() {
   const body = $("#accounts-body");
   body.replaceChildren();
-  const inUse = state.accounts.filter((a) => a.holder).length;
-  const needAuth = state.accounts.filter((a) => !a.hasLogin).length;
+  const ready = state.accounts.filter((a) => a.hasLogin).length;
+  const need = state.accounts.length - ready;
   $("#accounts-sub").textContent = state.accounts.length
-    ? `${state.accounts.length} ${state.accounts.length === 1 ? "account" : "accounts"}, ${inUse} in use`
-      + (needAuth ? `, ${needAuth} need a login` : "")
+    ? `${ready} ready to share` + (need ? `, ${need} need a login` : "")
     : "";
 
-  body.append(note(
-    "These are the Claude logins your team shares. Each one works on one machine at a time, "
-    + "so you hand accounts out of this pool rather than sharing a single login. "
-    + "An account has to be authenticated once (by you, on a machine where it is signed in) before it can be lent."
-  ));
-
   if (!state.accounts.length) {
-    body.append(el("div", { className: "empty", textContent: "No accounts yet. Add the first Claude login you want to lend out." }));
+    body.append(el("div", { className: "empty" }, [
+      el("div", { style: "font-size:16px; color:var(--ink); margin-bottom:8px", textContent: "No accounts yet." }),
+      "On a machine where a Claude account is signed in, open the ccam page there and choose "
+        + "“Add to panel” on that account. It shows up here, ready to share.",
+    ]));
     return;
   }
+
   const rows = state.accounts.map((a) => {
     const tr = el("tr");
-    tr.append(cell(a.name, a.email || ""));
+    tr.append(cell(a.name, a.email || (a.plan ? a.plan + " plan" : "")));
 
-    // Status is the thing that was missing: an account with no login is not
-    // usable, and the interface has to say so rather than let it be assigned.
     const st = el("td");
     if (!a.hasLogin) {
-      st.append(el("span", { style: "color:var(--rust)", textContent: "Needs a login" }));
-    } else if (a.holder) {
-      st.append(el("span", {}, [a.holder]));
-      st.append(el("div", { className: "under", textContent: until(a.expiresAt) }));
+      st.append(el("span", { className: "pill need", textContent: "Needs a login" }));
+    } else if ((a.shared || []).length) {
+      const tags = el("div", { className: "people-tags" });
+      for (const sh of a.shared) {
+        const tag = el("span", { className: "tag" }, [sh.personName]);
+        tag.append(el("button", { type: "button", title: "Take access away", textContent: "×",
+          onclick: () => revokeShare(a, sh) }));
+        tags.append(tag);
+      }
+      st.append(tags);
     } else {
-      st.append(el("span", { style: "color:var(--ok)", textContent: "Ready to lend" }));
+      st.append(el("span", { className: "pill ready", textContent: "Ready to share" }));
     }
     tr.append(st);
 
     const act = el("td", { className: "right" });
     if (!a.hasLogin) {
-      act.append(el("button", { className: "link brass", textContent: "How to authenticate", onclick: () => howToAuth(a) }));
+      act.append(el("button", { className: "link", textContent: "How to add its login", onclick: () => howToAddLogin(a) }));
     } else {
       act.append(el("button", { className: "link", textContent: "Give access", onclick: () => giveAccess(a) }));
     }
-    act.append(el("button", { className: "link", textContent: "Remove", style: "margin-left:16px", onclick: () => removeAccount(a) }));
+    act.append(el("button", { className: "link plain", textContent: "Remove", style: "margin-left:18px", onclick: () => removeAccount(a) }));
     tr.append(act);
     return tr;
   });
-  body.append(table([{ label: "Account" }, { label: "Status" }, { right: true }], rows));
+  body.append(table([{ label: "Account" }, { label: "Who can use it" }, { right: true }], rows));
 }
 
-// note renders a line of explanation above a tab's content.
-function note(text) {
-  return el("p", { style: "margin:22px 0 0; font-size:12.6px; color:var(--faint); max-width:78ch; line-height:1.6", textContent: text });
-}
-
-// giveAccess shares an account with a person through the gateway — many people
-// can share one account at once — and shows that person exactly what to run.
+// giveAccess shares an account with a person through the gateway. Many people
+// can use one account at once, and access ends the instant it is taken back.
 async function giveAccess(a) {
+  const without = state.people.filter((p) => !(a.shared || []).some((s) => s.personId === p.id));
   if (!state.people.length) {
-    await ask({ title: "Nobody to give it to", note: "Add someone on the People tab first.", confirm: "Close" });
+    await ask({ title: "Nobody to give it to", note: "Invite someone on the People tab first.", confirm: "Close", cancel: "" });
+    return;
+  }
+  if (!without.length) {
+    await ask({ title: "Everyone already has it", note: "Everyone you've added can already use this account.", confirm: "Close", cancel: "" });
     return;
   }
   const out = await ask({
     title: `Give access to ${a.name}`,
-    fields: [{ name: "personId", label: "To", options: state.people.map((p) => ({ value: p.id, label: p.name })) }],
-    note: "They will use this account through the gateway — many people can share it at once, and their access stops the moment you take it back.",
+    fields: [{ name: "personId", label: "To", options: without.map((p) => ({ value: p.id, label: p.name })) }],
+    note: "They'll run this account through the gateway — many people can share it at once. It appears on their machine on its own once they've joined.",
     confirm: "Give access",
   });
   if (!out) return;
   try {
     const { key, gateway } = await api("POST", `/api/accounts/${a.id}/share`, { personId: out.personId });
+    const person = without.find((p) => p.id === out.personId);
     await refresh();
-    if (!gateway) {
-      await ask({ title: "Gateway not set", note: "The gateway URL is not configured on the panel (CCAM_GATEWAY_URL). The key was issued but there is nowhere to point it yet.", confirm: "Close" });
-      return;
+    const setUp = person && (person.devices || []).length;
+    if (setUp) {
+      await ask({ title: "Done", note: `${person.name} can now use ${a.name}. It'll appear on their machine within a minute — nothing else to do.`, confirm: "Close", cancel: "" });
+    } else if (gateway && key) {
+      await ask({
+        title: "Done — they haven't joined yet",
+        note: `Once ${person ? person.name : "they"} join, ${a.name} appears on their machine automatically. Until then, they can run it directly with this:`,
+        fields: [{ name: "cmd", label: "Run once to use it", copy: `ccam use ${gateway} ${key}` }],
+        confirm: "Close", cancel: "",
+      });
+    } else {
+      await ask({ title: "Gateway not set", note: "There's no gateway configured (CCAM_GATEWAY_URL), so there's nowhere to point their access yet.", confirm: "Close", cancel: "" });
     }
-    await ask({
-      title: `${a.name} — access for that person`,
-      fields: [{ name: "cmd", label: "They run this once to use it", value: `ccam use ${gateway} ${key}` }],
-      note: "Or, without ccam, run Claude with ANTHROPIC_BASE_URL set to the gateway and ANTHROPIC_AUTH_TOKEN set to this key. The key is shown once.",
-      confirm: "Done",
-    });
-  } catch (e) {
-    alert(e.message);
-  }
+  } catch (e) { alert(e.message); }
 }
 
-// howToAuth tells you exactly how to give a login-less account its login.
-function howToAuth(a) {
-  ask({
-    title: `Authenticate ${a.name}`,
-    fields: [{ name: "cmd", label: "On a machine where this account is signed in, run", value: `ccam panel push ${a.name} ${location.origin}` }],
-    note: "The panel cannot log in for you — Claude's login needs a real browser. Sign the account in once via your local ccam, then this command hands the login up here. Members never do this.",
-    confirm: "Done",
-  });
-}
-
-// reassign moves a held account to a different person, ending the current hold.
-async function reassign(a) {
-  const others = state.people.filter((p) => p.name !== a.holder);
-  if (!others.length) {
-    await ask({ title: "Nobody else to give it to", note: "Add another person first.", confirm: "Close" });
-    return;
-  }
+async function revokeShare(a, sh) {
   const out = await ask({
-    title: `Give ${a.name} to someone else`,
-    fields: [
-      { name: "personId", label: "To", options: others.map((p) => ({ value: p.id, label: p.name })) },
-      { name: "hours", label: "For how long", options: [
-        { value: "168", label: "7 days" }, { value: "24", label: "A day" },
-        { value: "0", label: "Until I take it back" },
-      ] },
-    ],
-    note: `${a.holder} has it now and will lose it the moment you do this.`,
-    confirm: "Give it over",
+    title: `Take ${a.name} away from ${sh.personName}?`,
+    note: "Their access stops within seconds, and any session they're running on it ends.",
+    confirm: "Take it away", danger: true,
   });
-  if (!out) return;
-  await run(() => api("POST", "/api/assign", {
-    accountId: a.id, personId: out.personId, hours: Number(out.hours), move: true,
-  }));
+  if (out) await run(() => api("POST", `/api/shares/${sh.shareId}/revoke`));
+}
+
+// howToAddLogin explains the one thing the panel can't do itself: sign in.
+function howToAddLogin(a) {
+  ask({
+    title: `Add a login for ${a.name}`,
+    note: "The panel can't sign in for you — Claude's login needs a real browser. On the machine where this account is signed in, open the ccam page there and choose “Add to panel” on it. That hands its login up here. People you share it with never do this.",
+    confirm: "Got it", cancel: "",
+  });
 }
 
 function renderPeople() {
   const body = $("#people-body");
   body.replaceChildren();
-  body.append(note(
-    "The people you lend accounts to. Each enrolls their own machine once with a join code; "
-    + "from then on whatever you assign them appears on their machine automatically, and they never log in to Claude themselves."
-  ));
   const setUp = state.people.filter((p) => (p.devices || []).length).length;
   $("#people-sub").textContent = state.people.length
     ? `${state.people.length} ${state.people.length === 1 ? "person" : "people"}, ${setUp} set up`
     : "";
   if (!state.people.length) {
-    body.append(el("div", { className: "empty", textContent: "Nobody yet. Add someone, then send them a join code." }));
+    body.append(el("div", { className: "empty", textContent: "Nobody yet. Invite someone — they get a link, join in a click, and whatever you share appears on their machine." }));
     return;
   }
   const rows = state.people.map((p) => {
     const tr = el("tr");
     tr.append(cell(p.name, p.email));
     tr.append(el("td", {}, el("span", {
-      className: (p.holds || []).length ? "" : "free",
-      textContent: (p.holds || []).join(", ") || "Nothing",
+      className: (p.can || []).length ? "" : "free",
+      textContent: (p.can || []).join(", ") || "Nothing yet",
     })));
     const machines = el("td");
     const devices = p.devices || [];
     if (!devices.length) {
-      machines.append(el("span", { className: "free", textContent: "Not set up yet" }));
+      machines.append(el("span", { className: "free", textContent: "Not joined yet" }));
     } else {
       for (const d of devices) {
         const row = el("div", { style: "display:flex; gap:10px; align-items:baseline" });
-        row.append(el("span", { className: "mono", style: "font-size:12.4px", textContent: d.name }));
+        row.append(el("span", { className: "mono", style: "font-size:13.5px", textContent: d.name }));
         row.append(el("span", { className: "under", textContent: d.lastSeen ? when(d.lastSeen) : "" }));
-        row.append(el("button", {
-          className: "link warn", style: "margin-left:auto; font-size:12px",
-          textContent: "Cut off", onclick: () => cutOff(p, d),
-        }));
+        row.append(el("button", { className: "link warn", style: "margin-left:auto; font-size:13px",
+          textContent: "Remove", onclick: () => cutOff(p, d) }));
         machines.append(row);
       }
     }
     tr.append(machines);
     const act = el("td", { className: "right" });
-    act.append(el("button", { className: "link brass", textContent: "Send a code", onclick: () => joinCode(p) }));
-    act.append(el("button", { className: "link warn", textContent: "Remove", style: "margin-left:16px", onclick: () => removePerson(p) }));
+    act.append(el("button", { className: "link", textContent: "Invite", onclick: () => invitePerson(p) }));
+    act.append(el("button", { className: "link plain", textContent: "Remove", style: "margin-left:18px", onclick: () => removePerson(p) }));
     tr.append(act);
     return tr;
   });
-  body.append(table([{ label: "Person" }, { label: "Has" }, { label: "Machines" }, { right: true }], rows));
+  body.append(table([{ label: "Person" }, { label: "Can use" }, { label: "Machines" }, { right: true }], rows));
 }
 
 function renderActivity() {
@@ -457,43 +454,10 @@ async function refresh() {
 }
 
 // --- decisions -------------------------------------------------------------
-async function assign(a) {
-  if (!state.people.length) {
-    await ask({ title: "Nobody to give it to", note: "Add someone on the People tab first.", confirm: "Close" });
-    return;
-  }
-  const out = await ask({
-    title: `Assign ${a.name}`,
-    fields: [
-      { name: "personId", label: "To", options: state.people.map((p) => ({ value: p.id, label: p.name })) },
-      { name: "hours", label: "For how long", options: [
-        { value: "168", label: "7 days" }, { value: "24", label: "A day" },
-        { value: "8", label: "8 hours" }, { value: "0", label: "Until I take it back" },
-      ] },
-    ],
-    note: a.hasLogin ? "" : "No login is stored for this account yet, so there is nothing to hand over. Run `ccam panel push` on the machine where it is signed in.",
-    confirm: "Assign",
-  });
-  if (!out) return;
-  await run(() => api("POST", "/api/assign", {
-    accountId: a.id, personId: out.personId, hours: Number(out.hours), move: false,
-  }));
-}
-
-async function takeBack(a) {
-  const out = await ask({
-    title: `Take ${a.name} back from ${a.holder}?`,
-    note: "Their ccam removes the login within half a minute and stops any session running on it.",
-    confirm: "Take back", danger: true,
-  });
-  if (!out) return;
-  await run(() => api("POST", `/api/assignments/${a.assignmentId}/takeback`));
-}
-
 async function removeAccount(a) {
   const out = await ask({
     title: `Remove ${a.name}?`,
-    note: a.holder ? `${a.holder} has it right now and will lose it.` : "",
+    note: (a.shared || []).length ? "Everyone using it loses access." : "",
     confirm: "Remove", danger: true,
   });
   if (out) await run(() => api("DELETE", `/api/accounts/${a.id}`));
@@ -502,7 +466,7 @@ async function removeAccount(a) {
 async function removePerson(p) {
   const out = await ask({
     title: `Remove ${p.name}?`,
-    note: "Everything they hold comes back, and their machines stop working straight away.",
+    note: "Their access ends and their machines stop working straight away.",
     confirm: "Remove", danger: true,
   });
   if (out) await run(() => api("DELETE", `/api/people/${p.id}`));
@@ -510,22 +474,50 @@ async function removePerson(p) {
 
 async function cutOff(p, d) {
   const out = await ask({
-    title: `Cut off ${d.name}?`,
+    title: `Remove ${d.name}?`,
     note: `${p.name}'s other machines keep working.`,
-    confirm: "Cut off", danger: true,
+    confirm: "Remove", danger: true,
   });
   if (out) await run(() => api("DELETE", `/api/devices/${d.id}`));
 }
 
-async function joinCode(p) {
+// invitePerson makes a fresh invite link for someone already added.
+async function invitePerson(p) {
   try {
-    const { code } = await api("POST", `/api/people/${p.id}/code`);
-    await ask({
-      title: `${p.name}'s join code`,
-      fields: [{ name: "cmd", label: "They run this once, on each machine", value: `ccam panel join ${panelURL} ${code}` }],
-      note: "It works once and lasts a day.",
-      confirm: "Done",
-    });
+    const { url, expiresAt } = await api("POST", `/api/people/${p.id}/invite`);
+    await showInvite(p.name, url, expiresAt);
+    await refresh();
+  } catch (e) { alert(e.message); }
+}
+
+// showInvite presents an invite link with a copy button and its expiry.
+async function showInvite(name, url, expiresAt) {
+  await ask({
+    title: `Invite for ${name}`,
+    fields: [{ name: "link", label: "Send them this link", copy: url }],
+    note: `Works once, ${untilExpiry(expiresAt)}. They open it, join in a click, and whatever you share shows up on their machine.`,
+    confirm: "Done", cancel: "",
+  });
+}
+
+// inviteSomeone adds a person and hands you their invite link in one step.
+async function inviteSomeone() {
+  const out = await ask({
+    title: "Invite someone",
+    fields: [
+      { name: "name", label: "Their name", placeholder: "Ehtisham" },
+      { name: "email", label: "Email (optional)" },
+    ],
+    confirm: "Create invite",
+  });
+  if (!out || !out.name) return;
+  try {
+    await api("POST", "/api/people", { name: out.name, email: out.email });
+    await refresh();
+    const target = state.people.find((p) => p.name === out.name);
+    if (!target) return;
+    const { url, expiresAt } = await api("POST", `/api/people/${target.id}/invite`);
+    await showInvite(out.name, url, expiresAt);
     await refresh();
   } catch (e) { alert(e.message); }
 }
@@ -537,25 +529,13 @@ async function addAccount() {
       { name: "name", label: "Name", placeholder: "Work" },
       { name: "email", label: "Its Claude sign-in (optional)", placeholder: "work@example.com" },
     ],
+    note: "This makes an empty slot. To share it, add its login from the machine where it's signed in — see “How to add its login”.",
     confirm: "Add",
   });
   if (out?.name) await run(() => api("POST", "/api/accounts", out));
 }
 
-async function addPerson() {
-  const out = await ask({
-    title: "Add someone",
-    fields: [
-      { name: "name", label: "Name", placeholder: "Alice" },
-      { name: "email", label: "Email (optional)" },
-    ],
-    confirm: "Add",
-  });
-  if (out?.name) await run(() => api("POST", "/api/people", out));
-}
-
-// run does a thing, then reloads, and puts any refusal in front of the person
-// rather than leaving the interface silently unchanged.
+// run does a thing, reloads, and puts any refusal in front of the person.
 async function run(fn) {
   try { await fn(); await refresh(); }
   catch (e) { alert(e.message); }
@@ -568,8 +548,8 @@ async function boot() {
   if (st.signedIn) { show("panel"); await refresh(); return; }
   show("gate");
   if (st.needsSetup) {
-    $("#gate-title").textContent = "Set up this panel";
-    $("#gate-blurb").textContent = "Choose a password. It is the only thing between a stranger and every login this panel lends out, so make it a long one.";
+    $("#gate-title").textContent = "Set a password";
+    $("#gate-blurb").textContent = "It's the only thing between a stranger and every account you share, so make it a long one.";
     $("#pw").autocomplete = "new-password";
     $("#gate-go").textContent = "Set up";
     $("#gate-form").dataset.mode = "setup";
@@ -604,7 +584,7 @@ for (const b of document.querySelectorAll("nav button")) {
   });
 }
 $("#add-account").addEventListener("click", addAccount);
-$("#add-person").addEventListener("click", addPerson);
+$("#invite-someone").addEventListener("click", inviteSomeone);
 
 boot().catch((e) => { $("#gate-err").textContent = e.message; show("gate"); });
 </script>

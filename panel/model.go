@@ -3,11 +3,15 @@
 // back, instead of living on somebody's laptop for ever.
 //
 // Flat means flat. One admin, no teams, no roles, no organisations. The people
-// it tracks are names attached to machines. The only rule the model enforces is
-// that an account works on one machine at a time — not a policy choice but an
-// OAuth one: Claude Code rotates its refresh token on every renewal, so two
-// machines holding one login invalidate each other. That is the same mechanism
-// that once merged three of this project's accounts into a single broken login.
+// it tracks are names attached to machines.
+//
+// One login serves many people at once through the gateway, which holds the
+// login and refreshes it centrally. That is the whole reason the gateway
+// exists: Claude Code rotates its refresh token on every renewal, so two
+// machines holding one login would invalidate each other — the mechanism that
+// once merged three of this project's accounts into a single broken login. With
+// the gateway, members never hold the login at all; they hold a scoped key the
+// gateway maps back to it.
 package panel
 
 import "time"
@@ -47,49 +51,6 @@ type Account struct {
 
 // HasLogin reports whether this account has a login to lend.
 func (a Account) HasLogin() bool { return len(a.Credential) > 0 }
-
-// Assignment is one account lent to one person, for a while.
-//
-// It is never deleted. Taking an account back ends the assignment and leaves it
-// in place, because "who had this, and when" is the question the activity log
-// exists to answer and a deleted row cannot.
-type Assignment struct {
-	ID        string    `json:"id"`
-	AccountID string    `json:"accountId"`
-	PersonID  string    `json:"personId"`
-	GrantedAt time.Time `json:"grantedAt"`
-	// ExpiresAt zero means "until it is taken back".
-	ExpiresAt time.Time `json:"expiresAt,omitempty"`
-	EndedAt   time.Time `json:"endedAt,omitempty"`
-	EndedWhy  string    `json:"endedWhy,omitempty"`
-}
-
-// Reasons an assignment ends. They are shown to the person who lost the
-// account, so they are written as explanations rather than status codes.
-const (
-	EndedTakenBack  = "taken back"
-	EndedExpired    = "expired"
-	EndedReassigned = "given to someone else"
-	EndedHandedBack = "handed back"
-	EndedPersonGone = "the person was removed"
-)
-
-// Active reports whether this assignment is in force at now.
-//
-// Expiry is decided here rather than by a sweep, so an assignment that runs out
-// while the panel is not running is not in force the moment it comes back. A
-// background sweep would make the answer depend on whether anything happened to
-// be looking.
-func (a Assignment) Active(now time.Time) bool {
-	switch {
-	case !a.EndedAt.IsZero():
-		return false
-	case !a.ExpiresAt.IsZero() && !now.Before(a.ExpiresAt):
-		return false
-	default:
-		return true
-	}
-}
 
 // Event is one line of the activity log.
 //

@@ -24,6 +24,11 @@ type AliasEntry struct {
 	// switched from inside; ConfigDir is only used by the fallback that runs
 	// Claude Code directly.
 	Account string
+	// Shared marks an account this machine runs through a gateway rather than a
+	// local login: the alias is `ccam shared <Account>`, which reads the key
+	// from ccam's 0600 shares cache. There is no ConfigDir and no direct
+	// fallback — a shared account cannot run without ccam to hold the key.
+	Shared bool
 }
 
 // Shell identifies which rc-file syntax to render.
@@ -50,6 +55,12 @@ func RenderBody(shell Shell, entries []AliasEntry) string {
 	var b strings.Builder
 	b.WriteString("# Managed by ccam — do not edit by hand, use the ccam web UI instead.\n")
 	for _, e := range sorted {
+		// A shared account runs through the gateway: the alias is just
+		// `ccam shared <slug>`, which looks the key up in ccam's shares cache.
+		if e.Shared {
+			writeSharedEntry(&b, shell, e)
+			continue
+		}
 		// Without an account name there is nothing to hand ccam, so the entry
 		// point is the plain, direct launch it always was. Better a session
 		// that cannot be switched than a function that runs `ccam` with no
@@ -101,6 +112,23 @@ end
 	}
 	b.WriteString(claudeWrapper(shell))
 	return b.String()
+}
+
+// writeSharedEntry renders the alias for a gateway-shared account: it just
+// hands the slug to `ccam shared`, which holds the key. No credential-store
+// scoping and no direct-claude fallback, because the login is not on this
+// machine — the gateway holds it.
+func writeSharedEntry(b *strings.Builder, shell Shell, e AliasEntry) {
+	// The slug is constrained to [a-z0-9-] by the panel, so it needs no quoting
+	// in any of these shells.
+	switch shell {
+	case Fish:
+		fmt.Fprintf(b, "function %s\n    command ccam shared %s $argv\nend\n", e.Alias, e.Account)
+	case PowerShell, PowerShellDesktop:
+		fmt.Fprintf(b, "function %s { ccam shared %s @args }\n", e.Alias, e.Account)
+	default: // bash, zsh
+		fmt.Fprintf(b, "%s() { command ccam shared %s \"$@\"; }\n", e.Alias, e.Account)
+	}
 }
 
 // writeDirectEntry renders the pre-ccam form: scope the credential store and

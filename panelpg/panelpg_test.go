@@ -5,7 +5,6 @@ import (
 	"os"
 	"sync"
 	"testing"
-	"time"
 
 	"ccam/panel"
 )
@@ -36,8 +35,12 @@ func freshBackend(t *testing.T) *Backend {
 	return b
 }
 
+// seal is the identity sealer the store-level tests use; a real panel seals
+// with its key, but the store does not care what the bytes are.
+func seal(k string) []byte { return []byte(k) }
+
 // The panel's own logic, unchanged, running over a real Postgres row: set up,
-// add an account and a person, lend it out, and read it back.
+// add an account and a person, share it, and read it back.
 func TestPanelRoundTripsThroughPostgres(t *testing.T) {
 	b := freshBackend(t)
 	store := panel.NewStoreWithBackend(b)
@@ -52,25 +55,26 @@ func TestPanelRoundTripsThroughPostgres(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Assign(account, alice, timeZero(), false); err != nil {
+	if _, err := store.IssueShare(account, alice, seal); err != nil {
 		t.Fatal(err)
 	}
 
 	// A second Store over the same database — a different serverless instance —
-	// sees the assignment.
+	// sees the share.
 	other := panel.NewStoreWithBackend(mustReopen(t))
 	d, err := other.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, held := d.HolderOf(account, nowish()); !held {
-		t.Fatal("a second instance does not see the assignment the first made")
+	if len(d.Shares) != 1 || d.Shares[0].PersonID != alice {
+		t.Fatal("a second instance does not see the share the first made")
 	}
 }
 
-// The real thing this had to buy: two instances assigning the same free account
-// at the same moment, and only one winning. Postgres settles the compare-and-swap.
-func TestPostgresRefusesASecondHolderUnderRealConcurrency(t *testing.T) {
+// The real thing this had to buy: two instances sharing the same account at the
+// same moment, and both landing without loss. Postgres settles the
+// compare-and-swap, and shares are additive, so nothing is dropped.
+func TestPostgresLandsConcurrentSharesWithoutLoss(t *testing.T) {
 	b := freshBackend(t)
 	setup := panel.NewStoreWithBackend(b)
 	if err := setup.Mutate(func(d *panel.Data) error {
@@ -83,8 +87,8 @@ func TestPostgresRefusesASecondHolderUnderRealConcurrency(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Two independent Stores, as two instances would be, racing to assign the
-	// one free account to two different people.
+	// Two independent Stores, as two instances would be, racing to share the one
+	// account with two different people at once.
 	s1 := panel.NewStoreWithBackend(mustReopen(t))
 	s2 := panel.NewStoreWithBackend(mustReopen(t))
 
@@ -96,30 +100,26 @@ func TestPostgresRefusesASecondHolderUnderRealConcurrency(t *testing.T) {
 	for i := range stores {
 		go func(i int) {
 			defer wg.Done()
-			_, errs[i] = stores[i].Assign("acct", people[i], timeZero(), false)
+			_, errs[i] = stores[i].IssueShare("acct", people[i], seal)
 		}(i)
 	}
 	wg.Wait()
 
-	won := 0
-	for _, e := range errs {
-		if e == nil {
-			won++
+	for i, e := range errs {
+		if e != nil {
+			t.Fatalf("share %d failed under concurrency: %v", i, e)
 		}
-	}
-	if won != 1 {
-		t.Fatalf("%d of 2 racing assignments succeeded, want exactly 1", won)
 	}
 
 	d, _ := panel.NewStoreWithBackend(mustReopen(t)).Load()
-	active := 0
-	for _, a := range d.Assignments {
-		if a.AccountID == "acct" && a.Active(nowish()) {
-			active++
+	shared := map[string]bool{}
+	for _, sh := range d.Shares {
+		if sh.AccountID == "acct" {
+			shared[sh.PersonID] = true
 		}
 	}
-	if active != 1 {
-		t.Fatalf("%d active holders of one account after the race, want 1", active)
+	if !shared["alice"] || !shared["bob"] {
+		t.Fatalf("after the race both people should share the account, got %v", shared)
 	}
 }
 
@@ -137,6 +137,3 @@ func mustReopen(t *testing.T) *Backend {
 	t.Cleanup(func() { b.Close() })
 	return b
 }
-
-func timeZero() time.Time { return time.Time{} }
-func nowish() time.Time   { return time.Now() }

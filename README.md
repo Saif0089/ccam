@@ -106,46 +106,47 @@ page has rolled over. The build answering on
 that port is named in the top-right corner, which is how you tell a fix
 that shipped from a fix that is actually running.
 
-## Lending accounts out
+## Sharing accounts with other people
 
-ccam on its own is a single-machine tool: whoever installs it can add as many
-accounts as they like and stay signed in for ever. `ccam panel` is the other
-half — a small self-hosted panel that lends accounts to people and takes them
-back.
+ccam on its own is a single-machine tool. To let *other* people use one of your
+accounts, ccam has two more pieces: a small self-hosted **panel** where you add
+logins and give people access, and a **gateway** that holds the subscription and
+serves everyone through it. One login can serve many people at once — the point
+the whole design turns on — because the gateway refreshes the token centrally, so
+no one else ever holds the login and two machines never invalidate each other.
+
+The everyday flow lives in the web page, no terminal required:
+
+- On the machine where an account is signed in, open ccam and choose **Add to
+  panel** on that account. Its login is sealed and stored on the panel.
+- On the panel, **Invite someone** — they get a link that expires in about an
+  hour. They open it, connect in a click, and whatever you share appears on their
+  machine as `claude-<name>` on its own.
+- **Give access** shares an account with a person; the ⨯ next to their name takes
+  it back. Access stops within seconds — the gateway simply stops honouring their
+  key.
+
+The same actions exist on the command line for anyone who prefers it:
 
 ```sh
-ccam panel serve                      # on the machine that keeps the accounts
-ccam panel push work http://host:47933   # store an account's login in the panel
-ccam panel join http://host:47933 <code> # on each person's machine, once
+ccam panel serve                          # run the panel (or host it — see below)
+ccam panel push work http://host:47933    # add an account's login to the panel
+ccam join <invite-link>                   # connect a machine from an invite link
+ccam shared work                          # run a shared account (the claude-work alias)
 ```
 
-Run it on any machine with a disk, or host it. The admin panel deploys to
-Vercel as one serverless function with its state in Postgres — see
-[docs/DEPLOY_VERCEL.md](docs/DEPLOY_VERCEL.md). Every machine runs the ordinary
-ccam client, which obeys whatever the panel says and self-updates on each
-release; the hosted panel redeploys itself from the same pipeline, so one push
-ships both.
+The panel deploys to Vercel as one serverless function with its state in
+Postgres, and the gateway runs on a small VPS — see
+[docs/DEPLOY_VERCEL.md](docs/DEPLOY_VERCEL.md) and [deploy/](deploy/). Every
+machine runs the ordinary ccam client, which self-updates on each release.
 
-Open the panel and it asks for a password the first time. Three tabs: the
-accounts and who has each one, the people and their machines, and a log of every
-decision. Assigning an account someone else holds moves it — an account works on
-one machine at a time, which is not a policy but an OAuth fact: Claude Code
-rotates its refresh token on every renewal, so two machines on one login
-invalidate each other.
-
-Taking an account back reaches the machine within half a minute. It does not get
-pushed there: the machine asks what it is entitled to, and is answered with a
-complete list, so anything it holds and is not told about it lets go of — the
-login is deleted and the shell command disappears. An account somebody made
-themselves is never touched.
-
-What this does and does not do, plainly. It ends normal access reliably, keeps
-an account to one machine, and leaves a full record. It does not reach a login
-someone copied off disk while they had it, and a machine that cannot reach the
-panel keeps what it was last told it had. If that matters for an account, sign
-it out at Anthropic after taking it back; that is what makes an old copy
-useless. The panel binds `127.0.0.1` unless you give it `--addr`, and should be
-behind TLS before anyone signs in over a network.
+What this does and does not do, plainly. Members never hold the Claude login —
+it stays sealed on the panel and is only ever used by the gateway — so there is
+no copy on a member's disk to leak, and taking access away is immediate and
+total. A member does hold a scoped gateway key (in `~/.ccam/shares.json`, 0600);
+revoking their share makes it stop working on the next request. The panel binds
+`127.0.0.1` unless you give it `--addr`, and both the panel and the gateway
+should be behind TLS.
 
 ## VS Code, Cursor, and the rest
 

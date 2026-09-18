@@ -54,13 +54,17 @@ func cmdPanel(args []string) int {
 }
 
 func panelUsage(w *os.File) {
-	fmt.Fprint(w, `ccam panel — lend Claude logins out, and take them back
+	fmt.Fprint(w, `ccam panel — share Claude logins with other people, through a gateway
 
   ccam panel serve [--addr host:port]   run the panel (default `+defaultPanelAddr+`)
-  ccam panel join <url> <code>          enrol this machine with a panel
-  ccam panel check                      ask the panel what this machine holds, now
-  ccam panel push <account> <url>       store an account's login in the panel
+  ccam panel join <url> <code>          connect this machine to a panel (or: ccam join <invite-link>)
+  ccam panel check                      ask the panel what is shared with this machine, now
+  ccam panel push <account> <url>       add an account's login to the panel so it can be shared
   ccam panel genkey                     print a new sealing key for a hosted panel
+
+Most of this lives in the ccam web page now — connecting, and adding a login to
+the panel — so a person who does not use the terminal never has to. These are
+the same actions for anyone who prefers the command line.
 
 Serving on 127.0.0.1 keeps the panel to this machine. To let other people
 reach it, give --addr an address they can see, and put it behind TLS.
@@ -122,7 +126,55 @@ func panelJoin(args []string) int {
 		fmt.Fprintln(os.Stderr, "usage: ccam panel join <url> <code>")
 		return 1
 	}
-	server, code := strings.TrimRight(args[0], "/"), args[1]
+	return enrollMachine(strings.TrimRight(args[0], "/"), args[1])
+}
+
+// cmdJoin is the friendly front door for connecting a machine: one invite link,
+// no sub-command to remember. `ccam join https://panel/i/<code>` pulls the panel
+// address and code out of the link; `ccam join <url> <code>` still works for
+// anyone who has them separately.
+func cmdJoin(args []string) int {
+	switch len(args) {
+	case 1:
+		server, code, ok := parseInvite(args[0])
+		if !ok {
+			fmt.Fprintln(os.Stderr, "ccam: that does not look like an invite link. Paste the whole link, or use `ccam join <url> <code>`.")
+			return 1
+		}
+		return enrollMachine(server, code)
+	case 2:
+		return enrollMachine(strings.TrimRight(args[0], "/"), args[1])
+	default:
+		fmt.Fprintln(os.Stderr, "usage: ccam join <invite-link>   (or: ccam join <url> <code>)")
+		return 1
+	}
+}
+
+// parseInvite pulls the panel URL and one-shot code out of an invite link. It
+// accepts the code in the path (/i/<code>, /join/<code>), the fragment
+// (#<code>), or a ?code= query, so a link that survived being pasted through a
+// chat app in any of those shapes still works.
+func parseInvite(link string) (server, code string, ok bool) {
+	u, err := neturl.Parse(strings.TrimSpace(link))
+	if err != nil || u.Host == "" {
+		return "", "", false
+	}
+	origin := u.Scheme + "://" + u.Host
+	if q := u.Query().Get("code"); q != "" {
+		return origin, q, true
+	}
+	if u.Fragment != "" {
+		return origin, u.Fragment, true
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) >= 2 && (parts[len(parts)-2] == "i" || parts[len(parts)-2] == "join") {
+		return origin, parts[len(parts)-1], true
+	}
+	return "", "", false
+}
+
+// enrollMachine trades a code for this machine's token and remembers the panel.
+func enrollMachine(server, code string) int {
 	_, _, clientPath, err := panelPaths()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ccam:", err)
@@ -148,7 +200,7 @@ func panelJoin(args []string) int {
 	if who == "" {
 		who = name
 	}
-	fmt.Printf("This machine is enrolled with %s. You are %s here.\n", server, who)
+	fmt.Printf("This machine is connected to %s. You are %s here.\n", server, who)
 	return panelCheck(nil)
 }
 
@@ -170,13 +222,18 @@ func panelClient() (*panel.Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	sharesPath, err := config.SharesFile()
+	if err != nil {
+		return nil, err
+	}
 	mgr := accounts.NewManager(accounts.NewStore(accountsFile), accountsDir)
 	return &panel.Client{
-		Config:   cfg,
-		Accounts: mgr,
+		Config:     cfg,
+		Accounts:   mgr,
+		SharesPath: sharesPath,
 		AfterChange: func() {
-			// An account gained or given back changes which shell commands
-			// exist, so the rc blocks have to follow it.
+			// An account gained or given back — or a share added or revoked —
+			// changes which shell commands exist, so the rc blocks follow it.
 			home, err := os.UserHomeDir()
 			if err != nil {
 				return
@@ -192,9 +249,37 @@ func panelClient() (*panel.Client, error) {
 				}
 				entries = append(entries, shellrc.AliasEntry{Alias: a.Alias, ConfigDir: a.ConfigDir, Account: a.Slug})
 			}
+			for _, sh := range gatewaySharesFor(sharesPath) {
+				entries = append(entries, shellrc.AliasEntry{Alias: "claude-" + sh.Slug, Account: sh.Slug, Shared: true})
+			}
 			_ = shellrc.NewSyncer(home).Sync(entries)
 		},
 	}, nil
+}
+
+// gatewaySharesFor reads the cached gateway shares, or none on any error — a
+// missing or unreadable cache just means no shared accounts.
+func gatewaySharesFor(path string) []panel.GatewayShare {
+	shares, _ := panel.LoadShares(path)
+	return shares
+}
+
+// slugifyName mirrors the panel's slug rule for display, so the alias printed
+// here matches the one the shell actually has.
+func slugifyName(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == ' ' || r == '-' || r == '_':
+			b.WriteByte('-')
+		}
+	}
+	if out := strings.Trim(b.String(), "-"); out != "" {
+		return out
+	}
+	return "account"
 }
 
 func panelCheck(_ []string) int {
@@ -212,10 +297,10 @@ func panelCheck(_ []string) int {
 
 	change, err := c.CheckIn(ctx)
 	for _, name := range change.Gained {
-		fmt.Printf("You now have %s.\n", name)
+		fmt.Printf("You can now use %s — run it with `claude-%s` (or `ccam shared %s`).\n", name, slugifyName(name), slugifyName(name))
 	}
 	for _, name := range change.Lost {
-		fmt.Printf("%s went back to the panel.\n", name)
+		fmt.Printf("%s is no longer shared with you.\n", name)
 	}
 	if errors.Is(err, panel.ErrNotEnrolled) {
 		fmt.Fprintln(os.Stderr, "ccam: this machine is no longer enrolled with the panel.")
@@ -278,7 +363,10 @@ func panelPush(args []string) int {
 		fmt.Fprintln(os.Stderr, "ccam:", err)
 		return 1
 	}
-	id, err := panel.FindAccountID(ctx, httpc, server, acct.Name)
+	// Create the account on the panel if it is not there yet, then push — the
+	// same one-step flow the web page uses, so the CLI never dead-ends on "add
+	// it there first".
+	id, err := panel.CreateAccount(ctx, httpc, server, acct.Name, "", "")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ccam:", err)
 		return 1
@@ -287,7 +375,7 @@ func panelPush(args []string) int {
 		fmt.Fprintln(os.Stderr, "ccam:", err)
 		return 1
 	}
-	fmt.Printf("%s can now be lent out.\n", acct.Name)
+	fmt.Printf("%s is on the panel and ready to share.\n", acct.Name)
 	return 0
 }
 
@@ -325,13 +413,13 @@ func watchPanel(ctx context.Context) {
 		}
 		change, err := c.CheckIn(ctx)
 		for _, name := range change.Gained {
-			fmt.Printf("ccam: %s was assigned to this machine.\n", name)
+			fmt.Printf("ccam: %s is now shared with this machine — run it with `claude-%s`.\n", name, slugifyName(name))
 		}
 		for _, name := range change.Lost {
-			fmt.Printf("ccam: %s went back to the panel, and its login has been removed.\n", name)
+			fmt.Printf("ccam: %s is no longer shared with this machine.\n", name)
 		}
 		if errors.Is(err, panel.ErrNotEnrolled) {
-			fmt.Fprintln(os.Stderr, "ccam: this machine is no longer enrolled with the panel; everything it lent has been given back.")
+			fmt.Fprintln(os.Stderr, "ccam: this machine is no longer connected to the panel; its shared accounts have been removed.")
 			return
 		}
 		// Any other failure is the panel being unreachable, which is not an
@@ -378,12 +466,12 @@ func panelStatusCmd() int {
 	}
 
 	if !cfg.Configured() {
-		fmt.Println("This machine is not connected to a team panel.")
+		fmt.Println("This machine is not connected to a panel.")
 		fmt.Println()
 		fmt.Println("Connect it from the ccam page:")
 		fmt.Printf("    http://127.0.0.1:%d\n", config.DefaultPort)
-		fmt.Println("or from here:")
-		fmt.Println("    ccam panel join <panel-url> <code>")
+		fmt.Println("or paste your invite link:")
+		fmt.Println("    ccam join <invite-link>")
 		return 0
 	}
 
@@ -394,33 +482,26 @@ func panelStatusCmd() int {
 	fmt.Printf("Connected to %s\n", cfg.Server)
 	fmt.Printf("You are %s there.\n", who)
 
-	// What this machine holds from the panel.
-	held := panelHeldAccounts()
+	// The accounts shared with this machine through the gateway.
+	shares := sharedAccounts()
 	fmt.Println()
-	if len(held) == 0 {
-		fmt.Println("The panel has not assigned this machine any account yet.")
+	if len(shares) == 0 {
+		fmt.Println("Nothing is shared with this machine yet.")
 	} else {
-		fmt.Println("Accounts the panel has given you:")
-		for _, a := range held {
-			fmt.Printf("    %-16s use it with:  %s\n", a.Name, a.Alias)
+		fmt.Println("Shared with you:")
+		for _, sh := range shares {
+			fmt.Printf("    %-16s run it with:  claude-%s\n", sh.Account, sh.Slug)
 		}
 	}
-	fmt.Println()
-	fmt.Printf("Open the admin panel:  %s\n", cfg.Server)
 	return 0
 }
 
-// panelHeldAccounts is the local accounts this machine was lent by a panel.
-func panelHeldAccounts() []accounts.Account {
-	list, err := loadAccounts()
+// sharedAccounts is the gateway shares this machine currently has, from the
+// cache the check-in keeps.
+func sharedAccounts() []panel.GatewayShare {
+	path, err := config.SharesFile()
 	if err != nil {
 		return nil
 	}
-	var held []accounts.Account
-	for _, a := range list {
-		if a.PanelID != "" {
-			held = append(held, a)
-		}
-	}
-	return held
+	return gatewaySharesFor(path)
 }

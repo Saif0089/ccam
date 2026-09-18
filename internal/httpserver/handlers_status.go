@@ -3,6 +3,7 @@ package httpserver
 import (
 	"net/http"
 	"os"
+	"runtime"
 
 	"ccam/internal/buildinfo"
 	"ccam/internal/service"
@@ -21,6 +22,12 @@ type statusResponse struct {
 	// PID lets a caller confirm this is *its* server — the one its
 	// pidfile names — rather than another installation's.
 	PID int `json:"pid"`
+	// OS is this machine's operating system (runtime.GOOS). The page shows the
+	// command to run each account, and which one is right depends on the machine
+	// ccam runs on — where the shell aliases live — not on the browser's OS,
+	// which may be a different computer viewing the page. Windows gets no
+	// `claude-<name>` alias, so there the page shows `ccam <name>` instead.
+	OS string `json:"os"`
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -30,5 +37,6 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		Commit:  buildinfo.Commit,
 		Tag:     buildinfo.Tag(),
 		PID:     os.Getpid(),
+		OS:      runtime.GOOS,
 	})
 }

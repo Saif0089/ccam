@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
-	"sort"
 	"sync"
 	"time"
 )
@@ -16,10 +14,6 @@ import (
 // a check-in every thirty seconds per machine would otherwise grow the file
 // for ever. Check-ins are not logged for that reason; only decisions are.
 const maxActivity = 2000
-
-// ErrAccountBusy is returned when an account is asked for while somebody else
-// has it and the caller did not say to move it.
-var ErrAccountBusy = errors.New("that account is with someone else")
 
 // Data is the whole panel, as it sits on disk.
 //
@@ -30,14 +24,13 @@ var ErrAccountBusy = errors.New("that account is with someone else")
 // database would enforce with a unique index are enforced here by holding the
 // mutex across read-decide-write, which is the same guarantee for one writer.
 type Data struct {
-	Admin       *Admin       `json:"admin,omitempty"`
-	People      []Person     `json:"people,omitempty"`
-	Devices     []Device     `json:"devices,omitempty"`
-	Accounts    []Account    `json:"accounts,omitempty"`
-	Assignments []Assignment `json:"assignments,omitempty"`
-	JoinCodes   []JoinCode   `json:"joinCodes,omitempty"`
-	Shares      []Share      `json:"shares,omitempty"`
-	Activity    []Event      `json:"activity,omitempty"`
+	Admin     *Admin     `json:"admin,omitempty"`
+	People    []Person   `json:"people,omitempty"`
+	Devices   []Device   `json:"devices,omitempty"`
+	Accounts  []Account  `json:"accounts,omitempty"`
+	JoinCodes []JoinCode `json:"joinCodes,omitempty"`
+	Shares    []Share    `json:"shares,omitempty"`
+	Activity  []Event    `json:"activity,omitempty"`
 }
 
 // Store is the panel's persistence. Every mutation takes the lock, re-reads the
@@ -45,13 +38,11 @@ type Data struct {
 // a compare-and-swap for a shared database, so two writers can never both
 // believe they won.
 //
-// The one-holder rule lives in that read-decide-write being indivisible. On a
-// single machine the mutex makes it so. On several machines behind one database
-// — a panel deployed to a serverless host, where each request may be a fresh
-// process — the mutex cannot, so the write is conditional on nothing having
-// changed since the read, and a lost race simply runs the decision again
-// against the winner's result. Either way, two people are never handed the same
-// account: the second attempt sees the first assignment and refuses.
+// On a single machine the mutex makes read-decide-write indivisible. On several
+// machines behind one database — a panel deployed to a serverless host, where
+// each request may be a fresh process — the mutex cannot, so the write is
+// conditional on nothing having changed since the read, and a lost race simply
+// runs the decision again against the winner's result.
 type Store struct {
 	mu      sync.Mutex
 	backend Backend
@@ -118,11 +109,6 @@ func (s *Store) readLocked() (Data, int64, error) {
 
 // Mutate runs fn against the current panel and writes the result. fn returning
 // an error writes nothing.
-//
-// Expiry is settled before fn runs, so every caller — a check-in, an admin
-// click, a listing — sees the same panel, and an assignment that ran out while
-// nothing was looking is already ended rather than ending at the moment someone
-// happens to ask.
 func (s *Store) Mutate(fn func(*Data) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -132,7 +118,6 @@ func (s *Store) Mutate(fn func(*Data) error) error {
 		if err != nil {
 			return err
 		}
-		s.sealExpired(&d)
 		if err := fn(&d); err != nil {
 			return err
 		}
@@ -144,27 +129,10 @@ func (s *Store) Mutate(fn func(*Data) error) error {
 			return nil
 		}
 		// Someone else wrote between our read and our write. Their change is
-		// now the truth — including any assignment they just made — so run the
-		// whole decision again against it. fn re-checks the invariant, so a
-		// second assignment of the same account still refuses.
+		// now the truth, so run the whole decision again against it.
 		if attempt >= maxCASRetries {
 			return errors.New("the panel is being changed by too many people at once; try again")
 		}
-	}
-}
-
-// sealExpired ends assignments whose time has run out, and says so in the log.
-func (s *Store) sealExpired(d *Data) {
-	now := s.now()
-	for i := range d.Assignments {
-		a := &d.Assignments[i]
-		if !a.EndedAt.IsZero() || a.ExpiresAt.IsZero() || now.Before(a.ExpiresAt) {
-			continue
-		}
-		a.EndedAt = a.ExpiresAt
-		a.EndedWhy = EndedExpired
-		d.log(a.ExpiresAt, "System", fmt.Sprintf("%s ran out and went back to the pool, from %s",
-			d.accountName(a.AccountID), d.personName(a.PersonID)))
 	}
 }
 
@@ -241,28 +209,6 @@ func (d *Data) ShareByKeyHash(keyHash string) (Share, bool) {
 	return Share{}, false
 }
 
-// HolderOf returns the assignment in force for an account, if any.
-func (d *Data) HolderOf(accountID string, now time.Time) (Assignment, bool) {
-	for _, a := range d.Assignments {
-		if a.AccountID == accountID && a.Active(now) {
-			return a, true
-		}
-	}
-	return Assignment{}, false
-}
-
-// Holdings returns everything a person has in force, newest first.
-func (d *Data) Holdings(personID string, now time.Time) []Assignment {
-	var out []Assignment
-	for _, a := range d.Assignments {
-		if a.PersonID == personID && a.Active(now) {
-			out = append(out, a)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].GrantedAt.After(out[j].GrantedAt) })
-	return out
-}
-
 // log appends one line of activity.
 func (d *Data) log(at time.Time, who, what string) {
 	d.Activity = append(d.Activity, Event{At: at, Who: who, What: what})
@@ -273,76 +219,6 @@ func (d *Data) log(at time.Time, who, what string) {
 func (d *Data) Log(at time.Time, who, what string) { d.log(at, who, what) }
 
 // ---------------------------------------------------------------- decisions
-
-// Assign lends an account to a person until a time (zero: until it is taken
-// back).
-//
-// An account works on one machine at a time, so an account that is already out
-// has to come back first. That happens here, in the same locked section, and it
-// is recorded as its own end — "given to someone else" — rather than being
-// silently overwritten, because the person who lost it deserves the log to say
-// why.
-func (s *Store) Assign(accountID, personID string, until time.Time, moveIfBusy bool) (Assignment, error) {
-	var made Assignment
-	err := s.Mutate(func(d *Data) error {
-		now := s.now()
-		acct, ok := d.Account(accountID)
-		if !ok {
-			return fmt.Errorf("no account with id %q", accountID)
-		}
-		if _, ok := d.Person(personID); !ok {
-			return fmt.Errorf("no person with id %q", personID)
-		}
-		if held, busy := d.HolderOf(accountID, now); busy {
-			if held.PersonID == personID {
-				return fmt.Errorf("%s already has %s", d.personName(personID), acct.Name)
-			}
-			if !moveIfBusy {
-				return ErrAccountBusy
-			}
-			d.end(&held, now, EndedReassigned)
-			d.replace(held)
-			d.log(now, "You", fmt.Sprintf("took %s back from %s to give it to %s",
-				acct.Name, d.personName(held.PersonID), d.personName(personID)))
-		}
-		made = Assignment{
-			ID:        newID(),
-			AccountID: accountID,
-			PersonID:  personID,
-			GrantedAt: now,
-			ExpiresAt: until,
-		}
-		d.Assignments = append(d.Assignments, made)
-		d.log(now, "You", fmt.Sprintf("gave %s to %s%s", acct.Name, d.personName(personID), forHowLong(now, until)))
-		return nil
-	})
-	return made, err
-}
-
-// TakeBack ends an assignment. why is one of the Ended* reasons.
-func (s *Store) TakeBack(assignmentID, why, who string) error {
-	return s.Mutate(func(d *Data) error {
-		now := s.now()
-		for i := range d.Assignments {
-			a := &d.Assignments[i]
-			if a.ID != assignmentID {
-				continue
-			}
-			if !a.Active(now) {
-				return nil // already over; taking it back again is not an error
-			}
-			d.end(a, now, why)
-			verb := "took"
-			if why == EndedHandedBack {
-				verb = "handed"
-			}
-			d.log(now, who, fmt.Sprintf("%s %s back from %s", verb,
-				d.accountName(a.AccountID), d.personName(a.PersonID)))
-			return nil
-		}
-		return fmt.Errorf("no assignment with id %q", assignmentID)
-	})
-}
 
 // IssueShare makes an account available to a person through the gateway and
 // returns the gateway key to hand out (stored only as a hash). Issuing it again
@@ -399,44 +275,6 @@ func (s *Store) RevokeShare(shareID string) error {
 		d.Log(s.now(), "You", fmt.Sprintf("took %s's access to %s away", d.personName(removed.PersonID), d.accountName(removed.AccountID)))
 		return nil
 	})
-}
-
-func (d *Data) end(a *Assignment, now time.Time, why string) {
-	a.EndedAt = now
-	a.EndedWhy = why
-}
-
-// replace writes a copy back over the stored assignment of the same id.
-func (d *Data) replace(a Assignment) {
-	for i := range d.Assignments {
-		if d.Assignments[i].ID == a.ID {
-			d.Assignments[i] = a
-			return
-		}
-	}
-}
-
-// forHowLong says how long an assignment is for, the way a person would.
-//
-// It rounds rather than truncating. The deadline is worked out when the request
-// arrives and the clock is read again when it is written, so a day is a hair
-// under twenty-four hours by the time it gets here — and truncating turned
-// every "a day" into "23 hours".
-func forHowLong(now, until time.Time) string {
-	if until.IsZero() {
-		return ", until it is taken back"
-	}
-	hours := int(math.Round(until.Sub(now).Hours()))
-	switch {
-	case hours >= 48:
-		return fmt.Sprintf(" for %d days", int(math.Round(float64(hours)/24)))
-	case hours >= 24:
-		return " for a day"
-	case hours >= 2:
-		return fmt.Sprintf(" for %d hours", hours)
-	default:
-		return fmt.Sprintf(" for %d minutes", int(math.Round(until.Sub(now).Minutes())))
-	}
 }
 
 // newID is a short random identifier. These are never guessed at by anyone —

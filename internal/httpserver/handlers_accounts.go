@@ -5,7 +5,9 @@ import (
 	"net/http"
 
 	"ccam/internal/accounts"
+	"ccam/internal/config"
 	"ccam/internal/shellrc"
+	"ccam/panel"
 )
 
 type accountsResponse struct {
@@ -103,5 +105,24 @@ func (s *Server) syncAliases() error {
 		}
 		entries = append(entries, shellrc.AliasEntry{Alias: a.Alias, ConfigDir: a.ConfigDir, Account: a.Slug})
 	}
-	return s.syncer.Sync(entries)
+	return s.syncer.Sync(append(entries, gatewayAliasEntries()...))
+}
+
+// gatewayAliasEntries turns the gateway shares this machine holds into
+// `claude-<slug>` aliases that run `ccam shared <slug>`. It is how a shared
+// account becomes a command you can type, the same way a local one is.
+func gatewayAliasEntries() []shellrc.AliasEntry {
+	path, err := config.SharesFile()
+	if err != nil {
+		return nil
+	}
+	shares, err := panel.LoadShares(path)
+	if err != nil {
+		return nil
+	}
+	entries := make([]shellrc.AliasEntry, 0, len(shares))
+	for _, sh := range shares {
+		entries = append(entries, shellrc.AliasEntry{Alias: "claude-" + sh.Slug, Account: sh.Slug, Shared: true})
+	}
+	return entries
 }

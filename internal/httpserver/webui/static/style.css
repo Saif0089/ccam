@@ -1,29 +1,20 @@
-/* ccam — a panel you read at a glance between terminal sessions.
-   One rule shapes everything here: colour means headroom. Nothing else
-   in the interface is saturated, so a glance tells you which account
-   has room left before you read a single number. */
+/* ccam client — the page you keep open beside the terminal.
+   Same palette and type as the panel it connects to, so the whole thing
+   is one product. Colour is reserved: the iris accent marks what you act
+   on, and the green/amber/red ramp means one thing only — how much
+   headroom an account has left. Nothing else is saturated. */
 
 :root {
   color-scheme: dark;
-
-  --ink: #0e1116;
-  --panel: #161a21;
-  --sunken: #11151b;
-  --rule: #262c36;
-  --track: #1e242d;
-  --text: #e6e9ee;
-  --muted: #8b95a5;
-  --faint: #5d6675;
-
-  /* The headroom ramp — the only saturated colour in the page. */
-  --ok: #3fb984;
-  --warn: #d9a441;
-  --crit: #e05c53;
-
-  --radius: 10px;
-
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu,
-    Helvetica, Arial, sans-serif;
+  --ground:#0F1216; --raised:#171B21; --sunken:#0B0E12; --line:#262C34;
+  --raised-2:#1E242D;
+  --ink:#E7EBF0; --muted:#9AA4B2; --faint:#626D7C;
+  --primary:#6E8BFF; --primary-ink:#0B0E12;
+  --ok:#46C08A; --warn:#E0A83E; --crit:#E05C53;
+  --radius:12px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font);
   font-synthesis-weight: none;
 }
 
@@ -31,386 +22,232 @@
 
 body {
   margin: 0;
-  background: var(--ink);
-  color: var(--text);
-  font-size: 15px;
+  background: var(--ground);
+  color: var(--ink);
+  font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
 
-header,
-main {
-  max-width: 760px;
+header, main {
+  max-width: 780px;
   margin: 0 auto;
-  padding: 0 1.5rem;
+  padding: 0 24px;
 }
 
 header {
-  padding-top: 2.5rem;
+  padding-top: 40px;
   display: flex;
   align-items: baseline;
-  gap: 0.7rem;
+  gap: 12px;
 }
 
-header h1 {
-  margin: 0;
-  font-size: 1.3rem;
-  font-weight: 650;
-  letter-spacing: -0.015em;
-}
-
-.subtitle {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
+.wordmark { display: flex; align-items: baseline; gap: 12px; }
+.logo { font-size: 22px; font-weight: 700; letter-spacing: -0.03em; }
+.tagline { color: var(--muted); font-size: 15px; }
 header .spacer { flex: 1; }
-
-/* Which build is answering. Quiet by default — it only matters when
-   you are asking whether a fix is actually live — but always there. */
-#build-tag {
-  color: var(--faint);
-  font-size: 0.75rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  white-space: nowrap;
-}
-
-main { padding-bottom: 4rem; }
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  margin: 1.4rem 0 1rem;
-}
-
-.toolbar .spacer { flex: 1; }
 
 #refreshed {
   color: var(--faint);
-  font-size: 0.78rem;
+  font-size: 12.5px;
   font-variant-numeric: tabular-nums;
 }
+#build-tag {
+  color: var(--faint);
+  font-size: 12px;
+  font-family: var(--mono);
+  white-space: nowrap;
+  margin-left: 12px;
+}
+
+main { padding-top: 12px; padding-bottom: 72px; }
+
+/* ---- blocks -------------------------------------------------------- */
+
+.block { margin-top: 34px; }
+.block-head { margin-bottom: 16px; }
+.block h2 { margin: 0; font-size: 19px; font-weight: 650; letter-spacing: -0.02em; }
+.block-sub { margin: 5px 0 0; color: var(--muted); font-size: 14px; max-width: 62ch; }
+.block-foot { margin-top: 14px; }
+.block.subtle { opacity: 0.96; }
 
 /* ---- buttons ------------------------------------------------------- */
 
 button {
   font: inherit;
-  font-size: 0.85rem;
-  color: var(--text);
-  background: transparent;
-  border: 1px solid var(--rule);
-  border-radius: 7px;
-  padding: 0.38rem 0.7rem;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--raised-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 15px;
   cursor: pointer;
 }
-
-button:hover { border-color: #39414e; background: #1b212a; }
-button:focus-visible { outline: 2px solid var(--ok); outline-offset: 2px; }
+button:hover { border-color: #3a4453; background: #232a34; }
+button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 button.primary {
-  background: var(--text);
-  color: var(--ink);
-  border-color: var(--text);
+  background: var(--primary);
+  color: var(--primary-ink);
+  border-color: var(--primary);
   font-weight: 600;
 }
-
-button.primary:hover { background: #fff; border-color: #fff; }
+button.primary:hover { filter: brightness(1.08); background: var(--primary); border-color: var(--primary); }
 button.danger { color: var(--crit); }
+button.subtle-btn { background: transparent; }
+button.subtle-btn:hover { background: var(--raised-2); }
 
-/* ---- account panel ------------------------------------------------- */
-
-.account-card {
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  background: var(--panel);
-  padding: 1.05rem 1.2rem 0.95rem;
-  margin-bottom: 0.85rem;
+.inline-btn {
+  background: none; border: none; color: var(--primary); padding: 0;
+  font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
 }
 
-.account-main {
+/* ---- cards --------------------------------------------------------- */
+
+.card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--raised);
+  padding: 18px 20px;
+  margin-bottom: 12px;
+}
+
+.card-top {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 12px;
   flex-wrap: wrap;
 }
+.card-id { display: flex; flex-direction: column; gap: 1px; margin-right: auto; }
+.account-name { font-size: 17px; font-weight: 620; letter-spacing: -0.01em; }
+.account-email { color: var(--faint); font-size: 13px; }
+.account-email:empty { display: none; }
 
-.account-name {
-  font-size: 1.02rem;
-  font-weight: 620;
-  letter-spacing: -0.01em;
+/* Status pill — the one word that says whether it works right now. */
+.status-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12.5px; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 999px;
+  padding: 3px 10px 3px 8px; white-space: nowrap;
 }
-
-/* A dot, not a badge: state is peripheral, and the meters below are
-   where the eye should land. */
-.status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  color: var(--muted);
-  font-size: 0.8rem;
+.status-pill::before {
+  content: ""; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--faint); flex: none;
 }
-
-.status-badge::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--faint);
-  flex: none;
-}
-
-.status-badge.linked::before { background: var(--ok); }
-.status-badge.expired::before,
-.status-badge.signed-out::before { background: var(--crit); }
-.status-badge.pending::before { background: var(--warn); }
+.status-pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, var(--line)); }
+.status-pill.ok::before { background: var(--ok); }
+.status-pill.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, var(--line)); }
+.status-pill.warn::before { background: var(--warn); }
+.status-pill.crit { color: var(--crit); border-color: color-mix(in srgb, var(--crit) 35%, var(--line)); }
+.status-pill.crit::before { background: var(--crit); }
 
 .plan-chip {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 0.76rem;
-  border: 1px solid var(--rule);
-  border-radius: 999px;
-  padding: 0.08rem 0.5rem;
-  white-space: nowrap;
+  color: var(--muted); font-size: 12.5px;
+  border: 1px solid var(--line); border-radius: 999px;
+  padding: 3px 10px; white-space: nowrap;
 }
-
 .plan-chip:empty { display: none; }
 
-.account-alias {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.65rem;
-}
+/* ---- run line ------------------------------------------------------ */
 
-/* Sized to its content, not the row: a full-width box reads as an empty
-   text input and invites typing into it. This is a command to copy. */
-.alias-text {
-  min-width: 0;
-  max-width: 100%;
-  overflow-x: auto;
-  white-space: nowrap;
-  background: var(--sunken);
-  border: 1px solid var(--rule);
-  border-radius: 6px;
-  padding: 0.3rem 0.55rem;
-  font-size: 0.83rem;
-  color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+.run-line {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 14px;
 }
+.run-label { color: var(--faint); font-size: 12.5px; flex: none; }
+.run-cmd {
+  min-width: 0; max-width: 100%; overflow-x: auto; white-space: nowrap;
+  background: var(--sunken); border: 1px solid var(--line); border-radius: 7px;
+  padding: 7px 11px; font-family: var(--mono); font-size: 13.5px; color: var(--ink);
+}
+.copy-cmd { flex: none; padding: 7px 12px; font-size: 13px; }
 
 /* ---- meters -------------------------------------------------------- */
 
-.meters {
-  margin-top: 0.95rem;
-  display: grid;
-  gap: 0.85rem;
-}
-
+.meters { margin-top: 16px; display: grid; gap: 14px; }
 .meters:empty { display: none; }
+.meter-head { display: flex; align-items: baseline; gap: 8px; font-size: 14px; }
+.meter-label { color: var(--muted); }
+.meter-pct { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--muted); }
+.bar { margin-top: 6px; height: 7px; border-radius: 4px; background: var(--sunken); overflow: hidden; }
+.bar-fill { height: 100%; width: 0; border-radius: 4px; background: var(--ok);
+  transition: width 340ms cubic-bezier(0.2,0.7,0.3,1); }
+.level-ok .bar-fill { background: var(--ok); } .level-ok .meter-pct { color: var(--ok); }
+.level-warn .bar-fill { background: var(--warn); } .level-warn .meter-pct { color: var(--warn); }
+.level-crit .bar-fill { background: var(--crit); } .level-crit .meter-pct { color: var(--crit); }
+.meter-reset { margin-top: 5px; color: var(--faint); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 
-.meter-head {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  font-size: 0.85rem;
+.usage-age { margin: 10px 0 0; color: var(--faint); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.usage-note { margin: 14px 0 0; color: var(--faint); font-size: 13px; }
+
+/* One honest line about the sign-in, shown only when it needs action. */
+.session-line { margin: 14px 0 0; font-size: 13px; color: var(--muted); }
+.session-line.warn { color: var(--warn); }
+.session-line.crit { color: var(--crit); }
+
+.card-actions {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line);
 }
 
-.meter-pct {
-  margin-left: auto;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  color: var(--muted);
+.shared-card .run-line { margin-top: 12px; }
+
+/* ---- connect + connected ------------------------------------------- */
+
+.connect-row { display: flex; gap: 8px; }
+.connect-row input {
+  flex: 1; min-width: 0;
+  background: var(--sunken); border: 1px solid var(--line); color: var(--ink);
+  border-radius: 8px; padding: 10px 12px; font: inherit; font-size: 14px;
+}
+.connect-row input:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.row-err { margin: 8px 0 0; color: var(--crit); font-size: 13px; min-height: 1em; }
+.row-err:empty { min-height: 0; }
+
+.connected-note {
+  margin-top: 34px; padding-top: 18px; border-top: 1px solid var(--line);
+  color: var(--muted); font-size: 13.5px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.connected-note b { color: var(--ink); font-weight: 600; }
+.connected-note .spacer { flex: 1; }
+.connected-note button { font-size: 13px; padding: 6px 12px; }
+
+.empty {
+  border: 1px dashed var(--line); border-radius: var(--radius);
+  padding: 34px 20px; text-align: center; color: var(--muted); font-size: 15px;
 }
 
-.bar {
-  margin-top: 0.28rem;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--track);
-  overflow: hidden;
-}
-
-.bar-fill {
-  height: 100%;
-  width: 0;
-  border-radius: 3px;
-  background: var(--ok);
-  transition: width 340ms cubic-bezier(0.2, 0.7, 0.3, 1);
-}
-
-.level-ok .bar-fill { background: var(--ok); }
-.level-ok .meter-pct { color: var(--ok); }
-.level-warn .bar-fill { background: var(--warn); }
-.level-warn .meter-pct { color: var(--warn); }
-.level-crit .bar-fill { background: var(--crit); }
-.level-crit .meter-pct { color: var(--crit); }
-
-.meter-reset {
-  margin-top: 0.26rem;
-  color: var(--faint);
-  font-size: 0.76rem;
-  font-variant-numeric: tabular-nums;
-}
-
-/* How old the numbers above are, once that is old enough to matter.
-   Quiet, like the reset line: it qualifies the bars, it is not an alarm. */
-.usage-age {
-  margin: 0.55rem 0 0;
-  color: var(--faint);
-  font-size: 0.76rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.usage-note {
-  margin-top: 0.9rem;
-  color: var(--faint);
-  font-size: 0.8rem;
-}
-
-/* ---- session line -------------------------------------------------- */
-
-.session {
-  margin-top: 0.95rem;
-  padding-top: 0.7rem;
-  border-top: 1px solid var(--rule);
-  display: flex;
-  gap: 1.2rem;
-  flex-wrap: wrap;
-  color: var(--muted);
-  font-size: 0.79rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.session:empty { display: none; }
-
-.session-item b { font-weight: 600; color: var(--text); }
-.session-item .detail { color: var(--faint); }
-
-.account-actions {
-  display: flex;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-  margin-top: 0.85rem;
-}
-
-/* ---- empty + dialogs ----------------------------------------------- */
-
-#empty-state {
-  border: 1px dashed var(--rule);
-  border-radius: var(--radius);
-  padding: 2.75rem 1.5rem;
-  text-align: center;
-  color: var(--muted);
-  font-size: 0.9rem;
-}
+/* ---- dialogs ------------------------------------------------------- */
 
 dialog {
-  background: var(--panel);
-  color: var(--text);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  padding: 1.2rem 1.35rem;
-  max-width: 460px;
-  width: 92vw;
+  background: var(--raised); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 14px;
+  padding: 26px 28px 22px; max-width: 460px; width: 92vw;
 }
-
-dialog::backdrop { background: rgba(6, 8, 11, 0.66); }
-
-dialog h2 {
-  margin: 0 0 0.9rem;
-  font-size: 1rem;
-  font-weight: 620;
+dialog::backdrop { background: rgba(6,8,11,0.72); }
+dialog h2 { margin: 0 0 14px; font-size: 18px; font-weight: 640; }
+dialog label { display: block; color: var(--muted); font-size: 13.5px; margin-bottom: 14px; }
+dialog input[type="text"], dialog input[type="url"], dialog input[type="password"] {
+  display: block; width: 100%; margin-top: 6px; padding: 10px 12px;
+  border-radius: 8px; border: 1px solid var(--line); background: var(--sunken);
+  color: var(--ink); font: inherit; font-size: 15px;
 }
-
-dialog label {
-  display: block;
-  color: var(--muted);
-  font-size: 0.82rem;
-  margin-bottom: 0.9rem;
-}
-
-dialog input[type="text"] {
-  display: block;
-  width: 100%;
-  margin-top: 0.3rem;
-  padding: 0.45rem 0.6rem;
-  border-radius: 7px;
-  border: 1px solid var(--rule);
-  background: var(--sunken);
-  color: var(--text);
-  font: inherit;
-  font-size: 0.9rem;
-}
-
-.dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.45rem;
-}
+.dialog-note { margin: -4px 0 16px; color: var(--faint); font-size: 13px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 
 #login-url-box {
-  margin: 0.7rem 0;
-  padding: 0.7rem;
-  background: var(--sunken);
-  border: 1px solid var(--rule);
-  border-radius: 8px;
+  margin: 12px 0; padding: 12px; background: var(--sunken);
+  border: 1px solid var(--line); border-radius: 9px;
 }
+#login-url { display: block; word-break: break-all; color: var(--primary); font-size: 13.5px; margin-bottom: 10px; }
+#login-status { color: var(--muted); font-size: 14.5px; }
+#login-code-form { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
 
-#login-url {
-  display: block;
-  word-break: break-all;
-  color: var(--ok);
-  font-size: 0.82rem;
-  margin-bottom: 0.55rem;
-}
-
-#login-status { color: var(--muted); font-size: 0.88rem; }
-
-#login-code-form {
-  margin-top: 0.9rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--rule);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .bar-fill { transition: none; }
-}
+@media (prefers-reduced-motion: reduce) { .bar-fill { transition: none; } }
 
 @media (max-width: 560px) {
-  header { padding-top: 1.75rem; }
+  header { padding-top: 26px; flex-wrap: wrap; }
   .plan-chip { margin-left: 0; }
-}
-
-/* Team panel — connect to and see status of a ccam admin panel. */
-#team-panel {
-  border: 1px solid var(--rule);
-  background: var(--panel);
-  border-radius: var(--radius);
-  padding: 1rem 1.2rem;
-  margin-bottom: 1.1rem;
-}
-#team-panel .tp-head { display: flex; align-items: baseline; gap: 0.6rem; }
-#team-panel .tp-title { font-size: 0.95rem; font-weight: 620; }
-#team-panel .tp-sub { font-size: 0.8rem; color: var(--muted); }
-#team-panel .tp-link { color: var(--ok); text-decoration: none; }
-#team-panel .tp-link:hover { text-decoration: underline; }
-#team-panel .tp-holds { margin-top: 0.55rem; font-size: 0.82rem; color: var(--muted); }
-#team-panel .tp-holds b { color: var(--text); font-weight: 600; }
-#team-panel .tp-row { display: flex; gap: 0.5rem; margin-top: 0.7rem; flex-wrap: wrap; align-items: center; }
-#team-panel input {
-  background: var(--sunken); border: 1px solid var(--rule); color: var(--text);
-  border-radius: 6px; padding: 0.5rem 0.6rem; font: inherit; font-size: 0.85rem;
-}
-#team-panel input#tp-server { flex: 1 1 15rem; min-width: 12rem; }
-#team-panel input#tp-code { flex: 0 1 9rem; }
-#team-panel .tp-err { margin-top: 0.5rem; font-size: 0.8rem; color: var(--crit); min-height: 1em; }
-#team-panel .tp-actions { margin-left: auto; display: flex; gap: 0.4rem; }
-
-#tp-admin-embed { margin-top: 0.9rem; }
-#tp-admin-embed iframe {
-  width: 100%; height: 640px; border: 1px solid var(--rule);
-  border-radius: 8px; background: var(--ink); display: block;
+  .card-actions button { flex: 1 1 auto; }
 }

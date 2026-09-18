@@ -70,6 +70,19 @@ func PanelClientFile() (string, error) {
 	return filepath.Join(base, "panel-client.json"), nil
 }
 
+// SharesFile is where this machine caches the gateway shares it was granted:
+// for each shared account, the gateway URL and this person's key. It holds
+// keys, so it is written 0600. `ccam shared <slug>` reads it to run a shared
+// account, and the shell aliases point here rather than baking a key into a
+// dotfile.
+func SharesFile() (string, error) {
+	base, err := HomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "shares.json"), nil
+}
+
 // LogFile returns the path ccam's background service writes its own
 // stdout/stderr to, so install issues are debuggable without a terminal.
 func LogFile() (string, error) {
