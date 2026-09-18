@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
 	"clawdh/internal/gateway"
+	"clawdh/internal/meter"
 	"clawdh/panel"
 	"clawdh/panelpg"
 )
@@ -18,6 +20,7 @@ import (
 // account — that is how one login serves the whole team at once.
 type dbUpstream struct {
 	store  *panel.Store
+	pg     *panelpg.Backend // the concrete backend, for metering writes
 	secret *panel.Secret
 
 	mu       sync.Mutex
@@ -37,6 +40,7 @@ func newDBUpstream(ctx context.Context, dsn, keyB64 string) (*dbUpstream, error)
 	}
 	return &dbUpstream{
 		store:    panel.NewStoreWithBackend(back),
+		pg:       back,
 		secret:   secret,
 		managers: map[string]*gateway.Manager{},
 	}, nil
@@ -71,7 +75,7 @@ func (u *dbUpstream) reloadLocked() panel.Data {
 // declared unknown, so a share created moments ago works on the first request
 // rather than after the cache's TTL — the window that produced a spurious
 // "access has been withdrawn" right after granting access.
-func (u *dbUpstream) Resolve(memberKey string) (accessToken, label string, err error) {
+func (u *dbUpstream) Resolve(memberKey string) (gateway.Resolution, error) {
 	keyHash := panel.HashToken(memberKey)
 	d := u.snapshot()
 	share, found := d.ShareByKeyHash(keyHash)
@@ -80,19 +84,19 @@ func (u *dbUpstream) Resolve(memberKey string) (accessToken, label string, err e
 		d = u.reloadLocked()
 		u.mu.Unlock()
 		if share, found = d.ShareByKeyHash(keyHash); !found {
-			return "", "", gateway.ErrUnknownKey
+			return gateway.Resolution{}, gateway.ErrUnknownKey
 		}
 	}
 	acct, ok := d.Account(share.AccountID)
 	if !ok {
-		return "", "", gateway.ErrUnknownKey // the account was removed
+		return gateway.Resolution{}, gateway.ErrUnknownKey // the account was removed
 	}
 	if !acct.HasLogin() {
-		return "", "", fmt.Errorf("%s has no stored login", acct.Name)
+		return gateway.Resolution{}, fmt.Errorf("%s has no stored login", acct.Name)
 	}
 	mgr, err := u.managerFor(*acct)
 	if err != nil {
-		return "", "", fmt.Errorf("opening the shared login for %s: %w", acct.Name, err)
+		return gateway.Resolution{}, fmt.Errorf("opening the shared login for %s: %w", acct.Name, err)
 	}
 	token, err := mgr.Token(context.Background())
 	if err != nil {
@@ -100,9 +104,40 @@ func (u *dbUpstream) Resolve(memberKey string) (accessToken, label string, err e
 		// happens when the same account is still being used first-party
 		// somewhere. Drop the cached manager so a re-added login is picked up.
 		u.forget(acct.ID)
-		return "", "", fmt.Errorf("refreshing the shared login for %s: %w", acct.Name, err)
+		return gateway.Resolution{}, fmt.Errorf("refreshing the shared login for %s: %w", acct.Name, err)
 	}
-	return token, acct.Name, nil
+	return gateway.Resolution{
+		AccessToken: token,
+		Label:       acct.Name,
+		AccountID:   acct.ID,
+		PersonID:    share.PersonID,
+	}, nil
+}
+
+// Record meters one forwarded response. It prices the raw token counts here
+// (weighted tokens + USD, via the model-weight table) so the gateway data plane
+// stays free of pricing, then stores it. An unknown model is recorded under a
+// visible "unknown:" label with no fabricated weight or cost. Best-effort: a
+// metering failure is logged, never surfaced, and never blocks a request.
+func (u *dbUpstream) Record(ev gateway.Event) {
+	m := meter.Measure(ev.Model, meter.Usage{
+		Input: ev.Input, Output: ev.Output,
+		CacheCreation: ev.CacheCreation, CacheRead: ev.CacheRead,
+	})
+	model := ev.Model
+	if !m.Known {
+		model = "unknown:" + ev.Model
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := u.pg.RecordUsage(ctx, panelpg.UsageEvent{
+		PersonID: ev.PersonID, AccountID: ev.AccountID, Model: model,
+		Input: ev.Input, Output: ev.Output,
+		CacheCreation: ev.CacheCreation, CacheRead: ev.CacheRead,
+		Weighted: m.Weighted, CostUSD: m.CostUSD, RequestID: ev.RequestID,
+	}); err != nil {
+		log.Printf("metering: recording usage for account %s: %v", ev.AccountID, err)
+	}
 }
 
 // forget drops an account's cached token manager, so the next request rebuilds

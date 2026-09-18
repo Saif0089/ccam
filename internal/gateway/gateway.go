@@ -16,7 +16,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httputil"
-	"net/url"
 	"strings"
 )
 
@@ -37,26 +36,40 @@ const (
 	anthropicVersion = "2023-06-01"
 )
 
-// Upstream identifies which subscription a member's request should be served by,
-// and returns that subscription's current access token. ok is false when the
-// key is unknown or revoked — the gateway then rejects the request, which is how
-// revocation takes effect instantly with nothing to reach the member's machine.
-type Upstream interface {
-	// Resolve maps a member's gateway key to the subscription access token to
-	// forward with, plus a label for logging (never the token). A nil error
-	// means forward; ErrUnknownKey means answer 401; any other error means the
-	// share is valid but its login is unusable right now, answered with 502.
-	Resolve(memberKey string) (accessToken, label string, err error)
+// Resolution is what a member key maps to: the subscription token to forward
+// with, a log label (never the token), and the identity — account + person —
+// the key belongs to, which the gateway attributes usage to.
+type Resolution struct {
+	AccessToken string
+	Label       string
+	AccountID   string
+	PersonID    string
 }
 
-// New builds the gateway handler over an Upstream.
-func New(up Upstream) http.Handler {
-	target := &url.URL{Scheme: "https", Host: anthropicHost}
-	_ = target
+// Upstream identifies which subscription a member's request should be served by.
+type Upstream interface {
+	// Resolve maps a member's gateway key to its Resolution. A nil error means
+	// forward; ErrUnknownKey means answer 401; any other error means the share is
+	// valid but its login is unusable right now, answered with 502.
+	Resolve(memberKey string) (Resolution, error)
+}
+
+// New builds the gateway handler over an Upstream. rec, if non-nil, receives
+// each forwarded response's token usage (metering) off the hot path.
+func New(up Upstream, rec Recorder) http.Handler {
 	proxy := &httputil.ReverseProxy{
 		// -1 flushes every write immediately, which is what keeps streamed
 		// (SSE) responses streaming instead of buffering to the end.
 		FlushInterval: -1,
+		ModifyResponse: func(resp *http.Response) error {
+			if rec == nil || resp.Body == nil {
+				return nil
+			}
+			ident, _ := resp.Request.Context().Value(identKey).(Event)
+			ident.RequestID = resp.Header.Get("request-id")
+			resp.Body = &meteringBody{inner: resp.Body, rec: rec, base: ident}
+			return nil
+		},
 		Director: func(r *http.Request) {
 			token, _ := r.Context().Value(tokenKey).(string)
 			host, scheme := anthropicHost, "https"
@@ -88,7 +101,7 @@ func New(up Upstream) http.Handler {
 				"No gateway key was sent. Run this account through clawdh (`clawdh shared <name>`), which supplies your key.")
 			return
 		}
-		token, _, err := up.Resolve(key)
+		res, err := up.Resolve(key)
 		switch {
 		case errors.Is(err, ErrUnknownKey):
 			deny(w, http.StatusUnauthorized, "authentication_error",
@@ -104,7 +117,9 @@ func New(up Upstream) http.Handler {
 				"The shared login for this account stopped working — usually because the same account is also being used directly on another machine, which invalidates the copy the gateway holds. The account's owner needs to add its login to the panel again.")
 			return
 		}
-		proxy.ServeHTTP(w, r.WithContext(withToken(r.Context(), token)))
+		ctx := withToken(r.Context(), res.AccessToken)
+		ctx = context.WithValue(ctx, identKey, Event{AccountID: res.AccountID, PersonID: res.PersonID})
+		proxy.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -153,7 +168,10 @@ var testTargetHost string
 
 type ctxKey int
 
-const tokenKey ctxKey = 0
+const (
+	tokenKey ctxKey = iota
+	identKey        // carries the resolved Event{AccountID,PersonID} for metering
+)
 
 func withToken(ctx context.Context, token string) context.Context {
 	return context.WithValue(ctx, tokenKey, token)

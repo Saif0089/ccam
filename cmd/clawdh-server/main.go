@@ -16,11 +16,11 @@ import (
 
 type staticUpstream struct{ key, token string }
 
-func (s staticUpstream) Resolve(k string) (string, string, error) {
+func (s staticUpstream) Resolve(k string) (gateway.Resolution, error) {
 	if k != "" && k == s.key {
-		return s.token, "static", nil
+		return gateway.Resolution{AccessToken: s.token, Label: "static"}, nil
 	}
-	return "", "", gateway.ErrUnknownKey
+	return gateway.Resolution{}, gateway.ErrUnknownKey
 }
 
 func main() {
@@ -39,13 +39,14 @@ func main() {
 	flag.Parse()
 
 	var up gateway.Upstream
+	var rec gateway.Recorder // the DB upstream also meters; the static path does not
 	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
 		u, err := newDBUpstream(context.Background(), dsn, config.Env("PANEL_KEY"))
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "gateway: connecting to the panel database:", err)
 			os.Exit(1)
 		}
-		up = u
+		up, rec = u, u
 		fmt.Println("clawdh-server: serving from the panel database")
 	} else {
 		token := config.Env("GW_TOKEN")
@@ -55,7 +56,7 @@ func main() {
 		}
 		up = staticUpstream{key: *memberKey, token: token}
 	}
-	h := gateway.New(up)
+	h := gateway.New(up, rec)
 	fmt.Printf("clawdh-server on http://%s (forwarding to api.anthropic.com)\n", *addr)
 	if err := http.ListenAndServe(*addr, h); err != nil {
 		fmt.Fprintln(os.Stderr, err)

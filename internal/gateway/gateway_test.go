@@ -7,15 +7,75 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
+
+// capRec captures the one metering Event the gateway records.
+type capRec struct{ ch chan Event }
+
+func (c *capRec) Record(e Event) {
+	select {
+	case c.ch <- e:
+	default:
+	}
+}
+
+// The gateway must meter a streamed (SSE) response: pull the model and input
+// tokens from message_start and the final output tokens from message_delta,
+// attributed to the member's account+person, without buffering the stream.
+func TestGatewayMetersAStreamedResponse(t *testing.T) {
+	sse := "event: message_start\n" +
+		`data: {"type":"message_start","message":{"model":"claude-sonnet-4-6","usage":{"input_tokens":100,"cache_creation_input_tokens":10,"cache_read_input_tokens":5,"output_tokens":1}}}` + "\n\n" +
+		"event: message_delta\n" +
+		`data: {"type":"message_delta","usage":{"output_tokens":42}}` + "\n\n" +
+		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+	anthropic := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("request-id", "req_abc")
+		io.WriteString(w, sse)
+	}))
+	defer anthropic.Close()
+
+	rec := &capRec{ch: make(chan Event, 1)}
+	h := New(fakeUpstream{key: "member-key", token: "T"}, rec)
+	srv := httptest.NewServer(rewriteHost(h, anthropic.Listener.Addr().String()))
+	defer srv.Close()
+
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/messages", strings.NewReader("{}"))
+	req.Header.Set("Authorization", "Bearer member-key")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.Copy(io.Discard, resp.Body) // drain so the metering body reaches EOF
+	resp.Body.Close()
+
+	select {
+	case ev := <-rec.ch:
+		if ev.Model != "claude-sonnet-4-6" {
+			t.Errorf("model = %q", ev.Model)
+		}
+		if ev.Input != 100 || ev.Output != 42 || ev.CacheCreation != 10 || ev.CacheRead != 5 {
+			t.Errorf("tokens = in %d out %d cc %d cr %d, want 100/42/10/5", ev.Input, ev.Output, ev.CacheCreation, ev.CacheRead)
+		}
+		if ev.AccountID != "acct-1" || ev.PersonID != "person-1" {
+			t.Errorf("attribution = account %q person %q, want acct-1/person-1", ev.AccountID, ev.PersonID)
+		}
+		if ev.RequestID != "req_abc" {
+			t.Errorf("request id = %q, want req_abc", ev.RequestID)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("gateway recorded no usage for a streamed response")
+	}
+}
 
 type fakeUpstream struct{ key, token string }
 
-func (f fakeUpstream) Resolve(k string) (string, string, error) {
+func (f fakeUpstream) Resolve(k string) (Resolution, error) {
 	if k == f.key {
-		return f.token, "acct", nil
+		return Resolution{AccessToken: f.token, Label: "acct", AccountID: "acct-1", PersonID: "person-1"}, nil
 	}
-	return "", "", ErrUnknownKey
+	return Resolution{}, ErrUnknownKey
 }
 
 // The gateway must swap a member's key for the real subscription token and add
@@ -32,7 +92,7 @@ func TestGatewaySwapsInTheSubscriptionToken(t *testing.T) {
 	defer anthropic.Close()
 
 	// Point the gateway's target at the fake by overriding the host it dials.
-	h := New(fakeUpstream{key: "member-key", token: "REAL-SUB-TOKEN"})
+	h := New(fakeUpstream{key: "member-key", token: "REAL-SUB-TOKEN"}, nil)
 	srv := httptest.NewServer(rewriteHost(h, anthropic.Listener.Addr().String()))
 	defer srv.Close()
 
@@ -60,7 +120,7 @@ func TestGatewaySwapsInTheSubscriptionToken(t *testing.T) {
 }
 
 func TestGatewayRejectsUnknownKey(t *testing.T) {
-	h := New(fakeUpstream{key: "good", token: "t"})
+	h := New(fakeUpstream{key: "good", token: "t"}, nil)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -81,7 +141,7 @@ func TestGatewayRejectsUnknownKey(t *testing.T) {
 // 401: the member did nothing wrong, so telling them their access was withdrawn
 // would be a lie and a retry might succeed.
 func TestGatewayReports502WhenTheLoginIsUnusable(t *testing.T) {
-	h := New(brokenUpstream{})
+	h := New(brokenUpstream{}, nil)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -104,8 +164,8 @@ func TestGatewayReports502WhenTheLoginIsUnusable(t *testing.T) {
 // right now — a known key, but no token.
 type brokenUpstream struct{}
 
-func (brokenUpstream) Resolve(string) (string, string, error) {
-	return "", "", errors.New("refreshing the shared login: the token service answered 400")
+func (brokenUpstream) Resolve(string) (Resolution, error) {
+	return Resolution{}, errors.New("refreshing the shared login: the token service answered 400")
 }
 
 // rewriteHost points the proxy's outbound host at the test's fake Anthropic,
