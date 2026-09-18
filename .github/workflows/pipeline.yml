@@ -350,16 +350,48 @@ jobs:
           go-version-file: go.mod
       - name: Build the gateway for linux/amd64
         run: GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o clawdh-server ./cmd/clawdh-server
-      - name: Ship it and restart the service
+      - name: Ship it, migrating from ccam-gateway on first run
         env:
           KEY: ${{ secrets.VPS_SSH_KEY }}
           HOST: ${{ secrets.VPS_HOST }}
         run: |
           install -m 600 /dev/stdin key <<< "$KEY"
-          scp -i key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 clawdh-server "root@$HOST:/opt/clawdh-server/clawdh-server.new"
-          ssh -i key -o StrictHostKeyChecking=accept-new "root@$HOST" '
-            mv /opt/clawdh-server/clawdh-server.new /opt/clawdh-server/clawdh-server &&
-            chmod +x /opt/clawdh-server/clawdh-server &&
-            systemctl restart clawdh-server &&
-            sleep 1 && systemctl is-active clawdh-server'
+          SSHO="-i key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20"
+
+          # First run only: create the target dir and carry over a prior
+          # ccam-gateway's env (it holds the panel key + DATABASE_URL).
+          # clawdh-server reads the CLAWDH_* names and falls back to the CCAM_*
+          # ones, so the old env keeps working unchanged.
+          ssh $SSHO "root@$HOST" '
+            set -e
+            mkdir -p /opt/clawdh-server
+            if [ ! -f /opt/clawdh-server/env ] && [ -f /opt/ccam-gateway/env ]; then
+              install -m 600 /opt/ccam-gateway/env /opt/clawdh-server/env
+            fi'
+
+          # Upload the new binary and the systemd unit.
+          scp $SSHO clawdh-server "root@$HOST:/opt/clawdh-server/clawdh-server.new"
+          scp $SSHO deploy/clawdh-server.service "root@$HOST:/etc/systemd/system/clawdh-server.service"
+
+          # Swap the binary in, (re)install the unit, and cut over from
+          # ccam-gateway. Both serve 127.0.0.1:8787 and nginx already proxies the
+          # gateway hostname there, so nothing about the URL members hold changes.
+          # If the new service will not come up, roll back to ccam-gateway rather
+          # than leave the gateway down.
+          ssh $SSHO "root@$HOST" '
+            set -e
+            mv /opt/clawdh-server/clawdh-server.new /opt/clawdh-server/clawdh-server
+            chmod +x /opt/clawdh-server/clawdh-server
+            systemctl daemon-reload
+            systemctl enable clawdh-server
+            systemctl stop ccam-gateway 2>/dev/null || true
+            if systemctl restart clawdh-server && sleep 2 && systemctl is-active --quiet clawdh-server; then
+              systemctl disable ccam-gateway 2>/dev/null || true
+              echo "clawdh-server is active (was ccam-gateway)"
+            else
+              echo "clawdh-server did not come up; rolling back to ccam-gateway" >&2
+              systemctl start ccam-gateway 2>/dev/null || true
+              journalctl -u clawdh-server -n 30 --no-pager || true
+              exit 1
+            fi'
           rm -f key
