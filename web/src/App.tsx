@@ -37,6 +37,24 @@ export default function App() {
   );
 }
 
+// Logo is clawdh's mark: three tapered claw slashes raked across, in the brand
+// gradient — the same motif the intro animates.
+function Logo({ size = 28 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden className="shrink-0">
+      <defs>
+        <linearGradient id="clawgrad" x1="4" y1="2" x2="28" y2="30" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#6E8BFF" />
+          <stop offset="1" stopColor="#C77DFF" />
+        </linearGradient>
+      </defs>
+      <path d="M8 4C12.5 9 14.5 17 13.5 28" stroke="url(#clawgrad)" strokeWidth="3.4" strokeLinecap="round" />
+      <path d="M16 3C20.5 9 22.5 18 21.5 29" stroke="url(#clawgrad)" strokeWidth="3.4" strokeLinecap="round" />
+      <path d="M24 5C27 10 28 16.5 27 25" stroke="url(#clawgrad)" strokeWidth="3.4" strokeLinecap="round" opacity="0.9" />
+    </svg>
+  );
+}
+
 // Backdrop is the live wallpaper: slow-drifting aurora blobs + a faint grid,
 // fixed behind the whole app (see index.css). Rendered once.
 function Backdrop() {
@@ -71,8 +89,11 @@ function Gate({ setup, onIn }: { setup: boolean; onIn: () => void }) {
         transition={{ delay: 1.4, duration: 0.4 }}
         className="w-full max-w-sm rounded-2xl border border-line bg-raised p-8"
       >
-        <div className="text-2xl font-semibold tracking-tight">clawdh</div>
-        <div className="mt-1 text-[15px] text-muted">
+        <div className="flex items-center gap-2.5">
+          <Logo size={30} />
+          <span className="text-2xl font-bold tracking-tight">clawdh</span>
+        </div>
+        <div className="mt-2 text-[15px] text-muted">
           {setup ? "Set an admin password to run this panel." : "Sign in to the panel."}
         </div>
         <input
@@ -104,7 +125,8 @@ function Shell({ tab, setTab, onSignOut }: { tab: Tab; setTab: (t: Tab) => void;
   const tabs: [Tab, string][] = [["accounts", "Accounts"], ["people", "People"], ["usage", "Usage"], ["quotas", "Quotas"], ["activity", "Activity"]];
   return (
     <div className="mx-auto max-w-5xl px-5 py-6 sm:px-8">
-      <header className="flex items-center gap-3 pb-4">
+      <header className="flex items-center gap-2.5 pb-4">
+        <Logo />
         <span className="text-[22px] font-bold tracking-tight">clawdh</span>
         <span className="rounded-full border border-line bg-raised px-2.5 py-0.5 text-[12px] font-medium text-muted">Team panel</span>
         <button onClick={signOut} className="ml-auto text-[14px] text-faint transition-colors hover:text-ink">Sign out</button>
@@ -394,7 +416,7 @@ function People({ data, reload, ask }: { data: Panel; reload: () => void; ask: A
                           <span className="text-faint">{when(d.lastSeen)}</span>
                           <div className="ml-auto flex gap-1">
                             {d.remote && <button onClick={() => setJobsFor(d)} className="rounded px-1.5 py-0.5 text-[13px] text-primary transition-colors hover:bg-primary/12">Ask…</button>}
-                            <button onClick={() => cutOff(p, d)} className="rounded px-1.5 py-0.5 text-[13px] text-faint transition-colors hover:text-crit">Remove</button>
+                            <button onClick={() => cutOff(p, d)} title="Unlink this machine" className="rounded px-1.5 py-0.5 text-[13px] text-faint transition-colors hover:text-crit">Forget</button>
                           </div>
                         </div>
                       ))

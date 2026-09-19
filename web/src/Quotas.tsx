@@ -13,7 +13,7 @@ interface LimitRow {
 function capLabel(l: LimitRow["limit"]): string {
   const caps: string[] = [];
   if (l.maxPercent) caps.push(`${Math.round(l.maxPercent * 100)}% of the weekly window`);
-  if (l.maxWeighted) caps.push(fmtNum(l.maxWeighted) + " weighted");
+  if (l.maxWeighted) caps.push(fmtNum(l.maxWeighted) + " tokens");
   if (l.maxCostUsd) caps.push("$" + l.maxCostUsd);
   return caps.join(" / ") + " · per " + l.windowKind;
 }
@@ -71,7 +71,7 @@ export function Quotas() {
       body.maxPercent = p; // 0..100; the server normalises + forces a weekly window
     } else if (mode === "weighted") {
       const w = parseFloat(weighted);
-      if (!(w > 0)) return setErr("Enter a weighted-token cap.");
+      if (!(w > 0)) return setErr("Enter a token cap.");
       body.maxWeighted = w;
     } else {
       const c = parseFloat(cost);
@@ -137,7 +137,7 @@ export function Quotas() {
       <form onSubmit={submit} className="rounded-2xl border border-line bg-raised p-5">
         {/* Cap type — % of the weekly window leads; the raw caps are for anyone who wants them. */}
         <div className="inline-flex rounded-xl border border-line bg-sunken p-1">
-          {([["percent", "% of weekly"], ["weighted", "Weighted tokens"], ["cost", "USD"]] as [Mode, string][]).map(([m, label]) => (
+          {([["percent", "% of weekly"], ["weighted", "Tokens"], ["cost", "Cost ($)"]] as [Mode, string][]).map(([m, label]) => (
             <button type="button" key={m} onClick={() => setMode(m)} className={`rounded-lg px-3.5 py-1.5 text-[14px] font-medium transition-colors ${mode === m ? "bg-raised-2 text-ink" : "text-muted hover:text-ink"}`}>{label}</button>
           ))}
         </div>
@@ -163,7 +163,7 @@ export function Quotas() {
                 <option value="month">per month</option>
               </select>
               {mode === "weighted" ? (
-                <input value={weighted} onChange={(e) => setWeighted(e.target.value)} type="number" min={0} placeholder="max weighted tokens" className="min-w-[190px] flex-1 rounded-lg border border-line bg-sunken px-3 py-2.5 text-[15px] outline-none focus:border-primary/60" />
+                <input value={weighted} onChange={(e) => setWeighted(e.target.value)} type="number" min={0} placeholder="max tokens" className="min-w-[190px] flex-1 rounded-lg border border-line bg-sunken px-3 py-2.5 text-[15px] outline-none focus:border-primary/60" />
               ) : (
                 <input value={cost} onChange={(e) => setCost(e.target.value)} type="number" min={0} step={0.5} placeholder="max $" className="min-w-[150px] flex-1 rounded-lg border border-line bg-sunken px-3 py-2.5 text-[15px] outline-none focus:border-primary/60" />
               )}

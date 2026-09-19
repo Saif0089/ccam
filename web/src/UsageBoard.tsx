@@ -276,7 +276,7 @@ export function UsageBoard() {
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
           <Seg value={win} onChange={setWin} options={[["5h", "5h"], ["day", "Day"], ["week", "Week"], ["month", "Month"]]} />
-          <Seg value={metric} onChange={setMetric} options={[["weighted", "Weighted"], ["cost", "USD"]]} />
+          <Seg value={metric} onChange={setMetric} options={[["weighted", "Usage"], ["cost", "Cost"]]} />
         </div>
       </div>
 
@@ -289,7 +289,7 @@ export function UsageBoard() {
         <div className="rounded-2xl border border-line bg-raised p-5">
           <div className="text-[13px] font-medium uppercase tracking-[0.08em] text-faint">Team this {win === "5h" ? "5h" : win}</div>
           <div className="mt-1.5 text-[34px] font-bold leading-none tabular-nums">{fmt(teamTotal, metric)}</div>
-          <div className="mt-1 text-[13.5px] text-muted">{metric === "weighted" ? "weighted tokens" : "spend-equivalent"} across {people.length} {people.length === 1 ? "person" : "people"}</div>
+          <div className="mt-1 text-[13.5px] text-muted">{metric === "weighted" ? "tokens used (balanced across models)" : "cost-equivalent"} across {people.length} {people.length === 1 ? "person" : "people"}</div>
         </div>
         <div className="rounded-2xl border border-line bg-raised p-5">
           <div className="flex items-center justify-between text-[13px] font-medium uppercase tracking-[0.08em] text-faint">
