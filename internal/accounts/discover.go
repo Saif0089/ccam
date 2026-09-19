@@ -19,8 +19,15 @@ type DiscoveredLogin struct {
 // DiscoverLogins finds every authenticated Claude login on this machine: the
 // default ~/.claude one and each clawdh-managed account, whether the credential
 // lives in a file or the macOS Keychain. Each is paired with the email and plan
-// Claude stored alongside it, and duplicates (the same account signed in more
-// than one place) collapse to one entry.
+// Claude stored alongside it.
+//
+// Entries are keyed by where the credential lives, NOT by email: the same email
+// can legitimately be signed into more than one account — your own login in the
+// default ~/.claude and again in a named managed account — and each must be
+// discoverable by its own config dir, because that is how the page pairs a login
+// with the account it belongs to. De-duping by email silently dropped the second
+// one, so an account signed in with your own email looked as if it had no login
+// (its "add to panel" stayed disabled and no usage showed for it).
 func DiscoverLogins(list []Account) []DiscoveredLogin {
 	var out []DiscoveredLogin
 	seen := map[string]bool{}
@@ -30,15 +37,11 @@ func DiscoverLogins(list []Account) []DiscoveredLogin {
 		if err != nil {
 			return // no login here
 		}
-		email, plan := identityFor(configDir, raw)
-		key := email
-		if key == "" {
-			key = configDir // fall back so an unnamed login still shows once
-		}
-		if seen[key] {
+		if seen[configDir] {
 			return
 		}
-		seen[key] = true
+		seen[configDir] = true
+		email, plan := identityFor(configDir, raw)
 		out = append(out, DiscoveredLogin{Email: email, Plan: plan, ConfigDir: configDir, IsDefault: isDefault})
 	}
 
