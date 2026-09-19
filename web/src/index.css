@@ -8,3 +8,37 @@ body { margin: 0; background: #0F1216; color: #E7EBF0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased; }
 ::selection { background: #6E8BFF; color: #0B0E12; }
+
+/* Live backdrop — slow-drifting aurora blobs behind everything, plus a faint
+   grid. Fixed, non-interactive, low-opacity: alive but never distracting, and
+   still on the same ground colour so contrast holds. */
+.backdrop {
+  position: fixed; inset: 0; z-index: -1; overflow: hidden;
+  pointer-events: none; background: #0F1216;
+}
+.backdrop::after {
+  content: ""; position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(110,139,255,0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(110,139,255,0.05) 1px, transparent 1px);
+  background-size: 46px 46px;
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+}
+.blob {
+  position: absolute; border-radius: 50%;
+  filter: blur(90px); opacity: 0.5; will-change: transform;
+}
+.blob.a { width: 46vw; height: 46vw; left: -8vw; top: -10vw;
+  background: radial-gradient(circle, rgba(110,139,255,0.55), transparent 70%);
+  animation: drift-a 26s ease-in-out infinite; }
+.blob.b { width: 40vw; height: 40vw; right: -6vw; top: 8vh;
+  background: radial-gradient(circle, rgba(199,125,255,0.40), transparent 70%);
+  animation: drift-b 32s ease-in-out infinite; }
+.blob.c { width: 38vw; height: 38vw; left: 18vw; bottom: -14vw;
+  background: radial-gradient(circle, rgba(70,192,138,0.30), transparent 70%);
+  animation: drift-c 38s ease-in-out infinite; }
+@keyframes drift-a { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(10vw,7vh) scale(1.12); } }
+@keyframes drift-b { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-8vw,10vh) scale(0.9); } }
+@keyframes drift-c { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(9vw,-8vh) scale(1.1); } }
+@media (prefers-reduced-motion: reduce) { .blob { animation: none; } }

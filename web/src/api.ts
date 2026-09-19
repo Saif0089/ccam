@@ -20,6 +20,10 @@ export interface ModelUsage {
 export interface Subject { id: string; name: string; weighted: number; costUsd: number; byModel: ModelUsage[]; }
 export interface Board { window: string; asOf: string; subjects: Subject[] }
 export interface Burn { window: string; asOf: string; buckets: { hour: string; weighted: number; costUsd: number }[] }
+export interface AccountWindow {
+  accountId: string; name: string; fiveH: number; sevenD: number;
+  fiveHReset?: string; sevenDReset?: string; updatedAt: string;
+}
 export interface Limit { id: string; subjectType: string; subjectId: string; windowKind: string; maxWeighted?: number; maxCostUsd?: number }
 export interface Account { id: string; name: string; email?: string; plan?: string; hasLogin: boolean; warning?: string; shared?: { shareId: string; personId: string; personName: string }[] }
 export interface Device { id: string; name: string; lastSeen?: string; remote?: boolean }

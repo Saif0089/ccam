@@ -130,8 +130,8 @@ export function Quotas() {
           <option value="week">per week</option>
           <option value="month">per month</option>
         </select>
-        <input value={weighted} onChange={(e) => setWeighted(e.target.value)} type="number" min={0} step={1000} placeholder="max weighted tokens" className="w-44 rounded-lg border border-line bg-sunken px-3 py-2.5 text-[15px] outline-none focus:border-primary/60" />
-        <input value={cost} onChange={(e) => setCost(e.target.value)} type="number" min={0} step={0.5} placeholder="max $ (optional)" className="w-40 rounded-lg border border-line bg-sunken px-3 py-2.5 text-[15px] outline-none focus:border-primary/60" />
+        <input value={weighted} onChange={(e) => setWeighted(e.target.value)} type="number" min={0} step={1000} placeholder="max weighted tokens" className="min-w-[190px] flex-1 rounded-lg border border-line bg-sunken px-3 py-2.5 text-[15px] outline-none focus:border-primary/60" />
+        <input value={cost} onChange={(e) => setCost(e.target.value)} type="number" min={0} step={0.5} placeholder="max $ (optional)" className="min-w-[150px] flex-1 rounded-lg border border-line bg-sunken px-3 py-2.5 text-[15px] outline-none focus:border-primary/60" />
         <button type="submit" className="rounded-lg bg-primary px-5 py-2.5 text-[15px] font-semibold text-sunken transition-transform active:scale-[0.98]">Set quota</button>
       </form>
       {err && <div className="mt-2 text-[14px] text-crit">{err}</div>}

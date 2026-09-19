@@ -58,6 +58,27 @@ export function when(iso?: string): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+// untilReset says how long until a usage window rolls over ("in 2h 14m"),
+// or "resetting…" once the moment has passed but a fresh reading hasn't landed.
+export function untilReset(iso?: string): string {
+  if (!iso) return "";
+  const left = new Date(iso).getTime() - Date.now();
+  if (left <= 0) return "resetting…";
+  const mins = Math.round(left / 60000);
+  if (mins < 60) return `resets in ${mins}m`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h < 24) return `resets in ${h}h${m ? " " + m + "m" : ""}`;
+  return `resets in ${Math.round(h / 24)}d`;
+}
+
+// windowTone maps a window's utilisation to the green/amber/red /usage ramp.
+export function windowTone(frac: number): string {
+  if (frac >= 0.95) return "#E05C53";
+  if (frac >= 0.75) return "#E0A83E";
+  return "#46C08A";
+}
+
 // untilExpiry says how long an invite has left, for the copy under a link.
 export function untilExpiry(iso?: string): string {
   if (!iso) return "for a while";

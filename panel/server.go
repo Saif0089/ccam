@@ -71,6 +71,7 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("GET /api/usage/people", s.admin(s.handleUsage("person")))
 		mux.HandleFunc("GET /api/usage/accounts", s.admin(s.handleUsage("account")))
 		mux.HandleFunc("GET /api/usage/burn", s.admin(s.handleBurn))
+		mux.HandleFunc("GET /api/usage/windows", s.admin(s.handleWindows))
 		mux.HandleFunc("GET /api/limits", s.admin(s.handleListLimits))
 		mux.HandleFunc("POST /api/limits", s.admin(s.handleSetLimit))
 		mux.HandleFunc("DELETE /api/limits/{id}", s.admin(s.handleDeleteLimit))

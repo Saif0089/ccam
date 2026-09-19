@@ -153,6 +153,13 @@ func (u *dbUpstream) Record(ev gateway.Event) {
 	}
 }
 
+// RecordWindows stores an account's real 5h / weekly utilisation, read by the
+// gateway off Anthropic's headers. Implements gateway.WindowRecorder, so the
+// same dbUpstream that meters usage also captures the window snapshot.
+func (u *dbUpstream) RecordWindows(accountID string, w gateway.Windows) {
+	u.pg.RecordWindows(accountID, w.FiveH, w.SevenD, w.FiveHReset, w.SevenDReset)
+}
+
 // Status reports a person's quota standing (over the cap, and how close), cached
 // briefly so it costs at most one DB read per person per limitCacheTTL. It fails
 // open: if the quota check itself errors, the member is served unconstrained — a

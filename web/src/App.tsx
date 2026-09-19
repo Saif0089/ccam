@@ -26,12 +26,25 @@ export default function App() {
 
   return (
     <div className="min-h-full font-sans text-ink">
+      <Backdrop />
       <AnimatePresence>{intro && <ClawIntro onDone={() => setIntro(false)} />}</AnimatePresence>
       {status === "loading" ? null : status === "in" ? (
         <Shell tab={tab} setTab={setTab} onSignOut={() => setStatus("gate")} />
       ) : (
         <Gate setup={status === "setup"} onIn={() => setStatus("in")} />
       )}
+    </div>
+  );
+}
+
+// Backdrop is the live wallpaper: slow-drifting aurora blobs + a faint grid,
+// fixed behind the whole app (see index.css). Rendered once.
+function Backdrop() {
+  return (
+    <div className="backdrop" aria-hidden>
+      <span className="blob a" />
+      <span className="blob b" />
+      <span className="blob c" />
     </div>
   );
 }

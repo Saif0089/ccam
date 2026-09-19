@@ -76,6 +76,77 @@ type fixedLimiter struct{ st QuotaStatus }
 
 func (f fixedLimiter) Status(string) QuotaStatus { return f.st }
 
+// parseWindows normalises a percentage reading to 0..1 and keeps an already
+// fractional one, and reports absence when the headers aren't there.
+func TestParseWindows(t *testing.T) {
+	h := http.Header{}
+	h.Set("anthropic-ratelimit-unified-7d-utilization", "42")   // a percentage
+	h.Set("anthropic-ratelimit-unified-5h-utilization", "0.8")  // already a fraction
+	h.Set("anthropic-ratelimit-unified-7d-reset", "1800000000") // unix seconds
+	w, has := parseWindows(h)
+	if !has {
+		t.Fatal("has = false, want true when utilisation headers are present")
+	}
+	if w.SevenD != 0.42 {
+		t.Errorf("7d utilisation = %v, want 0.42 (42%% normalised)", w.SevenD)
+	}
+	if w.FiveH != 0.8 {
+		t.Errorf("5h utilisation = %v, want 0.8 (kept as a fraction)", w.FiveH)
+	}
+	if w.SevenDReset.Unix() != 1800000000 {
+		t.Errorf("7d reset = %v, want the unix time parsed", w.SevenDReset.Unix())
+	}
+	if _, has := parseWindows(http.Header{}); has {
+		t.Error("no utilisation headers should report has = false")
+	}
+}
+
+// winRec is a Recorder that also records windows, for the capture test.
+type winRec struct{ ch chan Windows }
+
+func (winRec) Record(Event) {}
+func (w winRec) RecordWindows(_ string, win Windows) {
+	select {
+	case w.ch <- win:
+	default:
+	}
+}
+
+// The gateway reads the subscription's real window utilisation off Anthropic's
+// headers and hands it to a WindowRecorder — the data behind "% of the weekly
+// window" on the boards.
+func TestGatewayCapturesWindowUtilization(t *testing.T) {
+	anthropic := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("anthropic-ratelimit-unified-7d-utilization", "37")
+		io.WriteString(w, `{"type":"message","content":[]}`)
+	}))
+	defer anthropic.Close()
+	testTargetHost = strings.TrimPrefix(anthropic.URL, "http://")
+	defer func() { testTargetHost = "" }()
+
+	rec := winRec{ch: make(chan Windows, 1)}
+	srv := httptest.NewServer(New(fakeUpstream{key: "member-key", token: "T"}, rec, nil))
+	defer srv.Close()
+
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/messages", nil)
+	req.Header.Set("Authorization", "Bearer member-key")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	select {
+	case w := <-rec.ch:
+		if w.SevenD != 0.37 {
+			t.Errorf("captured 7d utilisation = %v, want 0.37", w.SevenD)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the gateway did not capture the window utilisation")
+	}
+}
+
 // An over-quota member is turned away with a 429 billing_error before the
 // request ever reaches Anthropic — the shape a real spend limit uses.
 func TestGatewayRejectsOverQuotaWith429(t *testing.T) {

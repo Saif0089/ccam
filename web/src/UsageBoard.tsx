@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { api, Board, Burn, Subject } from "./api";
-import { fmtNum, personColor, agoFrom } from "./format";
+import { api, Board, Burn, Subject, AccountWindow } from "./api";
+import { fmtNum, personColor, agoFrom, untilReset, windowTone, pct } from "./format";
 
 type Metric = "weighted" | "cost";
 type Window = "5h" | "day" | "week" | "month";
@@ -146,6 +146,45 @@ function Sparkline({ buckets, metric }: { buckets: Burn["buckets"]; metric: Metr
   );
 }
 
+// --- subscription windows (mirrors /usage) ---------------------------------
+
+function WindowRow({ label, frac, reset }: { label: string; frac: number; reset?: string }) {
+  const color = windowTone(frac);
+  return (
+    <div>
+      <div className="flex items-baseline justify-between text-[13.5px]">
+        <span className="text-muted">{label}</span>
+        <span className="font-semibold tabular-nums" style={{ color }}>{pct(frac)}</span>
+      </div>
+      <div className="mt-1.5 h-2.5 overflow-hidden rounded-full bg-sunken">
+        <motion.div className="h-full rounded-full" style={{ background: color }} initial={{ width: 0 }} animate={{ width: `${Math.min(frac, 1) * 100}%` }} transition={{ duration: 0.6, ease: [0.2, 0.8, 0.2, 1] }} />
+      </div>
+      {reset && <div className="mt-1 text-[12px] text-faint">{untilReset(reset)}</div>}
+    </div>
+  );
+}
+
+function SubscriptionWindows({ windows }: { windows: AccountWindow[] }) {
+  if (!windows.length) return null;
+  return (
+    <div className="mt-8">
+      <h2 className="mb-1 text-[13px] font-semibold uppercase tracking-[0.08em] text-muted">Subscription windows</h2>
+      <div className="text-[13px] text-faint">Straight from Claude's own /usage — how full each account's rolling windows are, exactly.</div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        {windows.map((a) => (
+          <motion.div key={a.accountId} whileHover={{ y: -2 }} transition={{ duration: 0.15 }} className="rounded-2xl border border-line bg-raised p-5 hover:ring-1 hover:ring-primary/20">
+            <div className="text-[15px] font-semibold">{a.name}</div>
+            <div className="mt-3.5 flex flex-col gap-3.5">
+              <WindowRow label="5-hour window" frac={a.fiveH} reset={a.fiveHReset} />
+              <WindowRow label="Weekly window" frac={a.sevenD} reset={a.sevenDReset} />
+            </div>
+          </motion.div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // --- board -----------------------------------------------------------------
 
 const REFRESH_MS = 12000;
@@ -155,6 +194,7 @@ export function UsageBoard() {
   const [metric, setMetric] = useState<Metric>("weighted");
   const [people, setPeople] = useState<Subject[]>([]);
   const [burn, setBurn] = useState<Burn["buckets"]>([]);
+  const [windows, setWindows] = useState<AccountWindow[]>([]);
   const [asOf, setAsOf] = useState("");
   const [err, setErr] = useState("");
   const [tip, setTip] = useState<Tip | null>(null);
@@ -168,12 +208,14 @@ export function UsageBoard() {
       Promise.all([
         api<Board>("GET", `/api/usage/people?window=${w}`),
         api<Burn>("GET", `/api/usage/burn?window=${w}`),
+        api<{ windows: AccountWindow[] }>("GET", `/api/usage/windows`),
       ])
-        .then(([p, b]) => {
+        .then(([p, b, wins]) => {
           if (!live) return;
           setErr("");
           setPeople(p.subjects || []);
           setBurn(b.buckets || []);
+          setWindows(wins.windows || []);
           setAsOf(p.asOf || "");
         })
         .catch((e) => live && setErr(e.message)); // keep last-known data on a transient failure
@@ -217,6 +259,8 @@ export function UsageBoard() {
       </div>
 
       {err && <div className="mt-4 rounded-xl border border-crit/30 bg-crit/5 px-4 py-2.5 text-[14px] text-crit">{err}</div>}
+
+      <SubscriptionWindows windows={windows} />
 
       {/* Team headline + burn */}
       <div className="mt-6 grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">

@@ -93,6 +93,17 @@ func New(up Upstream, rec Recorder, lim Limiter) http.Handler {
 		FlushInterval: -1,
 		ModifyResponse: func(resp *http.Response) error {
 			ctx := resp.Request.Context()
+			// Capture the subscription's real window utilisation from Anthropic's
+			// own unified rate-limit headers (the authoritative "% of the 5h /
+			// weekly window") before those headers are replaced below. Per account
+			// (the shared login), keyed by the resolved AccountID.
+			if wr, ok := rec.(WindowRecorder); ok {
+				if id, _ := ctx.Value(identKey).(Event); id.AccountID != "" {
+					if w, has := parseWindows(resp.Header); has {
+						wr.RecordWindows(id.AccountID, w)
+					}
+				}
+			}
 			// The member's clawdh quota is authoritative for what they may spend,
 			// so replace the upstream's own rate-limit headers (which reflect the
 			// whole shared login — everyone at once — not this person) with
@@ -274,6 +285,60 @@ func stripUnifiedRateLimit(h http.Header) {
 			h.Del(k)
 		}
 	}
+}
+
+// Windows is a subscription's real utilisation of its rolling usage windows,
+// read from Anthropic's own unified rate-limit headers — the authoritative
+// "% of the 5h / weekly window" that /usage shows. Fractions are 0..1.
+type Windows struct {
+	FiveH       float64
+	SevenD      float64
+	FiveHReset  time.Time
+	SevenDReset time.Time
+}
+
+// WindowRecorder stores a subscription's window utilisation. A Recorder that
+// also implements it is handed each account's readings as responses come back;
+// a Recorder that does not is simply never asked.
+type WindowRecorder interface {
+	RecordWindows(accountID string, w Windows)
+}
+
+// parseWindows reads the unified utilisation/reset headers off a response. has
+// is false when neither window's utilisation is present (most non-Anthropic or
+// error responses). Anthropic reports utilisation as a percentage; a value >1
+// is treated as one (÷100), a value <=1 as an already-fractional reading, so
+// either encoding lands as 0..1.
+func parseWindows(h http.Header) (w Windows, has bool) {
+	frac := func(name string) (float64, bool) {
+		v := h.Get(name)
+		if v == "" {
+			return 0, false
+		}
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return 0, false
+		}
+		if f > 1 {
+			f /= 100
+		}
+		return f, true
+	}
+	unix := func(name string) time.Time {
+		if sec, err := strconv.ParseInt(h.Get(name), 10, 64); err == nil && sec > 0 {
+			return time.Unix(sec, 0)
+		}
+		return time.Time{}
+	}
+	if f, ok := frac("anthropic-ratelimit-unified-5h-utilization"); ok {
+		w.FiveH, has = f, true
+	}
+	if f, ok := frac("anthropic-ratelimit-unified-7d-utilization"); ok {
+		w.SevenD, has = f, true
+	}
+	w.FiveHReset = unix("anthropic-ratelimit-unified-5h-reset")
+	w.SevenDReset = unix("anthropic-ratelimit-unified-7d-reset")
+	return w, has
 }
 
 func withToken(ctx context.Context, token string) context.Context {

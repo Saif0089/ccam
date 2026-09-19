@@ -42,6 +42,20 @@ type HourBucket struct {
 	CostUSD  float64   `json:"costUsd"`
 }
 
+// AccountWindow is a subscription's real utilisation of its rolling usage
+// windows, read from Anthropic's own rate-limit headers by the gateway — the
+// exact "% of the 5h / weekly window" that /usage shows, so a board can mirror
+// it rather than estimate it. Fractions are 0..1.
+type AccountWindow struct {
+	AccountID   string    `json:"accountId"`
+	Name        string    `json:"name"`
+	FiveH       float64   `json:"fiveH"`
+	SevenD      float64   `json:"sevenD"`
+	FiveHReset  time.Time `json:"fiveHReset,omitempty"`
+	SevenDReset time.Time `json:"sevenDReset,omitempty"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
 // UsageReader is the metering read surface a board is drawn from. The Postgres
 // backend implements it; a file-backed local panel has none, and the board
 // routes are simply not mounted (nil).
@@ -58,6 +72,9 @@ type UsageReader interface {
 	LimitUsage(ctx context.Context, l Limit) (fraction float64, resetAt time.Time, err error)
 	// Health: accounts whose shared login recently broke (used outside the gateway).
 	RecentCollisions(ctx context.Context, since time.Time) (map[string]time.Time, error)
+	// AccountWindows is each account's latest real 5h / weekly utilisation, from
+	// Anthropic's own headers — the exact numbers /usage draws its bars from.
+	AccountWindows(ctx context.Context) ([]AccountWindow, error)
 }
 
 // windowSince maps a window name to a real time-based start (not a calendar-day
@@ -129,6 +146,21 @@ func (s *Server) handleBurn(w http.ResponseWriter, r *http.Request) {
 		"asOf":    asOf.UTC(),
 		"buckets": buckets,
 	})
+}
+
+// handleWindows serves each account's real 5h / weekly utilisation — the same
+// windows /usage shows, straight from Anthropic's headers.
+func (s *Server) handleWindows(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.usage.AccountWindows(r.Context())
+	if err != nil {
+		fail(w, http.StatusInternalServerError, "The window utilisation could not be read: "+err.Error())
+		return
+	}
+	d, _ := s.store.Load()
+	for i := range rows {
+		rows[i].Name = s.subjectName(d, "account", rows[i].AccountID)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"windows": rows})
 }
 
 func normalizeWindow(name string) string {
