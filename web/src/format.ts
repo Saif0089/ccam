@@ -19,6 +19,24 @@ export function modelColor(m: string) {
   return { color: "#8892A0", label: m || "?" };
 }
 
+// A distinct, legible-on-dark colour per person. Assigned by position (stable
+// order) so a small team never collides; the same person keeps their colour
+// across every bar, so a slice is recognisable at a glance.
+export const PERSON_COLORS = [
+  "#6E8BFF", "#46C08A", "#E0A83E", "#C77DFF", "#4FD1E0",
+  "#F0787A", "#9AE85B", "#F59E0B", "#EC7FB6", "#7C90A8",
+];
+export function personColor(index: number): string {
+  return PERSON_COLORS[((index % PERSON_COLORS.length) + PERSON_COLORS.length) % PERSON_COLORS.length];
+}
+
+// pct renders a 0..1 fraction as a friendly whole/one-decimal percent.
+export function pct(frac: number): string {
+  const p = (frac || 0) * 100;
+  if (p > 0 && p < 1) return p.toFixed(1) + "%";
+  return Math.round(p) + "%";
+}
+
 export function agoFrom(iso: string): { text: string; stale: boolean } {
   if (!iso || iso.startsWith("0001")) return { text: "no usage recorded yet", stale: false };
   const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);

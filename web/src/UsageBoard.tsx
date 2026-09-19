@@ -1,74 +1,128 @@
-import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { api, Board, Burn, Subject } from "./api";
-import { fmtNum, modelColor, MODELS, agoFrom } from "./format";
+import { fmtNum, personColor, agoFrom } from "./format";
 
 type Metric = "weighted" | "cost";
 type Window = "5h" | "day" | "week" | "month";
 
-const subjVal = (s: Subject, m: Metric) => (m === "cost" ? s.costUsd : s.weighted);
-const fmtMetric = (v: number, m: Metric) => (m === "cost" ? "$" + (v || 0).toFixed(2) : fmtNum(v || 0));
+const val = (s: { weighted: number; costUsd: number }, m: Metric) => (m === "cost" ? s.costUsd : s.weighted);
+const fmt = (v: number, m: Metric) => (m === "cost" ? "$" + (v || 0).toFixed(2) : fmtNum(v || 0));
 
-function Seg<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: [T, string][] }) {
+// A slice of a bar: one person's share, in their colour.
+interface Slice { id: string; name: string; color: string; value: number }
+interface ModelRow { label: string; total: number; slices: Slice[] }
+
+// buildModelRows turns per-person usage into one bar per model, sliced by person
+// — the "who used this model" view, colour per person.
+function buildModelRows(people: Subject[], metric: Metric): ModelRow[] {
+  const idx = new Map(people.map((p, i) => [p.id, i] as const));
+  const names = new Map(people.map((p) => [p.id, p.name] as const));
+  const fam = new Map<string, Map<string, number>>();
+  for (const p of people) {
+    for (const m of p.byModel) {
+      const v = metric === "cost" ? m.costUsd : m.weighted;
+      if (v <= 0) continue;
+      const label = modelLabel(m.model);
+      if (!fam.has(label)) fam.set(label, new Map());
+      const pm = fam.get(label)!;
+      pm.set(p.id, (pm.get(p.id) || 0) + v);
+    }
+  }
+  const rows: ModelRow[] = [];
+  for (const [label, pm] of fam) {
+    let total = 0;
+    const slices: Slice[] = [];
+    for (const [pid, v] of pm) {
+      total += v;
+      slices.push({ id: pid, name: names.get(pid) || pid, color: personColor(idx.get(pid) ?? 0), value: v });
+    }
+    slices.sort((a, b) => b.value - a.value);
+    rows.push({ label, total, slices });
+  }
+  return rows.sort((a, b) => b.total - a.total);
+}
+
+function modelLabel(m: string): string {
+  const lm = (m || "").toLowerCase();
+  if (/fable|mythos/.test(lm)) return "Fable / Mythos";
+  if (/opus/.test(lm)) return "Opus";
+  if (/sonnet/.test(lm)) return "Sonnet";
+  if (/haiku/.test(lm)) return "Haiku";
+  if (/unknown/.test(lm)) return "Unknown";
+  return m || "?";
+}
+
+// --- controls --------------------------------------------------------------
+
+function Seg<T extends string>({ value: v, onChange, options }: { value: T; onChange: (v: T) => void; options: [T, string][] }) {
   return (
-    <div className="inline-flex rounded-lg border border-line bg-sunken p-[3px]">
-      {options.map(([v, label]) => (
+    <div className="inline-flex rounded-xl border border-line bg-sunken p-1">
+      {options.map(([opt, label]) => (
         <button
-          key={v}
-          onClick={() => onChange(v)}
-          className={`rounded-md px-3 py-[5px] text-sm transition-colors ${
-            v === value ? "bg-raised-2 text-ink" : "text-muted hover:text-ink"
-          }`}
+          key={opt}
+          onClick={() => onChange(opt)}
+          className="relative rounded-lg px-3.5 py-1.5 text-[14px] font-medium transition-colors"
         >
-          {label}
+          {opt === v && (
+            <motion.span layoutId="seg-active" className="absolute inset-0 rounded-lg bg-raised-2" transition={{ type: "spring", stiffness: 500, damping: 38 }} />
+          )}
+          <span className={`relative ${opt === v ? "text-ink" : "text-muted hover:text-ink"}`}>{label}</span>
         </button>
       ))}
     </div>
   );
 }
 
-function Bar({ subject, max, metric }: { subject: Subject; max: number; metric: Metric }) {
-  const total = subjVal(subject, metric);
+// --- tooltip ---------------------------------------------------------------
+
+interface Tip { x: number; y: number; slice: Slice; rowLabel: string; rowTotal: number; metric: Metric }
+
+function Tooltip({ tip }: { tip: Tip }) {
+  const share = tip.rowTotal > 0 ? tip.slice.value / tip.rowTotal : 0;
   return (
-    <div className="grid grid-cols-[150px_1fr_108px] items-center gap-3.5 py-[9px]">
-      <div className="truncate font-semibold">{subject.name}</div>
-      <div className="flex h-5 overflow-hidden rounded-md bg-sunken">
-        <motion.div
-          className="flex h-full"
-          initial={{ width: 0 }}
-          animate={{ width: `${(total / max) * 100}%` }}
-          transition={{ duration: 0.5, ease: [0.2, 0.8, 0.2, 1] }}
-        >
-          {subject.byModel
-            .filter((m) => (metric === "cost" ? m.costUsd : m.weighted) > 0)
-            .map((m, i) => {
-              const mv = metric === "cost" ? m.costUsd : m.weighted;
-              return (
-                <span
-                  key={i}
-                  className="h-full"
-                  style={{ width: `${(mv / total) * 100}%`, background: modelColor(m.model).color }}
-                  title={`${modelColor(m.model).label}: ${fmtMetric(mv, metric)}`}
-                />
-              );
-            })}
-        </motion.div>
+    <motion.div
+      initial={{ opacity: 0, y: 4, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.97 }}
+      transition={{ duration: 0.12 }}
+      className="pointer-events-none fixed z-50 w-max max-w-[240px] rounded-xl border border-line bg-raised px-3.5 py-2.5 shadow-2xl"
+      style={{ left: Math.min(tip.x + 14, window.innerWidth - 250), top: tip.y + 16 }}
+    >
+      <div className="flex items-center gap-2 text-[15px] font-semibold">
+        <span className="h-2.5 w-2.5 rounded-full" style={{ background: tip.slice.color }} />
+        {tip.slice.name}
       </div>
-      <div className="text-right tabular-nums text-muted">
-        <b className="font-semibold text-ink">{fmtMetric(total, metric)}</b>
+      <div className="mt-1 text-[13.5px] text-muted">
+        <b className="text-ink">{fmt(tip.slice.value, tip.metric)}</b> on {tip.rowLabel}
       </div>
-    </div>
+      <div className="text-[13px] text-faint">{Math.round(share * 100)}% of all {tip.rowLabel} this window</div>
+    </motion.div>
   );
 }
 
-function SubjectBoard({ subjects, metric }: { subjects: Subject[]; metric: Metric }) {
-  if (!subjects.length) return <div className="py-4 text-[15px] text-faint">Nothing in this window yet.</div>;
-  const max = Math.max(...subjects.map((s) => subjVal(s, metric)), 1);
+// --- bars ------------------------------------------------------------------
+
+function ModelBar({ row, max, metric, onHover }: { row: ModelRow; max: number; metric: Metric; onHover: (t: Omit<Tip, "x" | "y"> | null, e?: React.MouseEvent) => void }) {
   return (
-    <div className="flex flex-col gap-[2px]">
-      {subjects.map((s) => (
-        <Bar key={s.id} subject={s} max={max} metric={metric} />
-      ))}
+    <div className="grid grid-cols-[92px_1fr_96px] items-center gap-4 py-2.5">
+      <div className="truncate text-[15px] font-medium text-ink">{row.label}</div>
+      <div className="relative flex h-8 overflow-hidden rounded-lg bg-sunken ring-1 ring-inset ring-line/60">
+        <motion.div className="flex h-full" initial={{ width: 0 }} animate={{ width: `${(row.total / max) * 100}%` }} transition={{ duration: 0.55, ease: [0.2, 0.8, 0.2, 1] }}>
+          {row.slices.map((s) => (
+            <motion.span
+              key={s.id}
+              className="h-full cursor-pointer border-r border-ground/40 last:border-0 transition-[filter] hover:brightness-125"
+              style={{ width: `${(s.value / row.total) * 100}%`, background: s.color }}
+              onMouseEnter={(e) => onHover({ slice: s, rowLabel: row.label, rowTotal: row.total, metric }, e)}
+              onMouseMove={(e) => onHover({ slice: s, rowLabel: row.label, rowTotal: row.total, metric }, e)}
+              onMouseLeave={() => onHover(null)}
+              whileHover={{ filter: "brightness(1.2)" }}
+            />
+          ))}
+        </motion.div>
+      </div>
+      <div className="text-right text-[15px] font-semibold tabular-nums text-ink">{fmt(row.total, metric)}</div>
     </div>
   );
 }
@@ -76,224 +130,142 @@ function SubjectBoard({ subjects, metric }: { subjects: Subject[]; metric: Metri
 function Sparkline({ buckets, metric }: { buckets: Burn["buckets"]; metric: Metric }) {
   if (buckets.length < 2) return null;
   const vals = buckets.map((b) => (metric === "cost" ? b.costUsd : b.weighted));
-  const max = Math.max(...vals, 1), n = vals.length, W = 100, H = 30;
-  const line = vals.map((v, i) => `${(i / (n - 1)) * W},${(H - (v / max) * H).toFixed(2)}`).join(" ");
+  const max = Math.max(...vals, 1), n = vals.length, W = 100, H = 32;
+  const line = vals.map((v, i) => `${((i / (n - 1)) * W).toFixed(2)},${(H - (v / max) * H).toFixed(2)}`).join(" ");
   return (
-    <div className="mt-3.5">
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block h-[52px] w-full">
-        <polygon points={`0,${H} ${line} ${W},${H}`} fill="#6E8BFF" opacity={0.12} />
-        <motion.polyline
-          points={line}
-          fill="none"
-          stroke="#6E8BFF"
-          strokeWidth={1.4}
-          vectorEffect="non-scaling-stroke"
-          initial={{ pathLength: 0 }}
-          animate={{ pathLength: 1 }}
-          transition={{ duration: 0.7 }}
-        />
-      </svg>
-      <div className="mt-1 text-xs text-faint">Team usage per hour over the window</div>
-    </div>
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block h-full w-full">
+      <defs>
+        <linearGradient id="spark" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#6E8BFF" stopOpacity="0.35" />
+          <stop offset="100%" stopColor="#6E8BFF" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <polygon points={`0,${H} ${line} ${W},${H}`} fill="url(#spark)" />
+      <motion.polyline points={line} fill="none" stroke="#6E8BFF" strokeWidth={1.6} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.8 }} />
+    </svg>
   );
 }
 
+// --- board -----------------------------------------------------------------
+
+const REFRESH_MS = 12000;
+
 export function UsageBoard() {
-  const [win, setWin] = useState<Window>("day");
+  const [win, setWin] = useState<Window>("week");
   const [metric, setMetric] = useState<Metric>("weighted");
   const [people, setPeople] = useState<Subject[]>([]);
-  const [accounts, setAccounts] = useState<Subject[]>([]);
   const [burn, setBurn] = useState<Burn["buckets"]>([]);
   const [asOf, setAsOf] = useState("");
   const [err, setErr] = useState("");
+  const [tip, setTip] = useState<Tip | null>(null);
+  const winRef = useRef(win);
+  winRef.current = win;
 
   useEffect(() => {
     let live = true;
-    setErr("");
-    Promise.all([
-      api<Board>("GET", `/api/usage/people?window=${win}`),
-      api<Board>("GET", `/api/usage/accounts?window=${win}`),
-      api<Burn>("GET", `/api/usage/burn?window=${win}`),
-    ])
-      .then(([p, a, b]) => {
-        if (!live) return;
-        setPeople(p.subjects || []);
-        setAccounts(a.subjects || []);
-        setBurn(b.buckets || []);
-        setAsOf(p.asOf || a.asOf || "");
-      })
-      .catch((e) => live && setErr(e.message));
+    const load = () => {
+      const w = winRef.current;
+      Promise.all([
+        api<Board>("GET", `/api/usage/people?window=${w}`),
+        api<Burn>("GET", `/api/usage/burn?window=${w}`),
+      ])
+        .then(([p, b]) => {
+          if (!live) return;
+          setErr("");
+          setPeople(p.subjects || []);
+          setBurn(b.buckets || []);
+          setAsOf(p.asOf || "");
+        })
+        .catch((e) => live && setErr(e.message)); // keep last-known data on a transient failure
+    };
+    load();
+    const id = setInterval(load, REFRESH_MS);
     return () => {
       live = false;
+      clearInterval(id);
     };
   }, [win]);
 
+  const onHover = (t: Omit<Tip, "x" | "y"> | null, e?: React.MouseEvent) => {
+    if (!t || !e) return setTip(null);
+    setTip({ ...t, x: e.clientX, y: e.clientY });
+  };
+
+  const rows = buildModelRows(people, metric);
+  const maxRow = Math.max(...rows.map((r) => r.total), 1);
+  const teamTotal = people.reduce((a, p) => a + val(p, metric), 0);
+  const peopleSorted = [...people].sort((a, b) => val(b, metric) - val(a, metric));
+  const idxOf = new Map(people.map((p, i) => [p.id, i] as const));
   const fresh = agoFrom(asOf);
-  const legendLabels = new Set<string>();
-  for (const s of [...people, ...accounts]) for (const m of s.byModel) legendLabels.add(modelColor(m.model).label);
 
   return (
     <div>
-      <div className="flex flex-wrap items-start gap-5">
+      <AnimatePresence>{tip && <Tooltip tip={tip} />}</AnimatePresence>
+
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Usage</h1>
-          <div className="mt-1 text-[15px] text-muted">
-            Who used what, and on which model — <span className={fresh.stale ? "text-warn" : ""}>{fresh.text}</span>
+          <h1 className="text-[28px] font-bold tracking-tight">Usage</h1>
+          <div className="mt-1 flex items-center gap-2 text-[15px] text-muted">
+            <span className={`inline-block h-2 w-2 rounded-full ${fresh.stale ? "bg-warn" : "bg-ok"}`} />
+            {fresh.stale ? fresh.text : "live · " + fresh.text}
           </div>
         </div>
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
           <Seg value={win} onChange={setWin} options={[["5h", "5h"], ["day", "Day"], ["week", "Week"], ["month", "Month"]]} />
-          <Seg value={metric} onChange={setMetric} options={[["weighted", "Weighted"], ["cost", "Cost"]]} />
+          <Seg value={metric} onChange={setMetric} options={[["weighted", "Weighted"], ["cost", "USD"]]} />
         </div>
       </div>
 
-      {err && <div className="mt-4 text-[15px] text-crit">{err}</div>}
+      {err && <div className="mt-4 rounded-xl border border-crit/30 bg-crit/5 px-4 py-2.5 text-[14px] text-crit">{err}</div>}
 
-      <div className="mt-2 flex flex-wrap gap-4 text-[13px] text-muted">
-        {MODELS.filter((m) => legendLabels.has(m.label)).map((m) => (
-          <span key={m.label} className="inline-flex items-center gap-1.5">
-            <span className="h-[11px] w-[11px] rounded-[3px]" style={{ background: m.color }} />
-            {m.label}
-          </span>
-        ))}
+      {/* Team headline + burn */}
+      <div className="mt-6 grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+        <div className="rounded-2xl border border-line bg-raised p-5">
+          <div className="text-[13px] font-medium uppercase tracking-[0.08em] text-faint">Team this {win === "5h" ? "5h" : win}</div>
+          <div className="mt-1.5 text-[34px] font-bold leading-none tabular-nums">{fmt(teamTotal, metric)}</div>
+          <div className="mt-1 text-[13.5px] text-muted">{metric === "weighted" ? "weighted tokens" : "spend-equivalent"} across {people.length} {people.length === 1 ? "person" : "people"}</div>
+        </div>
+        <div className="rounded-2xl border border-line bg-raised p-5">
+          <div className="flex items-center justify-between text-[13px] font-medium uppercase tracking-[0.08em] text-faint">
+            <span>Per hour</span>
+          </div>
+          <div className="mt-2 h-[56px]">
+            <Sparkline buckets={burn} metric={metric} />
+          </div>
+        </div>
       </div>
 
-      <Sparkline buckets={burn} metric={metric} />
-
-      <h2 className="mb-2.5 mt-7 text-sm font-semibold uppercase tracking-[0.06em] text-muted">People</h2>
-      <SubjectBoard subjects={people} metric={metric} />
-      <h2 className="mb-2.5 mt-7 text-sm font-semibold uppercase tracking-[0.06em] text-muted">Accounts</h2>
-      <SubjectBoard subjects={accounts} metric={metric} />
-
-      <Quotas />
-    </div>
-  );
-}
-
-// --- quotas ----------------------------------------------------------------
-
-interface LimitRow {
-  limit: { id: string; subjectType: string; subjectId: string; windowKind: string; maxWeighted?: number; maxCostUsd?: number };
-  name: string;
-  fraction?: number;
-  resetAt?: string;
-}
-
-// usageTone maps a limit's utilisation to a colour and a word: green under 75%,
-// amber approaching (75–95%), red near or over the cap — the 75/95 marks the
-// gateway warns and blocks at.
-function usageTone(frac: number): { color: string; label: string } {
-  if (frac >= 1) return { color: "#E05C53", label: "over" };
-  if (frac >= 0.95) return { color: "#E05C53", label: `${Math.round(frac * 100)}% — at the cap` };
-  if (frac >= 0.75) return { color: "#E0A83E", label: `${Math.round(frac * 100)}% — approaching` };
-  return { color: "#46C08A", label: `${Math.round(frac * 100)}% used` };
-}
-
-function Quotas() {
-  const [rows, setRows] = useState<LimitRow[]>([]);
-  const [people, setPeople] = useState<{ id: string; name: string }[]>([]);
-  const [subject, setSubject] = useState("org");
-  const [windowKind, setWindowKind] = useState("day");
-  const [weighted, setWeighted] = useState("");
-  const [cost, setCost] = useState("");
-  const [err, setErr] = useState("");
-
-  const load = () => {
-    Promise.all([api<{ limits: LimitRow[] }>("GET", "/api/limits"), api<{ people: { id: string; name: string }[] }>("GET", "/api/panel")])
-      .then(([l, p]) => {
-        setRows(l.limits || []);
-        setPeople(p.people || []);
-      })
-      .catch((e) => setErr(e.message));
-  };
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErr("");
-    const body: any = { windowKind };
-    if (subject === "org") body.subjectType = "org";
-    else {
-      body.subjectType = "person";
-      body.subjectId = subject.slice("person:".length);
-    }
-    const w = parseFloat(weighted);
-    if (w > 0) body.maxWeighted = w;
-    const c = parseFloat(cost);
-    if (c > 0) body.maxCostUsd = c;
-    try {
-      await api("POST", "/api/limits", body);
-      setWeighted("");
-      setCost("");
-      load();
-    } catch (e: any) {
-      setErr(e.message);
-    }
-  };
-
-  const remove = async (id: string) => {
-    try {
-      await api("DELETE", "/api/limits/" + id);
-      load();
-    } catch (e: any) {
-      setErr(e.message);
-    }
-  };
-
-  return (
-    <div>
-      <h2 className="mb-2.5 mt-7 text-sm font-semibold uppercase tracking-[0.06em] text-muted">Quotas</h2>
-      {rows.length === 0 && <div className="py-4 text-[15px] text-faint">No quotas set — everyone shares the subscription freely.</div>}
-      {rows.map((r) => {
-        const caps: string[] = [];
-        if (r.limit.maxWeighted) caps.push(fmtNum(r.limit.maxWeighted) + " weighted");
-        if (r.limit.maxCostUsd) caps.push("$" + r.limit.maxCostUsd);
-        const frac = r.fraction || 0;
-        const tone = usageTone(frac);
-        return (
-          <div key={r.limit.id} className="grid grid-cols-[150px_1fr_auto] items-center gap-3.5 py-[9px]">
-            <div className="truncate font-semibold">{r.name}</div>
-            <div>
-              <div className="text-[15px] text-muted">
-                {caps.join(" / ")} · per {r.limit.windowKind}
-                <span className="ml-2 font-medium" style={{ color: tone.color }}>{tone.label}</span>
+      {/* People legend */}
+      {peopleSorted.length > 0 && (
+        <div className="mt-6 flex flex-wrap gap-2.5">
+          {peopleSorted.map((p) => {
+            const share = teamTotal > 0 ? val(p, metric) / teamTotal : 0;
+            return (
+              <div key={p.id} className="group inline-flex items-center gap-2 rounded-full border border-line bg-raised px-3 py-1.5 text-[14px] transition-colors hover:border-line/0 hover:bg-raised-2">
+                <span className="h-2.5 w-2.5 rounded-full" style={{ background: personColor(idxOf.get(p.id) ?? 0) }} />
+                <span className="font-medium text-ink">{p.name}</span>
+                <span className="tabular-nums text-faint">{fmt(val(p, metric), metric)} · {Math.round(share * 100)}%</span>
               </div>
-              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-sunken">
-                <motion.div
-                  className="h-full rounded-full"
-                  style={{ background: tone.color }}
-                  initial={{ width: 0 }}
-                  animate={{ width: `${Math.min(frac, 1) * 100}%` }}
-                  transition={{ duration: 0.5, ease: [0.2, 0.8, 0.2, 1] }}
-                />
-              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Where it's going — bars by model, sliced by person */}
+      <h2 className="mb-1 mt-8 text-[13px] font-semibold uppercase tracking-[0.08em] text-muted">Where it's going</h2>
+      <div className="text-[13px] text-faint">Each bar is a model; each colour a person. Hover a slice.</div>
+      <div className="mt-3">
+        {rows.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-line px-6 py-10 text-center">
+            <div className="text-[16px] font-medium text-ink">No usage in this window yet</div>
+            <div className="mx-auto mt-1.5 max-w-md text-[14px] leading-relaxed text-muted">
+              It fills in as people run shared accounts through the gateway. A window where every request was rate-limited records nothing — those don't count against usage.
             </div>
-            <button onClick={() => remove(r.limit.id)} className="rounded-md border border-crit/40 px-[11px] py-[5px] text-[13px] text-crit hover:bg-crit/10">
-              Remove
-            </button>
           </div>
-        );
-      })}
-      <form onSubmit={submit} className="mt-3.5 flex flex-wrap items-center gap-2.5">
-        <select value={subject} onChange={(e) => setSubject(e.target.value)} className="rounded-lg border border-line bg-sunken px-2.5 py-2 text-[15px]">
-          <option value="org">The whole team</option>
-          {people.map((p) => (
-            <option key={p.id} value={"person:" + p.id}>{p.name}</option>
-          ))}
-        </select>
-        <select value={windowKind} onChange={(e) => setWindowKind(e.target.value)} className="rounded-lg border border-line bg-sunken px-2.5 py-2 text-[15px]">
-          <option value="day">per day</option>
-          <option value="week">per week</option>
-          <option value="month">per month</option>
-        </select>
-        <input value={weighted} onChange={(e) => setWeighted(e.target.value)} type="number" min={0} step={1000} placeholder="max weighted tokens" className="w-44 rounded-lg border border-line bg-sunken px-2.5 py-2 text-[15px]" />
-        <input value={cost} onChange={(e) => setCost(e.target.value)} type="number" min={0} step={0.5} placeholder="max $ (optional)" className="w-44 rounded-lg border border-line bg-sunken px-2.5 py-2 text-[15px]" />
-        <button type="submit" className="rounded-lg border border-line bg-raised-2 px-4 py-2 text-[15px] text-ink hover:border-primary/50">Set quota</button>
-      </form>
-      {err && <div className="mt-2 text-[14px] text-crit">{err}</div>}
+        ) : (
+          rows.map((r) => <ModelBar key={r.label} row={r} max={maxRow} metric={metric} onHover={onHover} />)
+        )}
+      </div>
     </div>
   );
 }

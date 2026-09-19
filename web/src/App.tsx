@@ -3,13 +3,14 @@ import { AnimatePresence, motion } from "framer-motion";
 import { api, Panel, Account, Person, Device } from "./api";
 import { ClawIntro } from "./ClawIntro";
 import { UsageBoard } from "./UsageBoard";
+import { Quotas } from "./Quotas";
 import { useDialog } from "./Dialog";
 import { DeviceJobs } from "./DeviceJobs";
 import { when, untilExpiry } from "./format";
 
 type Ask = ReturnType<typeof useDialog>["ask"];
 
-type Tab = "accounts" | "people" | "usage" | "activity";
+type Tab = "accounts" | "people" | "usage" | "quotas" | "activity";
 type Status = "loading" | "setup" | "gate" | "in";
 
 export default function App() {
@@ -87,7 +88,7 @@ function Shell({ tab, setTab, onSignOut }: { tab: Tab; setTab: (t: Tab) => void;
     }
     onSignOut();
   };
-  const tabs: [Tab, string][] = [["accounts", "Accounts"], ["people", "People"], ["usage", "Usage"], ["activity", "Activity"]];
+  const tabs: [Tab, string][] = [["accounts", "Accounts"], ["people", "People"], ["usage", "Usage"], ["quotas", "Quotas"], ["activity", "Activity"]];
   return (
     <div className="mx-auto max-w-4xl px-5 py-6">
       <div className="flex items-center gap-6 border-b border-line pb-3">
@@ -110,7 +111,7 @@ function Shell({ tab, setTab, onSignOut }: { tab: Tab; setTab: (t: Tab) => void;
         </button>
       </div>
       <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className="pt-6">
-        {tab === "usage" ? <UsageBoard /> : <PanelTab tab={tab} />}
+        {tab === "usage" ? <UsageBoard /> : tab === "quotas" ? <Quotas /> : <PanelTab tab={tab} />}
       </motion.div>
     </div>
   );
