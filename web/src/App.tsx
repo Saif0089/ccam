@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { api, Panel, Account, Person, Device } from "./api";
 import { ClawIntro } from "./ClawIntro";
+import { Tour, HelpFab, adminSteps, gateSteps, introSeen, markIntroSeen } from "./Tour";
 import { UsageBoard } from "./UsageBoard";
 import { Quotas } from "./Quotas";
 import { useDialog } from "./Dialog";
@@ -17,12 +18,32 @@ export default function App() {
   const [intro, setIntro] = useState(true);
   const [status, setStatus] = useState<Status>("loading");
   const [tab, setTab] = useState<Tab>("accounts");
+  const [tour, setTour] = useState(false);
+  const reduce = useReducedMotion();
+  const seen = useRef(introSeen());
 
   useEffect(() => {
     api<{ needsSetup: boolean; signedIn: boolean }>("GET", "/api/status")
       .then((s) => setStatus(s.signedIn ? "in" : s.needsSetup ? "setup" : "gate"))
       .catch(() => setStatus("gate"));
   }, []);
+
+  // First run, once the claw-slash has cleared: open the guided tour on its own —
+  // the admin track when signed in, a short "what is this" welcome otherwise (so
+  // even a first, not-yet-signed-in visit, e.g. incognito, sees the intro). The
+  // "?" replays it any time.
+  useEffect(() => {
+    if (status !== "loading" && !seen.current) {
+      const t = setTimeout(() => setTour(true), reduce ? 200 : 1600);
+      return () => clearTimeout(t);
+    }
+  }, [status, reduce]);
+
+  const closeTour = () => {
+    setTour(false);
+    seen.current = true;
+    markIntroSeen();
+  };
 
   return (
     <div className="min-h-full font-sans text-ink">
@@ -33,6 +54,8 @@ export default function App() {
       ) : (
         <Gate setup={status === "setup"} onIn={() => setStatus("in")} />
       )}
+      {status !== "loading" && !intro && <HelpFab onClick={() => setTour(true)} />}
+      {tour && <Tour steps={status === "in" ? adminSteps : gateSteps} onClose={closeTour} onTab={(t) => setTab(t as Tab)} />}
     </div>
   );
 }

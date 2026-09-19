@@ -287,3 +287,46 @@ dialog input[type="text"], dialog input[type="url"], dialog input[type="password
   .plan-chip { margin-left: 0; }
   .card-actions button { flex: 1 1 auto; }
 }
+
+/* First-run guided intro (see tour.js) — a spotlight + caption, and the "?" that
+   replays it. Themed with the same tokens as the rest of this page. */
+.help-fab {
+  position: fixed; bottom: 20px; right: 20px; z-index: 150;
+  width: 44px; height: 44px; border-radius: 999px;
+  background: var(--raised); border: 1px solid var(--line); color: var(--muted);
+  font-size: 19px; font-weight: 600; cursor: pointer; box-shadow: var(--shadow);
+  transition: color .15s var(--ease), border-color .15s var(--ease);
+}
+.help-fab:hover { color: var(--ink); border-color: var(--primary); }
+
+.tour-root { position: fixed; inset: 0; z-index: 200; }
+.tour-dim { position: fixed; inset: 0; background: rgba(8,10,18,.66); }
+.tour-spot {
+  position: fixed; border-radius: 12px; pointer-events: none;
+  box-shadow: 0 0 0 2px var(--primary), 0 0 0 9999px rgba(8,10,18,.66);
+  transition: top .25s var(--ease), left .25s var(--ease), width .25s var(--ease), height .25s var(--ease);
+}
+.tour-reduce .tour-spot { transition: none; }
+.tour-card {
+  position: fixed; box-sizing: border-box;
+  background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 16px; box-shadow: var(--shadow);
+}
+.tour-title { font-size: 15px; font-weight: 600; color: var(--ink); }
+.tour-body { margin-top: 5px; font-size: 13.5px; line-height: 1.5; color: var(--muted); }
+.tour-choices { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.tour-choice {
+  text-align: left; background: var(--sunken); border: 1px solid var(--line); color: var(--ink);
+  border-radius: 10px; padding: 11px 14px; font-size: 14px; font-weight: 500; cursor: pointer;
+  transition: border-color .15s var(--ease);
+}
+.tour-choice:hover { border-color: var(--primary); }
+.tour-foot { margin-top: 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.tour-dots { display: flex; gap: 6px; }
+.tour-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--line); }
+.tour-dot.on { background: var(--primary); }
+.tour-actions { display: flex; align-items: center; gap: 8px; }
+.tour-skip { background: none; border: none; color: var(--faint); font-size: 13px; cursor: pointer; padding: 4px; }
+.tour-skip:hover { color: var(--muted); }
+.tour-back { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 9px; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+.tour-next { background: var(--primary); color: var(--primary-ink); border: none; border-radius: 9px; padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
