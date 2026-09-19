@@ -7,25 +7,47 @@ import (
 	"testing"
 )
 
-func TestExpandPath(t *testing.T) {
-	home, _ := os.UserHomeDir()
-	cases := map[string]string{
-		"":    home,
-		"~":   home,
-		"~/x": filepath.Join(home, "x"),
-		"/etc/hosts": "/etc/hosts", // absolute paths pass through — the browser navigates freely
+// Remote browsing is confined to ~/.claude: a path under it resolves, and any
+// attempt to escape — an absolute path elsewhere, a "..", or the home folder
+// itself — is refused. resolveClaudePath is the whole of that boundary.
+func TestResolveClaudePath(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".claude")
+	if err := os.MkdirAll(filepath.Join(root, "projects"), 0o700); err != nil {
+		t.Fatal(err)
 	}
-	for in, want := range cases {
-		if got := expandPath(in); got != want {
-			t.Errorf("expandPath(%q) = %q, want %q", in, got, want)
+	claudeRootOverride = root
+	t.Cleanup(func() { claudeRootOverride = "" })
+
+	ok := map[string]string{
+		"":                 root,
+		"~":                root,
+		".":                root,
+		"projects":         filepath.Join(root, "projects"),
+		"~/projects":       filepath.Join(root, "projects"),
+		root + "/projects": filepath.Join(root, "projects"),
+	}
+	for in, want := range ok {
+		got, err := resolveClaudePath(in)
+		if err != nil || got != want {
+			t.Errorf("resolveClaudePath(%q) = %q, %v; want %q, nil", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"/etc/hosts", "..", "~/../secrets", "projects/../../elsewhere", filepath.Dir(root)} {
+		if got, err := resolveClaudePath(bad); err == nil {
+			t.Errorf("resolveClaudePath(%q) = %q, nil; want an out-of-bounds error", bad, got)
 		}
 	}
 }
 
 // jobLs lists a folder (names/dir/size, no contents) and jobGet ships one file;
-// together they are the file browser's navigate + fetch.
+// together they are the file browser's navigate + fetch — confined to ~/.claude.
 func TestJobLsAndGet(t *testing.T) {
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), ".claude")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	claudeRootOverride = dir
+	t.Cleanup(func() { claudeRootOverride = "" })
 	if err := os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("hi there"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -78,5 +100,13 @@ func TestJobLsAndGet(t *testing.T) {
 	}
 	if _, status := jobGet(filepath.Join(dir, "nope")); status != "error" {
 		t.Error("get on a missing file should be an error")
+	}
+
+	// Out of scope: neither ls nor get may reach outside ~/.claude.
+	if _, status := jobLs("/etc"); status != "error" {
+		t.Error("ls outside ~/.claude must be refused")
+	}
+	if _, status := jobGet("/etc/hosts"); status != "error" {
+		t.Error("get outside ~/.claude must be refused")
 	}
 }

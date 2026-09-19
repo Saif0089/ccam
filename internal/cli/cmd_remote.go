@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -114,8 +115,8 @@ func describeJob(j panel.RemoteJob) string {
 }
 
 func niceParams(p string) string {
-	if strings.TrimSpace(p) == "" {
-		return "the home folder"
+	if t := strings.TrimSpace(p); t == "" || t == "~" || t == "." {
+		return "the Claude folder"
 	}
 	return p
 }
@@ -143,27 +144,87 @@ func executeJob(j panel.RemoteJob) (result, status string) {
 	}
 }
 
-// expandPath resolves a browse path: empty or "~" is the home folder, "~/x" is
-// under it, anything else is taken as-is (the file browser navigates by absolute
-// path). Read-only either way.
-func expandPath(p string) string {
-	p = strings.TrimSpace(p)
-	home, _ := os.UserHomeDir()
-	switch {
-	case p == "" || p == "~":
-		return home
-	case strings.HasPrefix(p, "~/"):
-		return filepath.Join(home, p[2:])
-	default:
-		return p
+// claudeRootOverride lets tests point the browsable root somewhere other than a
+// real ~/.claude. Empty in normal use.
+var claudeRootOverride string
+
+// claudeRoot is the only tree remote browsing may touch: this machine's Claude
+// Code data (~/.claude — projects, sessions, transcripts). Remote help exists to
+// look at Claude sessions, not to roam someone's whole disk, so everything else
+// on the filesystem stays off limits no matter what path is asked for.
+func claudeRoot() (string, error) {
+	if claudeRootOverride != "" {
+		return claudeRootOverride, nil
 	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".claude"), nil
+}
+
+var errOutsideClaude = errors.New("outside the Claude folder — remote browsing is limited to ~/.claude")
+
+// resolveClaudePath maps a requested browse path to an absolute path confined to
+// the Claude data tree. Empty, "~" or "." is the root itself; "~/x" and a plain
+// relative path are taken under the root; an absolute path is honoured only if it
+// already lies within the root. Anything that escapes — via "..", an absolute
+// path elsewhere, or a symlink pointing out — is refused, so remote browsing can
+// never leave ~/.claude.
+func resolveClaudePath(p string) (string, error) {
+	root, err := claudeRoot()
+	if err != nil {
+		return "", err
+	}
+	p = strings.TrimSpace(p)
+	var abs string
+	switch {
+	case p == "" || p == "~" || p == "~/" || p == ".":
+		abs = root
+	case strings.HasPrefix(p, "~/"):
+		abs = filepath.Join(root, p[2:])
+	case filepath.IsAbs(p):
+		abs = filepath.Clean(p)
+	default:
+		abs = filepath.Join(root, p)
+	}
+	if !within(root, abs) {
+		return "", errOutsideClaude
+	}
+	// Follow symlinks and re-check against the resolved root, so a link inside
+	// ~/.claude can't reach out. Resolving the root too keeps a symlinked root
+	// (e.g. macOS's /var → /private/var) from failing every in-bounds path.
+	realRoot := root
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		realRoot = r
+	}
+	if real, err := filepath.EvalSymlinks(abs); err == nil && !within(realRoot, real) {
+		return "", errOutsideClaude
+	}
+	return abs, nil
+}
+
+// within reports whether path is root or sits inside it, comparing whole path
+// segments so "/a/.claude-x" is not mistaken for being inside "/a/.claude".
+func within(root, path string) bool {
+	if path == root {
+		return true
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // jobLs lists a folder's entries — the file browser's navigation. Names, sizes,
 // mod times and dir/file only; never any contents. Result is JSON the panel
 // renders. Bounded so an enormous folder can't be dragged through whole.
 func jobLs(p string) (string, string) {
-	dir := expandPath(p)
+	dir, err := resolveClaudePath(p)
+	if err != nil {
+		return err.Error(), "error"
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err.Error(), "error"
@@ -174,11 +235,17 @@ func jobLs(p string) (string, string) {
 		Size int64  `json:"size"`
 		Mod  string `json:"mod"`
 	}
+	// The parent is offered for navigating up, but never above the Claude root —
+	// at the root there is nowhere higher to go.
+	parent := filepath.Dir(dir)
+	if root, _ := claudeRoot(); !within(root, parent) {
+		parent = ""
+	}
 	out := struct {
 		Path    string `json:"path"`
 		Parent  string `json:"parent"`
 		Entries []ent  `json:"entries"`
-	}{Path: dir, Parent: filepath.Dir(dir)}
+	}{Path: dir, Parent: parent}
 	for i, e := range entries {
 		if i >= 2000 {
 			break
@@ -201,7 +268,10 @@ const maxGetBytes = 4 << 20
 // jobGet reads one file and ships it back. Text is sent as-is; anything not
 // valid UTF-8 is base64'd, so any file survives the JSON round-trip.
 func jobGet(p string) (string, string) {
-	path := expandPath(p)
+	path, err := resolveClaudePath(p)
+	if err != nil {
+		return err.Error(), "error"
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return err.Error(), "error"
@@ -319,11 +389,11 @@ type sessionFile struct {
 }
 
 func claudeProjectsDir() string {
-	home, err := os.UserHomeDir()
+	root, err := claudeRoot()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".claude", "projects")
+	return filepath.Join(root, "projects")
 }
 
 func sessionFiles() []sessionFile {

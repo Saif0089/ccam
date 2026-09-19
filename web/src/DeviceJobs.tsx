@@ -91,14 +91,15 @@ export function DeviceJobs({ deviceId, deviceName, onClose }: { deviceId: string
           </button>
         </div>
 
-        {/* File browser: list any folder, open any file — the machine ships it back. */}
+        {/* File browser, scoped to the machine's ~/.claude — its Claude sessions and
+            transcripts, never the rest of the disk. The machine refuses anything outside it. */}
         <div className="mt-2 flex items-center gap-2">
-          <span className="text-[13px] text-faint">Files</span>
+          <span className="text-[13px] text-faint">Claude files</span>
           <input
             value={folder}
             onChange={(e) => setFolder(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && folder.trim() && ask("ls", folder.trim())}
-            placeholder="~  (a folder path)"
+            placeholder="~  (a folder under ~/.claude)"
             className="min-w-0 flex-1 rounded-lg border border-line bg-sunken px-3 py-2 font-mono text-[13.5px] outline-none focus:border-primary/60"
           />
           <button
@@ -117,7 +118,7 @@ export function DeviceJobs({ deviceId, deviceName, onClose }: { deviceId: string
             Results
             {pending && <span className="text-[12px] font-normal normal-case text-faint">· waiting for the machine to check in…</span>}
           </div>
-          {jobs.length === 0 && <div className="py-3 text-[14px] text-faint">Nothing asked yet. Diagnose it, list its sessions, or browse its files.</div>}
+          {jobs.length === 0 && <div className="py-3 text-[14px] text-faint">Nothing asked yet. Diagnose it, list its sessions, or browse its Claude files.</div>}
           <div className="flex flex-col gap-3">
             {jobs.map((j) => (
               <div key={j.id} className="rounded-xl border border-line bg-sunken p-3">
