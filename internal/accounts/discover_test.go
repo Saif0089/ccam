@@ -32,7 +32,8 @@ func writeLogin(t *testing.T, credDir, identityDir, email string) {
 // login-less: "add to panel" disabled and no usage shown.
 func TestDiscoverLoginsKeepsSharedEmailAccounts(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	t.Setenv("HOME", home)        // os.UserHomeDir on unix
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
 
 	// Default ~/.claude login with your own email (credential in ~/.claude,
 	// identity in ~/.claude.json).
