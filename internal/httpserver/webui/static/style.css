@@ -52,9 +52,17 @@ header {
   gap: 12px;
 }
 
-.wordmark { display: flex; align-items: baseline; gap: 12px; }
-.logo { font-size: 25px; font-weight: 750; letter-spacing: -0.035em; }
-.tagline { color: var(--muted); font-size: 16px; }
+.wordmark { display: flex; align-items: baseline; gap: 11px; }
+.logo { font-size: 26px; font-weight: 750; letter-spacing: -0.035em; }
+/* The client-vs-panel tell: this page manages the accounts on THIS computer,
+   parallel to the panel's "Team panel" badge. */
+.badge-machine {
+  align-self: center; color: var(--muted); font-size: 12.5px; font-weight: 500;
+  border: 1px solid var(--line); background: var(--raised); border-radius: 999px;
+  padding: 3px 10px; white-space: nowrap;
+}
+.tagline { color: var(--faint); font-size: 15px; }
+@media (max-width: 560px) { .tagline { display: none; } }
 header .spacer { flex: 1; }
 
 #refreshed {
