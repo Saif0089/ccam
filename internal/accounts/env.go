@@ -28,6 +28,26 @@ const ConfigDirEnvVar = "CLAUDE_CONFIG_DIR"
 // other keeps its existing credentials: no re-login, on any OS.
 const SecureStorageEnvVar = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
 
+// providerOverrideVars are the variables Claude Code treats as an auth source or
+// a different provider — each takes precedence over the saved claude.ai login
+// (Claude Code even says so: "claude.ai connectors are disabled because
+// ANTHROPIC_API_KEY or another auth source is set"). A clawdh-managed session
+// runs as a specific account, so any of these inherited from the surrounding
+// shell — most often ANTHROPIC_API_KEY from a Claude Code session on API billing
+// — must be stripped, or the session silently ignores the account's login and
+// bills/authenticates as something else entirely.
+var providerOverrideVars = []string{
+	"ANTHROPIC_API_KEY",
+	"ANTHROPIC_AUTH_TOKEN",
+	"ANTHROPIC_BASE_URL",
+	"CLAUDE_CODE_USE_BEDROCK",
+	"CLAUDE_CODE_USE_VERTEX",
+}
+
+// ProviderOverrideVars is the same set, for the gateway path to strip before it
+// sets its own ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN.
+func ProviderOverrideVars() []string { return append([]string(nil), providerOverrideVars...) }
+
 // EnvForConfigDir builds the environment for running `claude` against
 // one account with that account's directory as the *config* directory —
 // the isolation clawdh has always used. Both variables are set, to the
@@ -61,10 +81,11 @@ const SecureStorageEnvVar = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
 // item when logging in and a different one when running a session.
 // Setting both pins every process to the NFC branch.
 func EnvForConfigDir(configDir string) []string {
+	strip := append([]string{ConfigDirEnvVar, SecureStorageEnvVar}, providerOverrideVars...)
 	if configDir == "" {
-		return envWithout(ConfigDirEnvVar, SecureStorageEnvVar)
+		return envWithout(strip...)
 	}
-	return append(envWithout(ConfigDirEnvVar, SecureStorageEnvVar),
+	return append(envWithout(strip...),
 		ConfigDirEnvVar+"="+configDir,
 		SecureStorageEnvVar+"="+configDir,
 	)
@@ -84,10 +105,11 @@ func EnvForConfigDir(configDir string) []string {
 // token under it. An empty configDir therefore means the default
 // account and strips both names, exactly as above.
 func EnvForSharedConfig(configDir string) []string {
+	strip := append([]string{ConfigDirEnvVar, SecureStorageEnvVar}, providerOverrideVars...)
 	if configDir == "" {
-		return envWithout(ConfigDirEnvVar, SecureStorageEnvVar)
+		return envWithout(strip...)
 	}
-	return append(envWithout(ConfigDirEnvVar, SecureStorageEnvVar),
+	return append(envWithout(strip...),
 		SecureStorageEnvVar+"="+configDir,
 	)
 }

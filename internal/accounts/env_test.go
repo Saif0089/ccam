@@ -129,6 +129,39 @@ func TestEnvStripsInheritedValues(t *testing.T) {
 	}
 }
 
+// A clawdh-managed session must run as its account, so an ANTHROPIC_API_KEY (or
+// any other auth-source / provider var) inherited from the shell — the usual
+// case being a Claude Code session on API billing — is stripped. Left in, Claude
+// Code would ignore the account's login and its connectors and authenticate as
+// something else, which is exactly what a user reported.
+func TestEnvStripsProviderOverrides(t *testing.T) {
+	overrides := map[string]string{
+		"ANTHROPIC_API_KEY":       "sk-ant-leaked",
+		"ANTHROPIC_AUTH_TOKEN":    "leaked-bearer",
+		"ANTHROPIC_BASE_URL":      "https://somewhere.else",
+		"CLAUDE_CODE_USE_BEDROCK": "1",
+		"CLAUDE_CODE_USE_VERTEX":  "1",
+	}
+	for k, v := range overrides {
+		t.Setenv(k, v)
+	}
+	dir := "/home/me/.clawdh/accounts/work"
+	for _, env := range [][]string{
+		EnvForConfigDir(dir), EnvForConfigDir(""),
+		EnvForSharedConfig(dir), EnvForSharedConfig(""),
+	} {
+		for name := range overrides {
+			if _, ok := valueOf(env, name); ok {
+				t.Errorf("%s survived into a clawdh session env; it takes precedence over the account login and must be stripped", name)
+			}
+		}
+	}
+	// The exported set the gateway path strips is the same non-empty list.
+	if len(ProviderOverrideVars()) == 0 {
+		t.Error("ProviderOverrideVars() is empty")
+	}
+}
+
 func countEntries(env []string, name string) int {
 	n := 0
 	for _, entry := range env {

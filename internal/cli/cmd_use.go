@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"clawdh/internal/accounts"
 	"clawdh/internal/claudebin"
 	"clawdh/internal/config"
 	"clawdh/internal/switching"
@@ -82,10 +83,30 @@ func cmdShared(args []string) int {
 // inherited from an enclosing `clawdh <account>` session is dropped for the same
 // reason — a `clawdh <name>` typed in here must not switch that outer session.
 func runGateway(url, key, label string, rest []string) int {
+	// Starting a session needs a terminal on stdin; without one Claude Code falls
+	// back to --print and dies with "Input must be provided either through stdin
+	// or as a prompt argument" — an error about a flag nobody typed. Passthrough
+	// args mean the caller is driving Claude Code deliberately (`clawdh shared X
+	// -p "…"`), so those are left alone; only a bare interactive launch is caught.
+	if len(rest) == 0 && !stdinIsTTY() {
+		fmt.Fprintln(os.Stderr, "clawdh: this starts an interactive Claude Code session, and stdin is not a terminal.")
+		if os.Getenv(claudeCodeEnvVar) != "" {
+			fmt.Fprintln(os.Stderr, "      You're inside a Claude Code session (a `!` command), which has no terminal to attach to.")
+		}
+		fmt.Fprintln(os.Stderr, "      Run it in your own terminal, or pass Claude Code's own arguments (add `-p \"your prompt\"`).")
+		return 1
+	}
+
 	name, argv := claudebin.Invocation(claudebin.Resolve(), rest)
 	cmd := exec.Command(name, argv...)
-	env := accountsEnvWithout(os.Environ(),
-		"CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR", switching.HandoffEnvVar, sharedSessionEnvVar)
+	// Strip the config-dir vars, any inherited handoff/marker, and — crucially —
+	// every provider/auth-source var (ANTHROPIC_API_KEY and friends). Claude Code
+	// treats those as taking precedence over ANTHROPIC_AUTH_TOKEN, so a leaked
+	// API key (e.g. from a Claude Code session on API billing) would quietly
+	// bypass the gateway and the shared subscription it holds.
+	strip := append([]string{"CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR", switching.HandoffEnvVar, sharedSessionEnvVar},
+		accounts.ProviderOverrideVars()...)
+	env := accountsEnvWithout(os.Environ(), strip...)
 	cmd.Env = append(env,
 		"ANTHROPIC_BASE_URL="+url,
 		"ANTHROPIC_AUTH_TOKEN="+key,
