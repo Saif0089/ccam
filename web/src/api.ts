@@ -1,0 +1,26 @@
+// One fetch helper for every surface. Paths are made relative to the document so
+// the same bundle works served at "/" (Vercel) or "/panel/" (a machine's local
+// reverse proxy). A non-2xx throws with the server's own message.
+export async function api<T = any>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(path.replace(/^\//, ""), {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let data: any = {};
+  try { data = await res.json(); } catch { /* empty body */ }
+  if (!res.ok) throw new Error(data.error || `That did not work (${res.status}).`);
+  return data as T;
+}
+
+export interface ModelUsage {
+  model: string; weighted: number; costUsd: number;
+  input: number; output: number; cacheCreation: number; cacheRead: number;
+}
+export interface Subject { id: string; name: string; weighted: number; costUsd: number; byModel: ModelUsage[]; }
+export interface Board { window: string; asOf: string; subjects: Subject[] }
+export interface Burn { window: string; asOf: string; buckets: { hour: string; weighted: number; costUsd: number }[] }
+export interface Limit { id: string; subjectType: string; subjectId: string; windowKind: string; maxWeighted?: number; maxCostUsd?: number }
+export interface Account { id: string; name: string; email?: string; plan?: string; hasLogin: boolean; warning?: string; shared?: { shareId: string; personId: string; personName: string }[] }
+export interface Person { id: string; name: string; email?: string; can?: string[]; devices?: { id: string; name: string }[] }
+export interface Panel { accounts: Account[]; people: Person[]; activity: { at: string; who: string; what: string }[] }
