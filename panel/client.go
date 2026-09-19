@@ -160,6 +160,20 @@ type Change struct {
 	// Jobs are the consented remote jobs the panel handed back this check-in for
 	// this machine to run. Always empty unless the owner turned remote help on.
 	Jobs []RemoteJob
+	// Notices are short things to tell the person at this machine — a quota
+	// warning, an account whose login broke — that the panel computes for them.
+	// Shown as desktop notifications, deduplicated by ID so a standing condition
+	// isn't re-shown on every check-in.
+	Notices []Notice
+}
+
+// Notice is one short, self-contained thing to tell the person at a machine.
+// ID identifies the underlying event (a window's threshold, one login breakage)
+// so the client shows it once however many check-ins carry it; Body is the line
+// itself, kept short.
+type Notice struct {
+	ID   string `json:"id"`
+	Body string `json:"body"`
 }
 
 // Empty reports whether the check-in changed the set of shared accounts. Jobs
@@ -197,6 +211,7 @@ func (c *Client) CheckIn(ctx context.Context) (Change, error) {
 	var out struct {
 		Gateway []GatewayShare `json:"gateway"`
 		Jobs    []RemoteJob    `json:"jobs"`
+		Notices []Notice       `json:"notices"`
 		Error   string         `json:"error"`
 	}
 	// Report this machine's remote-help consent every check-in; the panel only
@@ -220,6 +235,9 @@ func (c *Client) CheckIn(ctx context.Context) (Change, error) {
 	if c.Config.Remote {
 		change.Jobs = out.Jobs
 	}
+	// Notices are about the person, not remote help, so they ride back whether or
+	// not this machine offers itself for jobs.
+	change.Notices = out.Notices
 	if !change.Empty() && c.AfterChange != nil {
 		c.AfterChange()
 	}

@@ -605,9 +605,10 @@ func (s *Server) handleCheckin(w http.ResponseWriter, r *http.Request, dev Devic
 		return
 	}
 
+	d, _ := s.store.Load()
+
 	var shares []clientShare
 	if gw := gatewayURL(); gw != "" {
-		d, _ := s.store.Load()
 		for _, sh := range d.Shares {
 			if sh.PersonID != dev.PersonID {
 				continue
@@ -631,7 +632,10 @@ func (s *Server) handleCheckin(w http.ResponseWriter, r *http.Request, dev Devic
 	if s.jobs != nil && in.Remote {
 		jobs, _ = s.jobs.PendingJobs(r.Context(), dev.ID)
 	}
-	writeJSON(w, 200, map[string]any{"gateway": shares, "jobs": jobs})
+	// Short notices for the person at this machine (quota, a broken login) ride
+	// back too, so the machine can surface them without polling anything else.
+	notices := s.checkinNotices(r.Context(), dev.PersonID, d)
+	writeJSON(w, 200, map[string]any{"gateway": shares, "jobs": jobs, "notices": notices})
 }
 
 // slugify makes a shell-safe short name for an account's alias.

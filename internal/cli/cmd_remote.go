@@ -86,6 +86,7 @@ func cmdRemote(args []string) int {
 func runRemoteJobs(ctx context.Context, c *panel.Client, jobs []panel.RemoteJob) {
 	for _, j := range jobs {
 		fmt.Printf("clawdh: the panel asked this machine to %s — running it.\n", describeJob(j))
+		notifyBrief("This machine was asked to " + describeJob(j))
 		result, status := executeJob(j)
 		if err := c.ReportResult(ctx, j.ID, status, result); err != nil {
 			fmt.Fprintf(os.Stderr, "clawdh: could not send the result of %q back to the panel: %v\n", j.Kind, err)

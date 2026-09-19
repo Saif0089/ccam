@@ -413,10 +413,15 @@ func watchPanel(ctx context.Context) {
 		change, err := c.CheckIn(ctx)
 		for _, name := range change.Gained {
 			fmt.Printf("clawdh: %s is now shared with this machine — run it with `clawdh shared %s`.\n", name, slugifyName(name))
+			notifyBrief("Now shared with you: " + name)
 		}
 		for _, name := range change.Lost {
 			fmt.Printf("clawdh: %s is no longer shared with this machine.\n", name)
+			notifyBrief("No longer shared with you: " + name)
 		}
+		// Short per-person notices (a quota warning, a broken login) the panel
+		// worked out for this machine's owner, each shown at most once.
+		showNotices(change.Notices)
 		// Any consented remote jobs the panel handed back run here, each announced
 		// as it goes. Only ever non-empty when the owner turned remote help on.
 		if len(change.Jobs) > 0 {

@@ -180,6 +180,18 @@ func SharesFile() (string, error) {
 	return filepath.Join(base, "shares.json"), nil
 }
 
+// NoticesSeenFile is where the running service remembers which per-person
+// notices (a quota warning, a broken login) it has already shown, keyed by the
+// event's ID, so a standing condition riding every check-in is announced once
+// rather than every thirty seconds. It holds no secrets, only short IDs.
+func NoticesSeenFile() (string, error) {
+	base, err := HomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "notices-seen.json"), nil
+}
+
 // LogFile returns the path clawdh's background service writes its own
 // stdout/stderr to, so install issues are debuggable without a terminal.
 func LogFile() (string, error) {
