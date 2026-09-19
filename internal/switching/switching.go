@@ -32,30 +32,37 @@ const SupervisorEnvVar = "CLAWDH_SUPERVISOR"
 const SessionIDEnvVar = "CLAUDE_CODE_SESSION_ID"
 
 // Handoff is a pending switch: the account the user asked for and the session
-// to resume as it.
+// to resume as it. Shared marks the target as a gateway-shared account (resolved
+// from the shares cache) rather than a local account, so `clawdh shared <slug>`
+// can switch a running session the same way `clawdh <account>` does.
 type Handoff struct {
 	Account   string `json:"account"`
 	SessionID string `json:"sessionId"`
+	Shared    bool   `json:"shared,omitempty"`
 }
 
 // ParseTrigger reports whether a submitted prompt is a switch command and, if
-// so, the account name in it. Accepted forms, whitespace-trimmed:
+// so, the account name in it and whether it names a gateway-shared account.
+// Accepted forms, whitespace-trimmed:
 //
-//	clawdh <name>
-//	clawdh switch <name>
+//	clawdh <name>          -> (name, shared=false)
+//	clawdh switch <name>   -> (name, shared=false)
+//	clawdh shared <name>   -> (name, shared=true)
 //
 // Anything else — extra words, a leading slash (Claude Code routes "/…" to
 // command resolution before the hook ever runs), a sentence that merely starts
 // with "clawdh" — is not a trigger and passes through to the model untouched.
-func ParseTrigger(prompt string) (name string, ok bool) {
+func ParseTrigger(prompt string) (name string, shared bool, ok bool) {
 	fields := strings.Fields(strings.TrimSpace(prompt))
 	switch {
 	case len(fields) == 2 && fields[0] == "clawdh":
-		return fields[1], true
+		return fields[1], false, true
 	case len(fields) == 3 && fields[0] == "clawdh" && fields[1] == "switch":
-		return fields[2], true
+		return fields[2], false, true
+	case len(fields) == 3 && fields[0] == "clawdh" && fields[1] == "shared":
+		return fields[2], true, true
 	default:
-		return "", false
+		return "", false, false
 	}
 }
 

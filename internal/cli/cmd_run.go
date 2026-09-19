@@ -173,73 +173,91 @@ func cmdRun(args []string) int {
 	}
 
 	handoff := filepath.Join(accountsDir, fmt.Sprintf(".handoff-%d.json", os.Getpid()))
+	ledger := switching.LedgerPath(home)
+	sharesPath, _ := config.SharesFile()
+	resolve := func(h switching.Handoff) (sessionTarget, bool) {
+		return resolveHandoffTarget(h, store, accountsDir, claudeJSON, sharesPath)
+	}
+	return superviseSession(claudeBin, claudeDir, ledger, handoff, localTarget(acct, accountsDir, claudeJSON), passthrough, resolve)
+}
+
+// sessionTarget is one account the supervisor runs and can switch between — a
+// local account or a gateway-shared account. Everything the loop needs that
+// differs between the two is captured here; the switching itself is identical.
+type sessionTarget struct {
+	display   string   // for the switch message and the revocation notice
+	env       []string // the environment to launch claude with (before the supervisor vars)
+	accountID string   // for the revocation poll; "" for a share (never locally revoked)
+	ownerDir  string   // the usage-ledger owner (an account's ConfigDir), recorded only when local
+	local     bool     // a local account (record ownership, apply identity, poll for revocation) vs a share
+	applyID   func()   // point ~/.claude.json at this account for /status; nil for a share
+}
+
+// localTarget builds the supervisor target for a local account.
+func localTarget(acct accounts.Account, accountsDir, claudeJSON string) sessionTarget {
+	return sessionTarget{
+		display:   displayName(acct),
+		env:       accounts.EnvForSharedConfig(acct.ConfigDir),
+		accountID: acct.ID,
+		ownerDir:  acct.ConfigDir,
+		local:     true,
+		applyID:   func() { applyIdentity(acct, accountsDir, claudeJSON) },
+	}
+}
+
+// superviseSession runs claude for a target and relaunches it — same terminal,
+// same conversation — whenever a switch to another target is staged, until the
+// session ends. It is the one supervisor behind both `clawdh <account>` and
+// `clawdh shared <slug>`; resolve turns a staged handoff into the next target,
+// local or shared.
+func superviseSession(claudeBin, claudeDir, ledger, handoff string, target sessionTarget, passthrough []string, resolve func(switching.Handoff) (sessionTarget, bool)) int {
 	defer os.Remove(handoff)
 
-	ledger := switching.LedgerPath(home)
-
-	// Minting the session id means clawdh knows it before Claude Code starts, so
-	// the session's usage is attributed to the right account from its first
-	// token rather than from its first switch. Only on a fresh launch: an id
-	// cannot be chosen for a conversation that already has one.
-	//
-	// It is kept out of passthrough deliberately. passthrough is what the user
-	// asked for, and it is what a relaunch is rebuilt from below — carrying a
-	// minted --session-id into a relaunch would hand Claude Code both that and
-	// the --resume of the conversation being moved, which are contradictory.
+	// Mint the session id up front so usage is attributed from the first token,
+	// not the first switch. Only on a fresh launch, and kept out of passthrough
+	// so a relaunch's --resume never collides with a minted --session-id.
 	launchArgs := passthrough
 	if !hasSessionArgs(passthrough) {
 		if id, err := newSessionID(); err == nil {
 			launchArgs = append([]string{"--session-id", id}, passthrough...)
-			if err := switching.AppendOwnership(ledger, id, acct.ConfigDir); err != nil {
-				fmt.Fprintln(os.Stderr, "clawdh: could not record this session for the usage monitor:", err)
+			if target.local {
+				if err := switching.AppendOwnership(ledger, id, target.ownerDir); err != nil {
+					fmt.Fprintln(os.Stderr, "clawdh: could not record this session for the usage monitor:", err)
+				}
 			}
 		}
 	}
 
 	sessionArgs := launchArgs
 	for {
-		applyIdentity(acct, accountsDir, claudeJSON)
+		if target.applyID != nil {
+			target.applyID()
+		}
 		switching.ClearHandoff(handoff)
 
-		env := append(accounts.EnvForSharedConfig(acct.ConfigDir),
+		env := append(append([]string(nil), target.env...),
 			switching.HandoffEnvVar+"="+handoff,
 			fmt.Sprintf("%s=%d", switching.SupervisorEnvVar, os.Getpid()))
 
-		// Nothing in this callback prints. Claude Code owns the terminal while
-		// it runs, so a write here lands in the middle of the screen the TUI is
-		// painting and corrupts it until something forces a full repaint. The
-		// result goes back to the hook that staged the switch, which is still
-		// waiting and whose reply Claude Code renders properly.
-		code, switched := claudeRunner(claudeBin, sessionArgs, env, handoff, acct.ID, func(h switching.Handoff) bool {
-			fresh, err := store.Load()
-			if err != nil {
-				switching.WriteOutcome(handoff, switching.Outcome{
-					Message: "clawdh could not read its account list, so the switch did not happen: " + err.Error(),
-				})
-				return true
-			}
-			next, ok := switching.ResolveAccount(fresh, h.Account)
+		// Nothing in this callback prints. Claude Code owns the terminal while it
+		// runs, so a write here corrupts the TUI mid-paint; the reply goes back
+		// through the outcome file to the hook that staged the switch.
+		code, switched := claudeRunner(claudeBin, sessionArgs, env, handoff, target.accountID, func(h switching.Handoff) bool {
+			next, ok := resolve(h)
 			if !ok {
-				// The hook checks the name before staging anything, so getting
-				// here means the account went away in between.
 				switching.WriteOutcome(handoff, switching.Outcome{
-					Message: "There is no account called " + h.Account + " any more, so nothing was switched.",
+					Message: "There is nothing called " + h.Account + " to switch to any more, so nothing was switched.",
 				})
 				return true // not a reason to restart the session
 			}
-			// Switching means relaunching. clawdh does not write credential
-			// stores any more — that is what this whole change is about — so
-			// the only way to put a running Claude Code on another login is to
-			// start it again. Relaunching rebuilds the screen, so this message
-			// is safe to be seen on the way past.
 			switching.WriteOutcome(handoff, switching.Outcome{
-				Message: "Switching to " + displayName(next) + " restarts this session. The conversation comes with it; anything running inside it does not.",
+				Message: "Switching to " + next.display + " restarts this session. The conversation comes with it; anything running inside it does not.",
 			})
 			return false
 		})
 		if !switched {
-			if config.IsRevoked(acct.ID) {
-				fmt.Printf("\nYour access to %s was withdrawn by your team. This session has stopped; your conversation is saved.\n", displayName(acct))
+			if target.local && config.IsRevoked(target.accountID) {
+				fmt.Printf("\nYour access to %s was withdrawn by your team. This session has stopped; your conversation is saved.\n", target.display)
 			}
 			return code
 		}
@@ -248,32 +266,21 @@ func cmdRun(args []string) int {
 		if !ok {
 			return code
 		}
-		fresh, err := store.Load()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "clawdh:", err)
-			return 1
-		}
-		next, ok := switching.ResolveAccount(fresh, h.Account)
+		next, ok := resolve(h)
 		if !ok {
 			fmt.Fprintf(os.Stderr, "clawdh: cannot switch to %q\n", h.Account)
 			return 1
 		}
-		acct = next
-		// A session that has not written a transcript yet — switched before
-		// its first message — cannot be resumed, and asking anyway kills the
-		// relaunch instead of switching it.
-		//
-		// The flags the session was started with are kept: a switch out of
-		// `clawdh default --dangerously-skip-permissions` that quietly dropped
-		// that flag would land the user in a session that behaves differently
-		// from the one they were in.
-		// The conversation keeps its id across the switch, so clawdh can say who
-		// owns it from here on. The monitor reads this by interval, so the work
-		// done before the switch stays with the account that did it.
-		if err := switching.AppendOwnership(ledger, h.SessionID, next.ConfigDir); err != nil {
-			fmt.Fprintln(os.Stderr, "clawdh: could not record the switch for the usage monitor:", err)
+		target = next
+		// The conversation keeps its id across the switch; the monitor resolves
+		// ownership by interval, so work done before it stays with the account
+		// that did it. A share's usage is metered by the gateway, so only a local
+		// target records local ownership.
+		if target.local {
+			if err := switching.AppendOwnership(ledger, h.SessionID, target.ownerDir); err != nil {
+				fmt.Fprintln(os.Stderr, "clawdh: could not record the switch for the usage monitor:", err)
+			}
 		}
-
 		resume := switching.ResumeArgs(h.SessionID, switching.HasTranscript(claudeDir, h.SessionID))
 		sessionArgs = append(append([]string{}, passthrough...), resume...)
 	}

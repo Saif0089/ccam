@@ -12,24 +12,27 @@ import (
 
 func TestParseTrigger(t *testing.T) {
 	for _, tc := range []struct {
-		prompt   string
-		wantName string
-		wantOK   bool
+		prompt     string
+		wantName   string
+		wantShared bool
+		wantOK     bool
 	}{
-		{"clawdh ehti", "ehti", true},
-		{"  clawdh   ehti  ", "ehti", true},
-		{"clawdh switch ehti", "ehti", true},
-		{"clawdh claude-ehti", "claude-ehti", true},
-		{"/clawdh ehti", "", false},           // slash never reaches the hook as this shape
-		{"clawdh", "", false},                 // no name
-		{"clawdh ehti now", "", false},        // extra words → a real prompt
-		{"please run clawdh ehti", "", false}, // sentence
-		{"what does clawdh do", "", false},
-		{"", "", false},
+		{"clawdh ehti", "ehti", false, true},
+		{"  clawdh   ehti  ", "ehti", false, true},
+		{"clawdh switch ehti", "ehti", false, true},
+		{"clawdh shared ehtisham", "ehtisham", true, true}, // shared switch
+		{"clawdh claude-ehti", "claude-ehti", false, true},
+		{"/clawdh ehti", "", false, false},           // slash never reaches the hook as this shape
+		{"clawdh", "", false, false},                 // no name
+		{"clawdh ehti now", "", false, false},        // extra words → a real prompt
+		{"clawdh shared ehti now", "", false, false}, // extra words → a real prompt
+		{"please run clawdh ehti", "", false, false}, // sentence
+		{"what does clawdh do", "", false, false},
+		{"", "", false, false},
 	} {
-		name, ok := ParseTrigger(tc.prompt)
-		if ok != tc.wantOK || name != tc.wantName {
-			t.Errorf("ParseTrigger(%q) = (%q,%v), want (%q,%v)", tc.prompt, name, ok, tc.wantName, tc.wantOK)
+		name, shared, ok := ParseTrigger(tc.prompt)
+		if ok != tc.wantOK || name != tc.wantName || shared != tc.wantShared {
+			t.Errorf("ParseTrigger(%q) = (%q,shared=%v,%v), want (%q,shared=%v,%v)", tc.prompt, name, shared, ok, tc.wantName, tc.wantShared, tc.wantOK)
 		}
 	}
 }

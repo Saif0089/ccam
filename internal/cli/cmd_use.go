@@ -3,12 +3,13 @@ package cli
 import (
 	"fmt"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"clawdh/internal/accounts"
 	"clawdh/internal/claudebin"
 	"clawdh/internal/config"
+	"clawdh/internal/service"
 	"clawdh/internal/switching"
 	"clawdh/panel"
 )
@@ -17,11 +18,10 @@ import (
 // and carries the shared account's name, for the switch hook to read.
 const sharedSessionEnvVar = "CLAWDH_SHARED_SESSION"
 
-// cmdUse runs Claude Code through a clawdh gateway: it points Claude at the
-// gateway (ANTHROPIC_BASE_URL) and presents the person's key
+// cmdUse runs Claude Code through a clawdh gateway by raw URL + key: it points
+// Claude at the gateway (ANTHROPIC_BASE_URL) and presents the person's key
 // (ANTHROPIC_AUTH_TOKEN), so their traffic is served by the shared subscription
-// the gateway holds — the person never has the credential, and many people can
-// use one account at once.
+// the gateway holds — the person never has the credential.
 //
 //	clawdh use <gateway-url> <key> [claude args...]
 func cmdUse(args []string) int {
@@ -29,12 +29,16 @@ func cmdUse(args []string) int {
 		fmt.Fprintln(os.Stderr, "usage: clawdh use <gateway-url> <key> [claude args...]")
 		return 2
 	}
-	return runGateway(strings.TrimRight(args[0], "/"), args[1], "a shared account", args[2:])
+	return launchSharedSupervised(strings.TrimRight(args[0], "/"), args[1], "a shared account", args[2:])
 }
 
 // cmdShared runs a gateway-shared account by its slug, reading the gateway URL
-// and this person's key from clawdh's shares cache — so nobody has to copy a key
-// around. Everything after the slug goes to Claude Code unchanged.
+// and this person's key from clawdh's shares cache. Everything after the slug
+// goes to Claude Code unchanged.
+//
+// Inside a running clawdh session it is a switch, not a new session: it stages a
+// handoff and the supervisor relaunches the terminal on the share — exactly as
+// `clawdh <account>` does for a local account.
 //
 //	clawdh shared <slug> [claude args...]
 func cmdShared(args []string) int {
@@ -55,10 +59,29 @@ func cmdShared(args []string) int {
 		return 1
 	}
 	for _, sh := range shares {
-		if strings.EqualFold(sh.Slug, slug) {
-			return runGateway(strings.TrimRight(sh.Gateway, "/"), sh.Key, sh.Slug, rest)
+		if !strings.EqualFold(sh.Slug, slug) {
+			continue
 		}
+		// Inside a supervised session, a bare `clawdh shared <slug>` is a switch:
+		// stage it (marked shared) and let the supervisor relaunch this terminal
+		// on the share. Only the bare form — `clawdh shared X -p "…"` is a
+		// deliberate one-shot — and only while the supervisor is still there.
+		if handoffPath := os.Getenv(switching.HandoffEnvVar); handoffPath != "" && len(rest) == 0 {
+			if supervisorAlive() {
+				h := switching.Handoff{Account: sh.Slug, SessionID: os.Getenv(switching.SessionIDEnvVar), Shared: true}
+				if err := switching.WriteHandoff(handoffPath, h); err != nil {
+					fmt.Fprintln(os.Stderr, "clawdh: could not stage the switch:", err)
+					return 1
+				}
+				fmt.Printf("Switching to %s…\n", sh.Slug)
+				return 0
+			}
+			fmt.Fprintln(os.Stderr, "clawdh: the clawdh session this was launched from is gone, so there is nothing to switch.")
+			return 1
+		}
+		return launchSharedSupervised(sh.Gateway, sh.Key, sh.Slug, rest)
 	}
+
 	fmt.Fprintf(os.Stderr, "clawdh: no shared account called %q on this machine.\n", slug)
 	if len(shares) > 0 {
 		names := make([]string, len(shares))
@@ -72,22 +95,14 @@ func cmdShared(args []string) int {
 	return 1
 }
 
-// runGateway launches Claude Code in gateway mode: it points Claude at the
-// gateway (ANTHROPIC_BASE_URL) and presents the key (ANTHROPIC_AUTH_TOKEN).
-// CLAUDE_CONFIG_DIR and the securestorage var are stripped so a stray local
-// login can't take precedence over the gateway.
-//
-// label names the shared account for the switch hook: a shared session cannot
-// change accounts in place, and the hook says so by name instead of telling the
-// person their session "was not started by clawdh". Any supervisor handoff
-// inherited from an enclosing `clawdh <account>` session is dropped for the same
-// reason — a `clawdh <name>` typed in here must not switch that outer session.
-func runGateway(url, key, label string, rest []string) int {
-	// Starting a session needs a terminal on stdin; without one Claude Code falls
-	// back to --print and dies with "Input must be provided either through stdin
-	// or as a prompt argument" — an error about a flag nobody typed. Passthrough
-	// args mean the caller is driving Claude Code deliberately (`clawdh shared X
-	// -p "…"`), so those are left alone; only a bare interactive launch is caught.
+// launchSharedSupervised starts a supervised Claude Code session on a shared
+// account — switchable in place, like `clawdh <account>`. label is the share's
+// slug (or "a shared account" for a raw `clawdh use`).
+func launchSharedSupervised(gatewayURL, key, label string, rest []string) int {
+	// A fresh launch needs a terminal on stdin; without one Claude Code falls
+	// back to --print and dies with "Input must be provided…". Inside a
+	// supervised session a bare invocation is staged as a switch before it ever
+	// reaches here, so this only catches a genuine fresh launch with no terminal.
 	if len(rest) == 0 && !stdinIsTTY() {
 		fmt.Fprintln(os.Stderr, "clawdh: this starts an interactive Claude Code session, and stdin is not a terminal.")
 		if os.Getenv(claudeCodeEnvVar) != "" {
@@ -97,26 +112,94 @@ func runGateway(url, key, label string, rest []string) int {
 		return 1
 	}
 
-	name, argv := claudebin.Invocation(claudebin.Resolve(), rest)
-	cmd := exec.Command(name, argv...)
-	// Strip the config-dir vars, any inherited handoff/marker, and — crucially —
-	// every provider/auth-source var (ANTHROPIC_API_KEY and friends). Claude Code
-	// treats those as taking precedence over ANTHROPIC_AUTH_TOKEN, so a leaked
-	// API key (e.g. from a Claude Code session on API billing) would quietly
-	// bypass the gateway and the shared subscription it holds.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
+		return 1
+	}
+	accountsFile, err := config.AccountsFile()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
+		return 1
+	}
+	accountsDir, err := config.AccountsDir()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
+		return 1
+	}
+	sharesPath, err := config.SharesFile()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "clawdh:", err)
+		return 1
+	}
+	store := accounts.NewStore(accountsFile)
+	claudeBin := claudebin.Resolve()
+	claudeDir := sharedClaudeDir(home)
+	claudeJSON := filepath.Join(home, ".claude.json")
+
+	// Install the switch hook so `clawdh <name>` typed as a prompt switches this
+	// shared session too (idempotent; a failure only disables in-session
+	// switching, so it is a warning, not fatal).
+	if self, err := service.SelfPath(); err == nil {
+		if err := switching.EnsureUserPromptSubmitHook(filepath.Join(claudeDir, "settings.json"), self); err != nil {
+			fmt.Fprintln(os.Stderr, "clawdh: could not install switch hook:", err)
+		}
+	}
+
+	handoff := filepath.Join(accountsDir, fmt.Sprintf(".handoff-%d.json", os.Getpid()))
+	ledger := switching.LedgerPath(home)
+	resolve := func(h switching.Handoff) (sessionTarget, bool) {
+		return resolveHandoffTarget(h, store, accountsDir, claudeJSON, sharesPath)
+	}
+	return superviseSession(claudeBin, claudeDir, ledger, handoff, sharedTarget(gatewayURL, key, label), rest, resolve)
+}
+
+// sharedTarget builds the supervisor target for a gateway-shared account: Claude
+// pointed at the gateway (ANTHROPIC_BASE_URL) with this person's key
+// (ANTHROPIC_AUTH_TOKEN). CLAUDE_CONFIG_DIR and the securestorage var are
+// stripped so a stray local login can't take precedence, and — crucially —
+// every provider/auth-source var (ANTHROPIC_API_KEY and friends) is stripped
+// too: Claude Code treats those as taking precedence over ANTHROPIC_AUTH_TOKEN,
+// so a leaked one (e.g. from a Claude Code session on API billing) would quietly
+// bypass the gateway and the shared subscription it holds. Any inherited
+// supervisor handoff is dropped; superviseSession adds this session's own.
+func sharedTarget(gatewayURL, key, label string) sessionTarget {
 	strip := append([]string{"CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR", switching.HandoffEnvVar, sharedSessionEnvVar},
 		accounts.ProviderOverrideVars()...)
-	env := accountsEnvWithout(os.Environ(), strip...)
-	cmd.Env = append(env,
-		"ANTHROPIC_BASE_URL="+url,
+	env := append(accountsEnvWithout(os.Environ(), strip...),
+		"ANTHROPIC_BASE_URL="+strings.TrimRight(gatewayURL, "/"),
 		"ANTHROPIC_AUTH_TOKEN="+key,
 		sharedSessionEnvVar+"="+label,
 	)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	if err := cmd.Run(); err != nil {
-		return exitCodeOf(err)
+	return sessionTarget{display: label, env: env, local: false}
+}
+
+// resolveHandoffTarget turns a staged switch into the next target: a gateway
+// share when the handoff is marked shared, otherwise a local account. Both
+// stores are read fresh so a share added or an account renamed mid-session is
+// seen.
+func resolveHandoffTarget(h switching.Handoff, store *accounts.Store, accountsDir, claudeJSON, sharesPath string) (sessionTarget, bool) {
+	if h.Shared {
+		shares, err := panel.LoadShares(sharesPath)
+		if err != nil {
+			return sessionTarget{}, false
+		}
+		for _, sh := range shares {
+			if strings.EqualFold(sh.Slug, h.Account) {
+				return sharedTarget(sh.Gateway, sh.Key, sh.Slug), true
+			}
+		}
+		return sessionTarget{}, false
 	}
-	return 0
+	list, err := store.Load()
+	if err != nil {
+		return sessionTarget{}, false
+	}
+	acct, ok := switching.ResolveAccount(list, h.Account)
+	if !ok {
+		return sessionTarget{}, false
+	}
+	return localTarget(acct, accountsDir, claudeJSON), true
 }
 
 // accountsEnvWithout drops the named vars (case-insensitive) from an env slice.
