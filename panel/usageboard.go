@@ -61,6 +61,9 @@ type AccountWindow struct {
 // routes are simply not mounted (nil).
 type UsageReader interface {
 	UsageBySubject(ctx context.Context, subjectType string, since time.Time) ([]SubjectUsage, error)
+	// AccountUsageByPerson breaks one account's usage down by person — for the
+	// "focus on this account" view.
+	AccountUsageByPerson(ctx context.Context, accountID string, since time.Time) ([]SubjectUsage, error)
 	HourlyTotals(ctx context.Context, subjectType, subjectID string, since time.Time) ([]HourBucket, error)
 	LatestEventAt(ctx context.Context) (time.Time, error)
 	// Quotas.
@@ -99,7 +102,15 @@ func (s *Server) handleUsage(subjectType string) http.HandlerFunc {
 		since := windowSince(s.now(), windowName)
 		ctx := r.Context()
 
-		rows, err := s.usage.UsageBySubject(ctx, subjectType, since)
+		// Focused on one account? Show its usage broken down by person instead of
+		// every person across every account.
+		var rows []SubjectUsage
+		var err error
+		if acct := r.URL.Query().Get("account"); acct != "" && subjectType == "person" {
+			rows, err = s.usage.AccountUsageByPerson(ctx, acct, since)
+		} else {
+			rows, err = s.usage.UsageBySubject(ctx, subjectType, since)
+		}
 		if err != nil {
 			fail(w, http.StatusInternalServerError, "The usage board could not be read: "+err.Error())
 			return

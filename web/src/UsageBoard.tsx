@@ -218,15 +218,19 @@ export function UsageBoard() {
   const [asOf, setAsOf] = useState("");
   const [err, setErr] = useState("");
   const [tip, setTip] = useState<Tip | null>(null);
+  const [focus, setFocus] = useState(""); // "" = everyone; else an account id
   const winRef = useRef(win);
   winRef.current = win;
+  const focusRef = useRef(focus);
+  focusRef.current = focus;
 
   useEffect(() => {
     let live = true;
     const load = () => {
       const w = winRef.current;
+      const f = focusRef.current ? `&account=${focusRef.current}` : "";
       Promise.all([
-        api<Board>("GET", `/api/usage/people?window=${w}`),
+        api<Board>("GET", `/api/usage/people?window=${w}${f}`),
         api<Burn>("GET", `/api/usage/burn?window=${w}`),
         api<{ windows: AccountWindow[] }>("GET", `/api/usage/windows`),
         api<Board>("GET", `/api/usage/accounts?window=week`), // for slicing the weekly bar by model
@@ -248,7 +252,7 @@ export function UsageBoard() {
       live = false;
       clearInterval(id);
     };
-  }, [win]);
+  }, [win, focus]);
 
   const onHover = (t: Omit<Tip, "x" | "y"> | null, e?: React.MouseEvent) => {
     if (!t || !e) return setTip(null);
@@ -261,6 +265,8 @@ export function UsageBoard() {
   const peopleSorted = [...people].sort((a, b) => val(b, metric) - val(a, metric));
   const idxOf = new Map(people.map((p, i) => [p.id, i] as const));
   const fresh = agoFrom(asOf);
+  const focusName = windows.find((wn) => wn.accountId === focus)?.name || "";
+  const shownWindows = focus ? windows.filter((wn) => wn.accountId === focus) : windows;
 
   return (
     <div>
@@ -272,9 +278,23 @@ export function UsageBoard() {
           <div className="mt-1 flex items-center gap-2 text-[15px] text-muted">
             <span className={`inline-block h-2 w-2 rounded-full ${fresh.stale ? "bg-warn" : "bg-ok"}`} />
             {fresh.stale ? fresh.text : "live · " + fresh.text}
+            {focus && <span className="text-faint">· focused on {focusName}</span>}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
+          {windows.length > 0 && (
+            <select
+              value={focus}
+              onChange={(e) => setFocus(e.target.value)}
+              className={`rounded-xl border bg-sunken px-3 py-2 text-[14px] font-medium outline-none focus:border-primary/60 ${focus ? "border-primary/50 text-ink" : "border-line text-muted"}`}
+              title="Focus the board on one account"
+            >
+              <option value="">Everyone</option>
+              {windows.map((wn) => (
+                <option key={wn.accountId} value={wn.accountId}>{wn.name}</option>
+              ))}
+            </select>
+          )}
           <Seg value={win} onChange={setWin} options={[["5h", "5h"], ["day", "Day"], ["week", "Week"], ["month", "Month"]]} />
           <Seg value={metric} onChange={setMetric} options={[["weighted", "Usage"], ["cost", "Cost"]]} />
         </div>
@@ -282,7 +302,7 @@ export function UsageBoard() {
 
       {err && <div className="mt-4 rounded-xl border border-crit/30 bg-crit/5 px-4 py-2.5 text-[14px] text-crit">{err}</div>}
 
-      <SubscriptionWindows windows={windows} weekModels={weekModels} />
+      <SubscriptionWindows windows={shownWindows} weekModels={weekModels} />
 
       {/* Team headline + burn */}
       <div className="mt-6 grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
@@ -318,7 +338,7 @@ export function UsageBoard() {
       )}
 
       {/* Where it's going — bars by model, sliced by person */}
-      <h2 className="mb-1 mt-8 text-[13px] font-semibold uppercase tracking-[0.08em] text-muted">Where it's going</h2>
+      <h2 className="mb-1 mt-8 text-[13px] font-semibold uppercase tracking-[0.08em] text-muted">{focus ? `Who ran ${focusName}` : "Where it's going"}</h2>
       <div className="text-[13px] text-faint">Each bar is a model; each colour a person. Hover a slice.</div>
       <div className="mt-3">
         {rows.length === 0 ? (
