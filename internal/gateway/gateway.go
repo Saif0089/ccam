@@ -179,7 +179,7 @@ func New(up Upstream, rec Recorder, lim Limiter) http.Handler {
 		switch {
 		case errors.Is(err, ErrUnknownKey):
 			deny(w, http.StatusUnauthorized, "authentication_error",
-				"Your access to this shared account was removed, or this key is not one the gateway knows. Ask whoever shared it to give you access again; `clawdh list` shows what you can run.")
+				"Your access to this shared account was removed, or this key isn't one the gateway knows. Ask whoever shared it to give you access again — a running `clawdh shared` session reconnects on its own once they do; `clawdh list` shows what you can run.")
 			return
 		case err != nil:
 			// The share is real but its shared login can't be used right now —

@@ -18,6 +18,7 @@ import (
 	"clawdh/internal/config"
 	"clawdh/internal/service"
 	"clawdh/internal/switching"
+	"clawdh/panel"
 )
 
 // switchPollInterval is how often the supervisor checks for a pending switch
@@ -191,6 +192,7 @@ type sessionTarget struct {
 	ownerDir  string   // the usage-ledger owner (an account's ConfigDir), recorded only when local
 	local     bool     // a local account (record ownership, apply identity, poll for revocation) vs a share
 	applyID   func()   // point ~/.claude.json at this account for /status; nil for a share
+	shareKey  string   // the gateway key a share launched with; watched for a mid-session change (a revoke+re-grant mints a new one). "" for a local account.
 }
 
 // localTarget builds the supervisor target for a local account.
@@ -217,13 +219,15 @@ func superviseSession(claudeBin, claudeDir, ledger, handoff string, target sessi
 	// not the first switch. Only on a fresh launch, and kept out of passthrough
 	// so a relaunch's --resume never collides with a minted --session-id.
 	launchArgs := passthrough
-	if !hasSessionArgs(passthrough) {
-		if id, err := newSessionID(); err == nil {
-			launchArgs = append([]string{"--session-id", id}, passthrough...)
-			if target.local {
-				if err := switching.AppendOwnership(ledger, id, target.ownerDir); err != nil {
-					fmt.Fprintln(os.Stderr, "clawdh: could not record this session for the usage monitor:", err)
-				}
+	var sessionID string // the conversation to resume on a relaunch (switch or re-key)
+	if hasSessionArgs(passthrough) {
+		sessionID = sessionIDFromArgs(passthrough)
+	} else if id, err := newSessionID(); err == nil {
+		sessionID = id
+		launchArgs = append([]string{"--session-id", id}, passthrough...)
+		if target.local {
+			if err := switching.AppendOwnership(ledger, id, target.ownerDir); err != nil {
+				fmt.Fprintln(os.Stderr, "clawdh: could not record this session for the usage monitor:", err)
 			}
 		}
 	}
@@ -238,6 +242,20 @@ func superviseSession(claudeBin, claudeDir, ledger, handoff string, target sessi
 		env := append(append([]string(nil), target.env...),
 			switching.HandoffEnvVar+"="+handoff,
 			fmt.Sprintf("%s=%d", switching.SupervisorEnvVar, os.Getpid()))
+
+		// A shared session's gateway key can change under it — a revoke then a
+		// re-grant mints a new one — and the frozen key would 401 forever. Watch
+		// shares.json (the background check-in keeps it current) and, when this
+		// account's key changes, stage the ordinary switch back to it, so the loop
+		// below relaunches with the fresh key and the same conversation. It only
+		// reads shares.json; nothing writes a credential or touches the keychain.
+		var stopWatch chan struct{}
+		if !target.local && target.shareKey != "" {
+			if sp, err := config.SharesFile(); err == nil {
+				stopWatch = make(chan struct{})
+				go watchShareKey(sp, target.display, target.shareKey, sessionID, handoff, stopWatch)
+			}
+		}
 
 		// Nothing in this callback prints. Claude Code owns the terminal while it
 		// runs, so a write here corrupts the TUI mid-paint; the reply goes back
@@ -255,6 +273,9 @@ func superviseSession(claudeBin, claudeDir, ledger, handoff string, target sessi
 			})
 			return false
 		})
+		if stopWatch != nil {
+			close(stopWatch) // the watcher stops here whether or not it staged a switch
+		}
 		if !switched {
 			if target.local && config.IsRevoked(target.accountID) {
 				fmt.Printf("\nYour access to %s was withdrawn by your team. This session has stopped; your conversation is saved.\n", target.display)
@@ -271,7 +292,13 @@ func superviseSession(claudeBin, claudeDir, ledger, handoff string, target sessi
 			fmt.Fprintf(os.Stderr, "clawdh: cannot switch to %q\n", h.Account)
 			return 1
 		}
+		// A relaunch onto the same shared account is the key-watcher recovering from
+		// a revoke+re-grant, not a user switch — say so, since the user did not ask.
+		if !next.local && !target.local && strings.EqualFold(next.display, target.display) {
+			fmt.Printf("clawdh: your access to %s was renewed — reconnecting; your conversation continues.\n", next.display)
+		}
 		target = next
+		sessionID = h.SessionID
 		// The conversation keeps its id across the switch; the monitor resolves
 		// ownership by interval, so work done before it stays with the account
 		// that did it. A share's usage is metered by the gateway, so only a local
@@ -284,6 +311,57 @@ func superviseSession(claudeBin, claudeDir, ledger, handoff string, target sessi
 		resume := switching.ResumeArgs(h.SessionID, switching.HasTranscript(claudeDir, h.SessionID))
 		sessionArgs = append(append([]string{}, passthrough...), resume...)
 	}
+}
+
+// shareKeyPollInterval is how often a shared session checks whether its gateway
+// key changed under it — well under the check-in interval that refreshes the file.
+var shareKeyPollInterval = time.Second
+
+// watchShareKey stages a switch back to the same shared account when its gateway
+// key changes under the running session. A revoke-then-re-grant mints a new key,
+// and the session's frozen ANTHROPIC_AUTH_TOKEN would 401 until it is replaced;
+// staging the ordinary switch makes the supervisor relaunch with the fresh key
+// and the same conversation, exactly like an in-session switch. It only reads
+// shares.json (kept current by the background check-in) — no credential is
+// written and the keychain is never touched, since a share is a bearer token in
+// an env var, not a login. It returns once it has staged a switch or is stopped.
+func watchShareKey(sharesPath, slug, launchedKey, sessionID, handoff string, stop <-chan struct{}) {
+	t := time.NewTicker(shareKeyPollInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			shares, err := panel.LoadShares(sharesPath)
+			if err != nil {
+				continue // an unreadable/absent file is a revoked window, not a new key
+			}
+			for _, sh := range shares {
+				if strings.EqualFold(sh.Slug, slug) && sh.Key != "" && sh.Key != launchedKey {
+					_ = switching.WriteHandoff(handoff, switching.Handoff{Account: slug, SessionID: sessionID, Shared: true})
+					return
+				}
+			}
+		}
+	}
+}
+
+// sessionIDFromArgs pulls the conversation id out of session args the caller
+// already set, so a watched relaunch can resume the same conversation. Empty for
+// --continue/-c, which name no id.
+func sessionIDFromArgs(args []string) string {
+	for i, a := range args {
+		switch {
+		case (a == "--session-id" || a == "--resume" || a == "-r") && i+1 < len(args):
+			return args[i+1]
+		case strings.HasPrefix(a, "--session-id="):
+			return a[len("--session-id="):]
+		case strings.HasPrefix(a, "--resume="):
+			return a[len("--resume="):]
+		}
+	}
+	return ""
 }
 
 // sharedClaudeDir is the ~/.claude every account shares. It deliberately

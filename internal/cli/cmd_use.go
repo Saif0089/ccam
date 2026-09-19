@@ -171,7 +171,7 @@ func sharedTarget(gatewayURL, key, label string) sessionTarget {
 		"ANTHROPIC_AUTH_TOKEN="+key,
 		sharedSessionEnvVar+"="+label,
 	)
-	return sessionTarget{display: label, env: env, local: false}
+	return sessionTarget{display: label, env: env, local: false, shareKey: key}
 }
 
 // resolveHandoffTarget turns a staged switch into the next target: a gateway
