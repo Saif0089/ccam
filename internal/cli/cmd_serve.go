@@ -114,7 +114,7 @@ func cmdServe(args []string) int {
 		// server running, and this process is about to be gone. The
 		// notification is the only thing that will tell anyone.
 		if errors.Is(err, httpserver.ErrRestartFailed) {
-			_ = notify.Send("Updated, but clawdh could not restart. Run `clawdh start` to bring it back.")
+			_ = notify.Send("Updated, but couldn't restart on its own. Run `clawdh start` to bring it back.")
 		}
 		return 1
 	}
@@ -185,7 +185,7 @@ func startAutoUpdate(ctx context.Context, srv *httpserver.Server) {
 	}
 
 	go up.Run(ctx, func(release updater.Release) {
-		if err := notify.Send("Updated to " + release.Name + ". Restarting."); err != nil {
+		if err := notify.Send("Updated to " + release.Name + " — restarting in the background. Nothing you need to do."); err != nil {
 			// A desktop that shows nothing is not a reason to keep
 			// running the old binary.
 			log.Printf("update: %v", err)
