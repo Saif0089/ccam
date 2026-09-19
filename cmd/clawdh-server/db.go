@@ -33,10 +33,8 @@ type dbUpstream struct {
 // limitCacheEntry is a person's cached quota standing, so the gateway checks the
 // database at most every limitCacheTTL per person rather than every request.
 type limitCacheEntry struct {
-	over    bool
-	retry   int
-	message string
-	at      time.Time
+	status gateway.QuotaStatus
+	at     time.Time
 }
 
 const limitCacheTTL = 20 * time.Second
@@ -155,15 +153,16 @@ func (u *dbUpstream) Record(ev gateway.Event) {
 	}
 }
 
-// OverLimit reports whether a person is over quota, cached briefly so it costs
-// at most one DB read per person per limitCacheTTL. It fails open: if the quota
-// check itself errors, the member is served — a metering hiccup must never lock
-// the whole team out of a subscription they are entitled to.
-func (u *dbUpstream) OverLimit(personID string) (bool, int, string) {
+// Status reports a person's quota standing (over the cap, and how close), cached
+// briefly so it costs at most one DB read per person per limitCacheTTL. It fails
+// open: if the quota check itself errors, the member is served unconstrained — a
+// metering hiccup must never lock the whole team out of a subscription they are
+// entitled to.
+func (u *dbUpstream) Status(personID string) gateway.QuotaStatus {
 	u.mu.Lock()
 	if e, ok := u.limitCache[personID]; ok && time.Since(e.at) < limitCacheTTL {
 		u.mu.Unlock()
-		return e.over, e.retry, e.message
+		return e.status
 	}
 	u.mu.Unlock()
 
@@ -171,21 +170,16 @@ func (u *dbUpstream) OverLimit(personID string) (bool, int, string) {
 	defer cancel()
 	st, err := u.pg.PersonLimitStatus(ctx, personID, time.Now())
 	if err != nil {
-		return false, 0, ""
+		return gateway.QuotaStatus{}
 	}
-	retry := 0
-	if st.Over {
-		if retry = int(time.Until(st.ResetAt).Seconds()); retry < 1 {
-			retry = 1
-		}
-	}
+	status := gateway.QuotaStatus{Over: st.Over, Fraction: st.Fraction, ResetAt: st.ResetAt, Message: st.Message}
 	u.mu.Lock()
 	if u.limitCache == nil {
 		u.limitCache = map[string]limitCacheEntry{}
 	}
-	u.limitCache[personID] = limitCacheEntry{over: st.Over, retry: retry, message: st.Message, at: time.Now()}
+	u.limitCache[personID] = limitCacheEntry{status: status, at: time.Now()}
 	u.mu.Unlock()
-	return st.Over, retry, st.Message
+	return status
 }
 
 // recordCollision notes, best-effort, that an account's shared login just failed

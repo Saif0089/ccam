@@ -172,7 +172,22 @@ export function UsageBoard() {
 
 // --- quotas ----------------------------------------------------------------
 
-interface LimitRow { limit: { id: string; subjectType: string; subjectId: string; windowKind: string; maxWeighted?: number; maxCostUsd?: number }; name: string }
+interface LimitRow {
+  limit: { id: string; subjectType: string; subjectId: string; windowKind: string; maxWeighted?: number; maxCostUsd?: number };
+  name: string;
+  fraction?: number;
+  resetAt?: string;
+}
+
+// usageTone maps a limit's utilisation to a colour and a word: green under 75%,
+// amber approaching (75–95%), red near or over the cap — the 75/95 marks the
+// gateway warns and blocks at.
+function usageTone(frac: number): { color: string; label: string } {
+  if (frac >= 1) return { color: "#E05C53", label: "over" };
+  if (frac >= 0.95) return { color: "#E05C53", label: `${Math.round(frac * 100)}% — at the cap` };
+  if (frac >= 0.75) return { color: "#E0A83E", label: `${Math.round(frac * 100)}% — approaching` };
+  return { color: "#46C08A", label: `${Math.round(frac * 100)}% used` };
+}
 
 function Quotas() {
   const [rows, setRows] = useState<LimitRow[]>([]);
@@ -236,10 +251,26 @@ function Quotas() {
         const caps: string[] = [];
         if (r.limit.maxWeighted) caps.push(fmtNum(r.limit.maxWeighted) + " weighted");
         if (r.limit.maxCostUsd) caps.push("$" + r.limit.maxCostUsd);
+        const frac = r.fraction || 0;
+        const tone = usageTone(frac);
         return (
           <div key={r.limit.id} className="grid grid-cols-[150px_1fr_auto] items-center gap-3.5 py-[9px]">
             <div className="truncate font-semibold">{r.name}</div>
-            <div className="text-[15px] text-muted">{caps.join(" / ")} · per {r.limit.windowKind}</div>
+            <div>
+              <div className="text-[15px] text-muted">
+                {caps.join(" / ")} · per {r.limit.windowKind}
+                <span className="ml-2 font-medium" style={{ color: tone.color }}>{tone.label}</span>
+              </div>
+              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-sunken">
+                <motion.div
+                  className="h-full rounded-full"
+                  style={{ background: tone.color }}
+                  initial={{ width: 0 }}
+                  animate={{ width: `${Math.min(frac, 1) * 100}%` }}
+                  transition={{ duration: 0.5, ease: [0.2, 0.8, 0.2, 1] }}
+                />
+              </div>
+            </div>
             <button onClick={() => remove(r.limit.id)} className="rounded-md border border-crit/40 px-[11px] py-[5px] text-[13px] text-crit hover:bg-crit/10">
               Remove
             </button>

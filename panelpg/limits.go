@@ -117,6 +117,26 @@ func (b *Backend) PersonLimitStatus(ctx context.Context, personID string, now ti
 	return tightest, nil
 }
 
+// LimitUsage reports how much of one configured limit is used right now (0..1+,
+// the max of its weighted-token and USD utilisation) and when its window resets.
+// It reuses the same window math and counters the gateway enforces against, so
+// the board and the enforcement never disagree.
+func (b *Backend) LimitUsage(ctx context.Context, l panel.Limit) (float64, time.Time, error) {
+	start, reset := windowBounds(time.Now(), l.WindowKind)
+	usedW, usedC, err := b.usedSince(ctx, l.SubjectType, l.SubjectID, start)
+	if err != nil {
+		return 0, reset, err
+	}
+	frac := 0.0
+	if l.MaxWeighted != nil && *l.MaxWeighted > 0 {
+		frac = maxf(frac, usedW/(*l.MaxWeighted))
+	}
+	if l.MaxCostUSD != nil && *l.MaxCostUSD > 0 {
+		frac = maxf(frac, usedC/(*l.MaxCostUSD))
+	}
+	return frac, reset, nil
+}
+
 // usedSince sums a person's (or, for an org limit, all people's) weighted tokens
 // and USD in a window.
 func (b *Backend) usedSince(ctx context.Context, subjectType, personID string, start time.Time) (weighted, cost float64, err error) {

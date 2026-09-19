@@ -30,7 +30,11 @@ func (s *Server) handleListLimits(w http.ResponseWriter, r *http.Request) {
 		if l.SubjectType == "person" {
 			name = s.subjectName(d, "person", l.SubjectID)
 		}
-		out = append(out, map[string]any{"limit": l, "name": name})
+		// How much of this limit is used right now, so the board can flag the ones
+		// approaching their cap. Best-effort: a usage read that errors just leaves
+		// the row without a live figure rather than failing the whole list.
+		frac, reset, _ := s.usage.LimitUsage(r.Context(), l)
+		out = append(out, map[string]any{"limit": l, "name": name, "fraction": frac, "resetAt": reset})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"limits": out})
 }

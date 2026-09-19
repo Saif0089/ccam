@@ -18,6 +18,7 @@ import (
 	"net/http/httputil"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ErrUnknownKey means the presented gateway key belongs to no live share: it was
@@ -55,14 +56,32 @@ type Upstream interface {
 	Resolve(memberKey string) (Resolution, error)
 }
 
-// Limiter reports whether a member is over quota, so the gateway can answer 429
-// before forwarding — the same shape a real spend limit uses. Optional; nil
+// Limiter reports a member's standing against their tightest clawdh quota, so
+// the gateway can answer 429 before forwarding when they are over — the same
+// shape a real spend limit uses — and warn them as they approach. Optional; nil
 // means no quotas are enforced.
 type Limiter interface {
-	// OverLimit returns whether this person is over quota now, and if so a
-	// message and how many seconds until the window resets (for retry-after).
-	OverLimit(personID string) (over bool, retryAfter int, message string)
+	// Status returns this person's current quota standing. A person with no
+	// applicable quota comes back zero-valued (Fraction 0, Over false).
+	Status(personID string) QuotaStatus
 }
+
+// QuotaStatus is a person's standing against the tightest clawdh quota that
+// applies to them: whether they are over it (turned away with a 429), how much
+// of it is used (0..1+, where >=0.75 is a warning), when the window resets, and
+// the message to show at the cap.
+type QuotaStatus struct {
+	Over     bool
+	Fraction float64
+	ResetAt  time.Time
+	Message  string
+}
+
+// warnFraction is where a member starts being told they are approaching their
+// clawdh quota — the 75% mark Anthropic's own spend-limit warnings use. Claude
+// Code turns anthropic-ratelimit-unified-status: allowed_warning into an
+// "approaching usage limit" notice on the member's next response.
+const warnFraction = 0.75
 
 // New builds the gateway handler over an Upstream. rec, if non-nil, meters each
 // forwarded response off the hot path; lim, if non-nil, is checked before each
@@ -73,10 +92,27 @@ func New(up Upstream, rec Recorder, lim Limiter) http.Handler {
 		// (SSE) responses streaming instead of buffering to the end.
 		FlushInterval: -1,
 		ModifyResponse: func(resp *http.Response) error {
+			ctx := resp.Request.Context()
+			// The member's clawdh quota is authoritative for what they may spend,
+			// so replace the upstream's own rate-limit headers (which reflect the
+			// whole shared login — everyone at once — not this person) with
+			// clawdh's per-person standing. A person with no quota (or none used
+			// yet) keeps the upstream headers untouched.
+			if st, ok := ctx.Value(quotaKey).(QuotaStatus); ok && (st.Fraction > 0 || st.Over) {
+				stripUnifiedRateLimit(resp.Header)
+				status := "allowed"
+				if st.Fraction >= warnFraction {
+					status = "allowed_warning"
+				}
+				resp.Header.Set("anthropic-ratelimit-unified-status", status)
+				if !st.ResetAt.IsZero() {
+					resp.Header.Set("anthropic-ratelimit-unified-reset", strconv.FormatInt(st.ResetAt.Unix(), 10))
+				}
+			}
 			if rec == nil || resp.Body == nil {
 				return nil
 			}
-			ident, _ := resp.Request.Context().Value(identKey).(Event)
+			ident, _ := ctx.Value(identKey).(Event)
 			ident.RequestID = resp.Header.Get("request-id")
 			resp.Body = &meteringBody{inner: resp.Body, rec: rec, base: ident}
 			return nil
@@ -129,15 +165,20 @@ func New(up Upstream, rec Recorder, lim Limiter) http.Handler {
 			return
 		}
 		// Quota gate: an over-cap member is turned away here, before their request
-		// reaches Anthropic, with a definitive 429 pointing at the window reset.
+		// reaches Anthropic, with a definitive 429 pointing at the window reset. A
+		// member under the cap is forwarded, and their standing rides along on the
+		// context so ModifyResponse can put a warning on the way back.
+		var quota QuotaStatus
 		if lim != nil && res.PersonID != "" {
-			if over, retryAfter, msg := lim.OverLimit(res.PersonID); over {
-				denyQuota(w, retryAfter, msg)
+			quota = lim.Status(res.PersonID)
+			if quota.Over {
+				denyQuota(w, resetSeconds(quota.ResetAt), quota.Message)
 				return
 			}
 		}
 		ctx := withToken(r.Context(), res.AccessToken)
 		ctx = context.WithValue(ctx, identKey, Event{AccountID: res.AccountID, PersonID: res.PersonID})
+		ctx = context.WithValue(ctx, quotaKey, quota)
 		proxy.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -207,7 +248,33 @@ type ctxKey int
 const (
 	tokenKey ctxKey = iota
 	identKey        // carries the resolved Event{AccountID,PersonID} for metering
+	quotaKey        // carries the member's QuotaStatus for the response warning
 )
+
+// resetSeconds is how many whole seconds until a window reset, at least 1 (a
+// retry-after of 0 reads as "retry now", which would loop into the cap).
+func resetSeconds(reset time.Time) int {
+	if reset.IsZero() {
+		return 0
+	}
+	s := int(time.Until(reset).Seconds())
+	if s < 1 {
+		return 1
+	}
+	return s
+}
+
+// stripUnifiedRateLimit drops the upstream's own anthropic-ratelimit-unified-*
+// headers so clawdh's per-person quota state is the only rate-limit signal the
+// member's client sees. The upstream set reflects the shared login as a whole,
+// which would mislead any one member reading their /usage.
+func stripUnifiedRateLimit(h http.Header) {
+	for k := range h {
+		if strings.HasPrefix(strings.ToLower(k), "anthropic-ratelimit-unified-") {
+			h.Del(k)
+		}
+	}
+}
 
 func withToken(ctx context.Context, token string) context.Context {
 	return context.WithValue(ctx, tokenKey, token)

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -69,17 +70,21 @@ func TestGatewayMetersAStreamedResponse(t *testing.T) {
 	}
 }
 
-// overLimiter reports every member as over quota, to test the 429 path.
-type overLimiter struct{}
+// fixedLimiter reports the same quota standing for every member, to drive the
+// deny and warn paths.
+type fixedLimiter struct{ st QuotaStatus }
 
-func (overLimiter) OverLimit(string) (bool, int, string) {
-	return true, 3600, "your clawdh daily quota is reached; it resets soon."
-}
+func (f fixedLimiter) Status(string) QuotaStatus { return f.st }
 
 // An over-quota member is turned away with a 429 billing_error before the
 // request ever reaches Anthropic — the shape a real spend limit uses.
 func TestGatewayRejectsOverQuotaWith429(t *testing.T) {
-	h := New(fakeUpstream{key: "member-key", token: "T"}, nil, overLimiter{})
+	over := fixedLimiter{QuotaStatus{
+		Over: true, Fraction: 1.0,
+		ResetAt: time.Now().Add(time.Hour),
+		Message: "your clawdh daily quota is reached; it resets soon.",
+	}}
+	h := New(fakeUpstream{key: "member-key", token: "T"}, nil, over)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -93,8 +98,8 @@ func TestGatewayRejectsOverQuotaWith429(t *testing.T) {
 	if resp.StatusCode != 429 {
 		t.Errorf("over quota -> %d, want 429", resp.StatusCode)
 	}
-	if resp.Header.Get("retry-after") != "3600" {
-		t.Errorf("retry-after = %q, want 3600", resp.Header.Get("retry-after"))
+	if ra, _ := strconv.Atoi(resp.Header.Get("retry-after")); ra < 3500 || ra > 3600 {
+		t.Errorf("retry-after = %q, want ~3600 (until the window reset)", resp.Header.Get("retry-after"))
 	}
 	if resp.Header.Get("x-should-retry") != "false" {
 		t.Error("a quota 429 must tell Claude Code not to retry it")
@@ -102,6 +107,48 @@ func TestGatewayRejectsOverQuotaWith429(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), "billing_error") {
 		t.Errorf("body = %s, want a billing_error", body)
+	}
+}
+
+// A member who is forwarded but past 75% of their clawdh quota gets an
+// allowed_warning on the way back — the signal Claude Code turns into an
+// "approaching usage limit" notice — and the upstream's own rate-limit headers,
+// which describe the shared login as a whole, are stripped in favour of it.
+func TestGatewayWarnsApproachingQuota(t *testing.T) {
+	reset := time.Now().Add(2 * time.Hour)
+	anthropic := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The upstream reports its own (whole-login) utilization; clawdh replaces it.
+		w.Header().Set("anthropic-ratelimit-unified-status", "allowed")
+		w.Header().Set("anthropic-ratelimit-unified-5h-utilization", "12")
+		io.WriteString(w, `{"type":"message","content":[]}`)
+	}))
+	defer anthropic.Close()
+	testTargetHost = strings.TrimPrefix(anthropic.URL, "http://")
+	defer func() { testTargetHost = "" }()
+
+	warn := fixedLimiter{QuotaStatus{Fraction: 0.82, ResetAt: reset,
+		Message: "your clawdh daily quota is reached; it resets soon."}}
+	srv := httptest.NewServer(New(fakeUpstream{key: "member-key", token: "T"}, nil, warn))
+	defer srv.Close()
+
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/messages", nil)
+	req.Header.Set("Authorization", "Bearer member-key")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("approaching-quota member -> %d, want 200 (still served)", resp.StatusCode)
+	}
+	if got := resp.Header.Get("anthropic-ratelimit-unified-status"); got != "allowed_warning" {
+		t.Errorf("unified-status = %q, want allowed_warning at 82%%", got)
+	}
+	if got := resp.Header.Get("anthropic-ratelimit-unified-reset"); got != strconv.FormatInt(reset.Unix(), 10) {
+		t.Errorf("unified-reset = %q, want the window reset %d", got, reset.Unix())
+	}
+	if resp.Header.Get("anthropic-ratelimit-unified-5h-utilization") != "" {
+		t.Error("the upstream's own unified rate-limit headers must be stripped")
 	}
 }
 

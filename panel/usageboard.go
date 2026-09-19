@@ -53,6 +53,9 @@ type UsageReader interface {
 	ListLimits(ctx context.Context) ([]Limit, error)
 	SetLimit(ctx context.Context, l Limit) error
 	DeleteLimit(ctx context.Context, id string) error
+	// LimitUsage is how much of one configured limit is used right now (0..1+),
+	// and when its window resets — for the "82% — approaching" badge on the board.
+	LimitUsage(ctx context.Context, l Limit) (fraction float64, resetAt time.Time, err error)
 	// Health: accounts whose shared login recently broke (used outside the gateway).
 	RecentCollisions(ctx context.Context, since time.Time) (map[string]time.Time, error)
 }
