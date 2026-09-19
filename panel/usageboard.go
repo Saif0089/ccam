@@ -119,9 +119,13 @@ func (s *Server) handleUsage(subjectType string) http.HandlerFunc {
 
 		subjects := make([]map[string]any, 0, len(rows))
 		for _, row := range rows {
+			name, ok := s.lookupSubject(d, subjectType, row.SubjectID)
+			if !ok {
+				continue // a removed person/account — no ghost card
+			}
 			subjects = append(subjects, map[string]any{
 				"id":       row.SubjectID,
-				"name":     s.subjectName(d, subjectType, row.SubjectID),
+				"name":     name,
 				"weighted": row.Weighted,
 				"costUsd":  row.CostUSD,
 				"byModel":  row.ByModel,
@@ -168,10 +172,19 @@ func (s *Server) handleWindows(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d, _ := s.store.Load()
-	for i := range rows {
-		rows[i].Name = s.subjectName(d, "account", rows[i].AccountID)
+	// Only show windows for accounts that still exist. A removed account can leave
+	// a stale row behind (the gateway captured its utilisation before it went), and
+	// a "removed account" card is just confusing.
+	kept := make([]AccountWindow, 0, len(rows))
+	for _, row := range rows {
+		name, ok := s.lookupSubject(d, "account", row.AccountID)
+		if !ok {
+			continue
+		}
+		row.Name = name
+		kept = append(kept, row)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"windows": rows})
+	writeJSON(w, http.StatusOK, map[string]any{"windows": kept})
 }
 
 func normalizeWindow(name string) string {
@@ -184,18 +197,32 @@ func normalizeWindow(name string) string {
 }
 
 func (s *Server) subjectName(d Data, subjectType, id string) string {
+	if name, ok := s.lookupSubject(d, subjectType, id); ok {
+		return name
+	}
+	if subjectType == "account" {
+		return "removed account"
+	}
+	return "removed member"
+}
+
+// lookupSubject resolves an id to a current person or account name and reports
+// whether it still exists — so a board can drop the rows of a subject that was
+// removed instead of showing a ghost "removed account/member" card for data the
+// gateway captured before it went away.
+func (s *Server) lookupSubject(d Data, subjectType, id string) (string, bool) {
 	if subjectType == "account" {
 		for _, a := range d.Accounts {
 			if a.ID == id {
-				return a.Name
+				return a.Name, true
 			}
 		}
-		return "removed account"
+		return "", false
 	}
 	for _, p := range d.People {
 		if p.ID == id {
-			return p.Name
+			return p.Name, true
 		}
 	}
-	return "removed member"
+	return "", false
 }
