@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"compress/gzip"
 	"errors"
 	"io"
 	"net/http"
@@ -67,6 +68,63 @@ func TestGatewayMetersAStreamedResponse(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("gateway recorded no usage for a streamed response")
+	}
+}
+
+// A real client (Claude Code) sends `Accept-Encoding: gzip, br`, so Anthropic
+// answers with a compressed body. The gateway must still meter it: the token
+// scanner reads the response body, and a body left compressed reads as zero
+// usage — which is why usage_events stayed empty while the window headers
+// recorded fine. The gateway drops the client's Accept-Encoding so the response
+// reaches the meter (and the client) as plaintext; this proves a gzip'd upstream
+// response is metered end to end. Without the fix the scanner sees gzip bytes,
+// finds no message_start, and this test times out.
+func TestGatewayMetersACompressedResponse(t *testing.T) {
+	sse := "event: message_start\n" +
+		`data: {"type":"message_start","message":{"model":"claude-opus-5","usage":{"input_tokens":200,"cache_creation_input_tokens":20,"cache_read_input_tokens":8,"output_tokens":1}}}` + "\n\n" +
+		"event: message_delta\n" +
+		`data: {"type":"message_delta","usage":{"output_tokens":77}}` + "\n\n" +
+		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+	anthropic := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("request-id", "req_gz")
+		gz := gzip.NewWriter(w)
+		io.WriteString(gz, sse)
+		gz.Close()
+	}))
+	defer anthropic.Close()
+
+	rec := &capRec{ch: make(chan Event, 1)}
+	h := New(fakeUpstream{key: "member-key", token: "T"}, rec, nil)
+	srv := httptest.NewServer(rewriteHost(h, anthropic.Listener.Addr().String()))
+	defer srv.Close()
+
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/messages", strings.NewReader("{}"))
+	req.Header.Set("Authorization", "Bearer member-key")
+	req.Header.Set("Accept-Encoding", "gzip, br") // what a real client sends
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	// The client got the decoded stream, not gzip bytes.
+	if !strings.Contains(string(body), "message_start") {
+		t.Errorf("client received a body that was not the decoded stream: %q", body)
+	}
+
+	select {
+	case ev := <-rec.ch:
+		if ev.Model != "claude-opus-5" {
+			t.Errorf("model = %q, want claude-opus-5", ev.Model)
+		}
+		if ev.Input != 200 || ev.Output != 77 || ev.CacheCreation != 20 || ev.CacheRead != 8 {
+			t.Errorf("tokens = in %d out %d cc %d cr %d, want 200/77/20/8", ev.Input, ev.Output, ev.CacheCreation, ev.CacheRead)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("gateway metered nothing for a gzip-compressed response")
 	}
 }
 

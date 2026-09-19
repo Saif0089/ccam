@@ -150,6 +150,20 @@ func New(up Upstream, rec Recorder, lim Limiter) http.Handler {
 				r.Header.Set("anthropic-version", anthropicVersion)
 			}
 			r.Header.Set("anthropic-beta", withBeta(r.Header.Get("anthropic-beta"), oauthBeta))
+
+			// Drop the client's Accept-Encoding so the meter can read the body.
+			// Claude Code sends `Accept-Encoding: gzip, br`; if we forward that, Go's
+			// transport hands the compressed response through untouched (it only
+			// transparently decodes gzip it requested itself), and Anthropic often
+			// answers in Brotli — which Go's stdlib can't decode at all. Either way
+			// the token scanner would see compressed bytes and meter nothing, which
+			// is exactly why usage_events stayed empty while window headers (plain
+			// HTTP headers) recorded fine. Dropping the header lets the transport
+			// request gzip on its own and decode it transparently, so the body
+			// reaches both the meter and the client as plaintext. Accept-Encoding is
+			// a hop preference, not response content, so this doesn't rewrite the
+			// body Claude Code recovers errors from — identity is always valid.
+			r.Header.Del("Accept-Encoding")
 		},
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
