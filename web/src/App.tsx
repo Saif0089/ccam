@@ -90,27 +90,21 @@ function Shell({ tab, setTab, onSignOut }: { tab: Tab; setTab: (t: Tab) => void;
   };
   const tabs: [Tab, string][] = [["accounts", "Accounts"], ["people", "People"], ["usage", "Usage"], ["quotas", "Quotas"], ["activity", "Activity"]];
   return (
-    <div className="mx-auto max-w-4xl px-5 py-6">
-      <div className="flex items-center gap-6 border-b border-line pb-3">
-        <span className="text-xl font-semibold tracking-tight">clawdh</span>
-        <nav className="flex gap-1">
-          {tabs.map(([t, label]) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`rounded-md px-3 py-1.5 text-[16px] transition-colors ${
-                t === tab ? "text-ink" : "text-muted hover:text-ink"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
-        <button onClick={signOut} className="ml-auto text-[15px] text-faint hover:text-ink">
-          Sign out
-        </button>
-      </div>
-      <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className="pt-6">
+    <div className="mx-auto max-w-5xl px-5 py-6 sm:px-8">
+      <header className="flex items-center gap-3 pb-4">
+        <span className="text-[22px] font-bold tracking-tight">clawdh</span>
+        <span className="rounded-full border border-line bg-raised px-2.5 py-0.5 text-[12px] font-medium text-muted">Team panel</span>
+        <button onClick={signOut} className="ml-auto text-[14px] text-faint transition-colors hover:text-ink">Sign out</button>
+      </header>
+      <nav className="flex gap-1 border-b border-line">
+        {tabs.map(([t, label]) => (
+          <button key={t} onClick={() => setTab(t)} className="relative px-3.5 pb-3 pt-1 text-[16px] font-medium transition-colors">
+            <span className={t === tab ? "text-ink" : "text-muted hover:text-ink"}>{label}</span>
+            {t === tab && <motion.span layoutId="tab-underline" className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-primary" transition={{ type: "spring", stiffness: 500, damping: 38 }} />}
+          </button>
+        ))}
+      </nav>
+      <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className="pt-8">
         {tab === "usage" ? <UsageBoard /> : tab === "quotas" ? <Quotas /> : <PanelTab tab={tab} />}
       </motion.div>
     </div>
@@ -235,45 +229,55 @@ function Accounts({ data, reload, ask }: { data: Panel; reload: () => void; ask:
     <div>
       <Head
         title="Accounts"
-        sub={sub}
-        action={<button onClick={addAccount} className="rounded-lg border border-line bg-raised-2 px-4 py-2 font-semibold text-ink hover:border-primary/50">Add an account</button>}
+        sub={sub || "The Claude logins your team shares through the gateway."}
+        action={<PrimaryButton onClick={addAccount}>Add an account</PrimaryButton>}
       />
-      {data.accounts.length === 0 && <Empty>No accounts yet. On a machine where a Claude account is signed in, open the clawdh page there and choose “Add to panel” on that account. It shows up here, ready to share.</Empty>}
-      <div className="flex flex-col divide-y divide-line">
-        {data.accounts.map((a) => (
-          <div key={a.id} className="flex items-center gap-4 py-3.5">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 font-semibold">
-                <span className="truncate">{a.name}</span>
-                {a.warning && <span title={a.warning} className="cursor-help text-warn">⚠</span>}
+      {data.accounts.length === 0 ? (
+        <Empty>No accounts yet. On a machine where a Claude account is signed in, open its clawdh page and choose “Add to panel” — it shows up here, ready to share.</Empty>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {data.accounts.map((a) => (
+            <motion.div key={a.id} whileHover={{ y: -2 }} transition={{ duration: 0.15 }} className="flex flex-col rounded-2xl border border-line bg-raised p-5 transition-colors hover:border-line/0 hover:ring-1 hover:ring-primary/25">
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-[17px] font-semibold">{a.name}</span>
+                    {a.warning && <span title={a.warning} className="cursor-help text-warn">⚠</span>}
+                  </div>
+                  <div className="mt-0.5 text-[14px] text-faint">{a.email || (a.plan ? a.plan + " plan" : "no sign-in on file")}</div>
+                </div>
+                {a.hasLogin ? <Pill kind="ok">Ready</Pill> : <Pill kind="need">Needs a login</Pill>}
               </div>
-              <div className="text-[14px] text-faint">{a.email || (a.plan ? a.plan + " plan" : "")}</div>
-            </div>
-            <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
-              {!a.hasLogin ? (
-                <Pill kind="need">Needs a login</Pill>
-              ) : (a.shared || []).length ? (
-                (a.shared || []).map((sh) => (
-                  <span key={sh.shareId} className="inline-flex items-center gap-1.5 rounded-md border border-line bg-raised-2 px-2 py-1 text-[14px]">
-                    {sh.personName}
-                    <button onClick={() => revoke(a, sh)} className="text-faint hover:text-crit" title="Take access away">×</button>
-                  </span>
-                ))
-              ) : (
-                <Pill kind="ok">Ready to share</Pill>
-              )}
-            </div>
-            <div className="flex shrink-0 items-center gap-4">
-              {a.hasLogin ? (
-                <button onClick={() => give(a)} className="text-[15px] text-primary hover:underline">Give access</button>
-              ) : (
-                <button onClick={() => howToAddLogin(a)} className="text-[15px] text-primary hover:underline">How to add its login</button>
-              )}
-              <button onClick={() => removeAccount(a)} className="text-[15px] text-faint hover:text-crit">Remove</button>
-            </div>
-          </div>
-        ))}
-      </div>
+
+              <div className="mt-4 min-h-[28px]">
+                {(a.shared || []).length ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {(a.shared || []).map((sh) => (
+                      <span key={sh.shareId} className="group inline-flex items-center gap-1.5 rounded-lg border border-line bg-raised-2 py-1 pl-2.5 pr-1.5 text-[13.5px]">
+                        {sh.personName}
+                        <button onClick={() => revoke(a, sh)} className="rounded text-faint transition-colors hover:text-crit" title="Take access away">×</button>
+                      </span>
+                    ))}
+                  </div>
+                ) : a.hasLogin ? (
+                  <div className="text-[14px] text-faint">Not shared with anyone yet.</div>
+                ) : (
+                  <div className="text-[14px] text-faint">Add its login on the machine where it's signed in.</div>
+                )}
+              </div>
+
+              <div className="mt-4 flex items-center gap-2 border-t border-line pt-3">
+                {a.hasLogin ? (
+                  <button onClick={() => give(a)} className="rounded-lg bg-primary/12 px-3.5 py-2 text-[14px] font-semibold text-primary transition-colors hover:bg-primary/20">Give access</button>
+                ) : (
+                  <button onClick={() => howToAddLogin(a)} className="rounded-lg bg-primary/12 px-3.5 py-2 text-[14px] font-semibold text-primary transition-colors hover:bg-primary/20">How to add its login</button>
+                )}
+                <button onClick={() => removeAccount(a)} className="ml-auto rounded-lg px-2.5 py-2 text-[14px] text-faint transition-colors hover:text-crit">Remove</button>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -330,44 +334,67 @@ function People({ data, reload, ask }: { data: Panel; reload: () => void; ask: A
     <div>
       <Head
         title="People"
-        sub={sub}
-        action={<button onClick={inviteSomeone} className="rounded-lg bg-primary px-4 py-2 font-semibold text-sunken">Invite someone</button>}
+        sub={sub || "Everyone on the team, the accounts they can use, and the machines they're on."}
+        action={<PrimaryButton onClick={inviteSomeone}>Invite someone</PrimaryButton>}
       />
-      {data.people.length === 0 && <Empty>Nobody yet. Invite someone — they get a link, join in a click, and whatever you share appears on their machine.</Empty>}
-      <div className="flex flex-col divide-y divide-line">
-        {data.people.map((p: Person) => (
-          <div key={p.id} className="flex flex-wrap items-start gap-4 py-3.5">
-            <div className="min-w-[150px] flex-1">
-              <div className="font-semibold">{p.name}</div>
-              <div className="text-[14px] text-faint">{p.email}</div>
-            </div>
-            <div className="min-w-[130px] flex-1 text-[14px]">
-              <span className={(p.can || []).length ? "text-muted" : "text-faint"}>{(p.can || []).join(", ") || "Nothing yet"}</span>
-            </div>
-            <div className="min-w-[170px] flex-1">
-              {(p.devices || []).length ? (
-                (p.devices || []).map((d) => (
-                  <div key={d.id} className="flex items-baseline gap-2.5 py-0.5 text-[13.5px]">
-                    <span className="font-mono">{d.name}</span>
-                    {d.remote && <span title="Remote help is on — you can ask this machine to look at itself" className="text-[11px] text-primary">◆ remote</span>}
-                    <span className="text-faint">{when(d.lastSeen)}</span>
-                    <div className="ml-auto flex gap-2.5">
-                      {d.remote && <button onClick={() => setJobsFor(d)} className="text-[13px] text-primary hover:underline">Ask…</button>}
-                      <button onClick={() => cutOff(p, d)} className="text-[13px] text-faint hover:text-crit">Remove</button>
-                    </div>
+      {data.people.length === 0 ? (
+        <Empty>Nobody yet. Invite someone — they get a link, join in a click, and whatever you share appears on their machine.</Empty>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {data.people.map((p: Person) => (
+            <motion.div key={p.id} whileHover={{ y: -2 }} transition={{ duration: 0.15 }} className="rounded-2xl border border-line bg-raised p-5 transition-colors hover:ring-1 hover:ring-primary/25">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[16px] font-bold text-primary">
+                  {p.name.slice(0, 1).toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[17px] font-semibold">{p.name}</div>
+                  <div className="text-[14px] text-faint">{p.email || "no email"}</div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button onClick={() => invitePerson(p)} className="rounded-lg px-3 py-1.5 text-[14px] font-medium text-primary transition-colors hover:bg-primary/12">Invite link</button>
+                  <button onClick={() => removePerson(p)} className="rounded-lg px-2.5 py-1.5 text-[14px] text-faint transition-colors hover:text-crit">Remove</button>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div>
+                  <div className="text-[12px] font-medium uppercase tracking-[0.06em] text-faint">Can use</div>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {(p.can || []).length ? (
+                      (p.can || []).map((c) => (
+                        <span key={c} className="rounded-lg border border-line bg-raised-2 px-2.5 py-1 text-[13.5px]">{c}</span>
+                      ))
+                    ) : (
+                      <span className="text-[14px] text-faint">Nothing shared yet — share an account from the Accounts tab.</span>
+                    )}
                   </div>
-                ))
-              ) : (
-                <span className="text-[14px] text-faint">Not joined yet</span>
-              )}
-            </div>
-            <div className="flex shrink-0 items-center gap-4">
-              <button onClick={() => invitePerson(p)} className="text-[15px] text-primary hover:underline">Invite</button>
-              <button onClick={() => removePerson(p)} className="text-[15px] text-faint hover:text-crit">Remove</button>
-            </div>
-          </div>
-        ))}
-      </div>
+                </div>
+                <div>
+                  <div className="text-[12px] font-medium uppercase tracking-[0.06em] text-faint">Machines</div>
+                  <div className="mt-1.5">
+                    {(p.devices || []).length ? (
+                      (p.devices || []).map((d) => (
+                        <div key={d.id} className="flex items-center gap-2 py-1 text-[13.5px]">
+                          <span className="font-mono text-ink">{d.name}</span>
+                          {d.remote && <span title="Remote help is on" className="rounded-full bg-primary/12 px-1.5 py-px text-[11px] font-medium text-primary">remote</span>}
+                          <span className="text-faint">{when(d.lastSeen)}</span>
+                          <div className="ml-auto flex gap-1">
+                            {d.remote && <button onClick={() => setJobsFor(d)} className="rounded px-1.5 py-0.5 text-[13px] text-primary transition-colors hover:bg-primary/12">Ask…</button>}
+                            <button onClick={() => cutOff(p, d)} className="rounded px-1.5 py-0.5 text-[13px] text-faint transition-colors hover:text-crit">Remove</button>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <span className="text-[14px] text-faint">Not joined yet — send them an invite link.</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
       <AnimatePresence>
         {jobsFor && <DeviceJobs key={jobsFor.id} deviceId={jobsFor.id} deviceName={jobsFor.name} onClose={() => setJobsFor(null)} />}
       </AnimatePresence>
@@ -376,44 +403,62 @@ function People({ data, reload, ask }: { data: Panel; reload: () => void; ask: A
 }
 
 function Activity({ data }: { data: Panel }) {
+  const events = data.activity || [];
   return (
     <div>
-      <Head title="Activity" sub="Everything that happened to an account" />
-      <div className="flex flex-col">
-        {(data.activity || []).map((e, i) => (
-          <div key={i} className="flex gap-4 border-t border-line py-3.5 text-[15px]">
-            <time className="w-32 shrink-0 tabular-nums text-faint">{new Date(e.at).toLocaleString()}</time>
-            <span>
-              <b className="font-semibold">{e.who}</b> {e.what}
-            </span>
-          </div>
-        ))}
-      </div>
+      <Head title="Activity" sub="Everything that's happened — shares given and taken, people invited, machines joined." />
+      {events.length === 0 ? (
+        <Empty>Nothing yet. Actions you take here show up as a running log.</Empty>
+      ) : (
+        <div className="relative ml-2 border-l border-line pl-6">
+          {events.map((e, i) => (
+            <div key={i} className="relative pb-6 last:pb-0">
+              <span className="absolute -left-[27px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-ground bg-primary" />
+              <div className="text-[15px] leading-snug">
+                <b className="font-semibold">{e.who}</b> <span className="text-muted">{e.what}</span>
+              </div>
+              <time className="text-[13px] text-faint">{when(e.at) || new Date(e.at).toLocaleString()}</time>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 function Head({ title, sub, action }: { title: string; sub: string; action?: React.ReactNode }) {
   return (
-    <div className="mb-2 flex items-start gap-5">
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 className="text-2xl font-semibold">{title}</h1>
-        <div className="mt-1 text-[15px] text-muted">{sub}</div>
+        <h1 className="text-[28px] font-bold tracking-tight">{title}</h1>
+        <div className="mt-1 max-w-xl text-[15px] leading-relaxed text-muted">{sub}</div>
       </div>
-      {action && <div className="ml-auto">{action}</div>}
+      {action}
     </div>
   );
 }
 
+function PrimaryButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <motion.button
+      onClick={onClick}
+      whileTap={{ scale: 0.97 }}
+      className="rounded-xl bg-primary px-5 py-2.5 text-[15px] font-semibold text-sunken shadow-lg shadow-primary/20 transition-[filter] hover:brightness-110"
+    >
+      {children}
+    </motion.button>
+  );
+}
+
 function Empty({ children }: { children: React.ReactNode }) {
-  return <div className="mt-6 rounded-xl border border-dashed border-line px-7 py-8 text-center text-[15px] leading-relaxed text-muted">{children}</div>;
+  return <div className="rounded-2xl border border-dashed border-line px-7 py-12 text-center text-[15px] leading-relaxed text-muted">{children}</div>;
 }
 
 function Pill({ kind, children }: { kind: "ok" | "need"; children: React.ReactNode }) {
-  const c = kind === "ok" ? "text-ok" : "text-warn";
+  const on = kind === "ok";
   return (
-    <span className={`inline-flex items-center gap-1.5 text-[14px] ${c}`}>
-      <span className={`h-[7px] w-[7px] rounded-full ${kind === "ok" ? "bg-ok" : "bg-warn"}`} />
+    <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[13px] font-medium ${on ? "border-ok/30 bg-ok/10 text-ok" : "border-warn/30 bg-warn/10 text-warn"}`}>
+      <span className={`h-[6px] w-[6px] rounded-full ${on ? "bg-ok" : "bg-warn"}`} />
       {children}
     </span>
   );
