@@ -18,11 +18,12 @@ func newHexID() string {
 	return hex.EncodeToString(b[:])
 }
 
-// Quotas. A limit caps a person (or the whole org) to a number of weighted
-// tokens and/or a USD amount within a calendar window (day/week/month, UTC
-// boundaries — the reset shape Anthropic's own spend limits use). The gateway
-// checks the tightest applicable limit before serving; over it, the member gets
-// a definitive 429 with the window's reset time, exactly like a real spend cap.
+// Quotas. A limit caps a person, one account, or the whole org to a number of
+// weighted tokens and/or a USD amount (or a % of the weekly window) within a
+// calendar window (day/week/month, UTC boundaries — the reset shape Anthropic's
+// own spend limits use). The gateway checks the tightest applicable limit before
+// serving; over it, the member gets a definitive 429 with the window's reset
+// time, exactly like a real spend cap.
 
 // The Limit type lives in the panel package (so the panel serves it without
 // importing this Postgres layer). LimitStatus is the enforcement result the
@@ -57,14 +58,18 @@ func windowBounds(now time.Time, kind string) (start, reset time.Time) {
 	return
 }
 
-// PersonLimitStatus checks a person against their own limits and any org-wide
-// limit, returning the tightest (most-used) one. now is a parameter for tests.
-// A person with no applicable limit comes back Over=false, Fraction=0.
-func (b *Backend) PersonLimitStatus(ctx context.Context, personID string, now time.Time) (LimitStatus, error) {
+// MemberLimitStatus checks one request — a person using a specific account —
+// against every quota that could stop it: the person's own limits, the limits on
+// the account they are using, and any org-wide limit. It returns the tightest
+// (most-used). A request with no applicable limit comes back Over=false,
+// Fraction=0. now is a parameter for tests.
+func (b *Backend) MemberLimitStatus(ctx context.Context, personID, accountID string, now time.Time) (LimitStatus, error) {
 	rows, err := b.db.QueryContext(ctx, `
 		SELECT subject_type, window_kind, max_weighted_tokens, max_cost_usd, max_percent
 		  FROM limits
-		 WHERE (subject_type = 'person' AND subject_id = $1) OR subject_type = 'org'`, personID)
+		 WHERE (subject_type = 'person'  AND subject_id = $1)
+		    OR (subject_type = 'account' AND subject_id = $2)
+		    OR  subject_type = 'org'`, personID, accountID)
 	if err != nil {
 		return LimitStatus{}, err
 	}
@@ -86,13 +91,20 @@ func (b *Backend) PersonLimitStatus(ctx context.Context, personID string, now ti
 		return LimitStatus{}, err
 	}
 
-	// The weekly-window share is only computed if some limit needs it.
+	// The weekly-window share / utilisation are only computed if a % limit needs them.
 	windowShare, shareDone := 0.0, false
+	accountUtil, utilDone := 0.0, false
 
 	var tightest LimitStatus
 	for _, l := range limits {
 		start, reset := windowBounds(now, l.windowKind)
-		usedW, usedC, err := b.usedSince(ctx, l.subjectType, personID, start)
+		// Which subject's usage this limit measures: the account for an account
+		// limit, the person otherwise (org sums everyone, ignoring the id).
+		subjectID := personID
+		if l.subjectType == "account" {
+			subjectID = accountID
+		}
+		usedW, usedC, err := b.usedSince(ctx, l.subjectType, subjectID, start)
 		if err != nil {
 			return LimitStatus{}, err
 		}
@@ -103,23 +115,38 @@ func (b *Backend) PersonLimitStatus(ctx context.Context, personID string, now ti
 		if l.maxC.Valid && l.maxC.Float64 > 0 {
 			frac = maxf(frac, usedC/l.maxC.Float64)
 		}
-		// A "% of weekly" cap: the person's share of the weekly window vs the cap.
-		// Person-scoped (org-wide % would be a team-share computation); fails open
-		// (share 0) until the utilisation data is flowing.
-		if l.maxP.Valid && l.maxP.Float64 > 0 && l.subjectType == "person" {
-			if !shareDone {
-				windowShare, err = b.personWeeklyWindowShare(ctx, personID, now)
-				if err != nil {
-					return LimitStatus{}, err
+		// A "% of weekly" cap: for a person, their share of the weekly window; for
+		// an account, its own utilisation of it. Both fail open (0) until the real
+		// utilisation data is flowing, so such a quota never blocks on missing data.
+		if l.maxP.Valid && l.maxP.Float64 > 0 {
+			switch l.subjectType {
+			case "person":
+				if !shareDone {
+					windowShare, err = b.personWeeklyWindowShare(ctx, personID, now)
+					if err != nil {
+						return LimitStatus{}, err
+					}
+					shareDone = true
 				}
-				shareDone = true
+				frac = maxf(frac, windowShare/l.maxP.Float64)
+			case "account":
+				if !utilDone {
+					accountUtil, err = b.accountWeeklyUtil(ctx, accountID)
+					if err != nil {
+						return LimitStatus{}, err
+					}
+					utilDone = true
+				}
+				frac = maxf(frac, accountUtil/l.maxP.Float64)
 			}
-			frac = maxf(frac, windowShare/l.maxP.Float64)
 		}
 		if frac > tightest.Fraction {
 			who := "your"
-			if l.subjectType == "org" {
+			switch l.subjectType {
+			case "org":
 				who = "the team's"
+			case "account":
+				who = "this account's"
 			}
 			tightest = LimitStatus{
 				Over:     frac >= 1.0,
@@ -150,26 +177,56 @@ func (b *Backend) LimitUsage(ctx context.Context, l panel.Limit) (float64, time.
 	if l.MaxCostUSD != nil && *l.MaxCostUSD > 0 {
 		frac = maxf(frac, usedC/(*l.MaxCostUSD))
 	}
-	if l.MaxPercent != nil && *l.MaxPercent > 0 && l.SubjectType == "person" {
-		if share, err := b.personWeeklyWindowShare(ctx, l.SubjectID, time.Now()); err == nil {
-			frac = maxf(frac, share/(*l.MaxPercent))
+	if l.MaxPercent != nil && *l.MaxPercent > 0 {
+		switch l.SubjectType {
+		case "person":
+			if share, err := b.personWeeklyWindowShare(ctx, l.SubjectID, time.Now()); err == nil {
+				frac = maxf(frac, share/(*l.MaxPercent))
+			}
+		case "account":
+			if util, err := b.accountWeeklyUtil(ctx, l.SubjectID); err == nil {
+				frac = maxf(frac, util/(*l.MaxPercent))
+			}
 		}
 	}
 	return frac, reset, nil
 }
 
-// usedSince sums a person's (or, for an org limit, all people's) weighted tokens
-// and USD in a window.
-func (b *Backend) usedSince(ctx context.Context, subjectType, personID string, start time.Time) (weighted, cost float64, err error) {
+// usedSince sums a subject's weighted tokens and USD in a window: one person's
+// or one account's own counters, or — for an org limit — every person's (which
+// is all usage). Counter rows exist for both persons and accounts because
+// RecordUsage rolls every event into both.
+func (b *Backend) usedSince(ctx context.Context, subjectType, subjectID string, start time.Time) (weighted, cost float64, err error) {
+	counterType := "person"
+	if subjectType == "account" {
+		counterType = "account"
+	}
 	q := `SELECT COALESCE(SUM(weighted_tokens),0), COALESCE(SUM(cost_usd),0)
-	        FROM usage_counters WHERE subject_type = 'person' AND window_start >= $1`
-	args := []any{start}
+	        FROM usage_counters WHERE subject_type = $1 AND window_start >= $2`
+	args := []any{counterType, start}
 	if subjectType != "org" {
-		q += ` AND subject_id = $2`
-		args = append(args, personID)
+		q += ` AND subject_id = $3`
+		args = append(args, subjectID)
 	}
 	err = b.db.QueryRowContext(ctx, q, args...).Scan(&weighted, &cost)
 	return
+}
+
+// accountWeeklyUtil is an account's own share of its weekly usage window (0..1),
+// straight from the rate-limit headers the gateway captured — the number an
+// account's "X% of weekly" quota is checked against. Zero (fail-open) until a
+// reading exists for the account.
+func (b *Backend) accountWeeklyUtil(ctx context.Context, accountID string) (float64, error) {
+	var u sql.NullFloat64
+	err := b.db.QueryRowContext(ctx,
+		`SELECT sevend_util FROM account_windows WHERE account_id = $1`, accountID).Scan(&u)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return u.Float64, nil
 }
 
 func maxf(a, b float64) float64 {

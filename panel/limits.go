@@ -6,11 +6,12 @@ import (
 )
 
 // Limit is one configured quota (a mirror of the row the Postgres layer stores).
-// A limit caps a person, or the whole org, to a number of weighted tokens and/or
-// a USD amount within a calendar window that resets daily, weekly, or monthly.
+// A limit caps a person, one account, or the whole org to a number of weighted
+// tokens and/or a USD amount within a calendar window that resets daily, weekly,
+// or monthly.
 type Limit struct {
 	ID          string   `json:"id"`
-	SubjectType string   `json:"subjectType"` // 'person' | 'org'
+	SubjectType string   `json:"subjectType"` // 'person' | 'account' | 'org'
 	SubjectID   string   `json:"subjectId"`   // '' for org-wide
 	WindowKind  string   `json:"windowKind"`  // 'day' | 'week' | 'month'
 	MaxWeighted *float64 `json:"maxWeighted,omitempty"`
@@ -32,8 +33,11 @@ func (s *Server) handleListLimits(w http.ResponseWriter, r *http.Request) {
 	out := make([]map[string]any, 0, len(limits))
 	for _, l := range limits {
 		name := "the whole team"
-		if l.SubjectType == "person" {
+		switch l.SubjectType {
+		case "person":
 			name = s.subjectName(d, "person", l.SubjectID)
+		case "account":
+			name = s.subjectName(d, "account", l.SubjectID)
 		}
 		// How much of this limit is used right now, so the board can flag the ones
 		// approaching their cap. Best-effort: a usage read that errors just leaves
@@ -52,15 +56,20 @@ func (s *Server) handleSetLimit(w http.ResponseWriter, r *http.Request) {
 	}
 	l.SubjectType = strings.ToLower(strings.TrimSpace(l.SubjectType))
 	l.WindowKind = strings.ToLower(strings.TrimSpace(l.WindowKind))
-	if l.SubjectType != "person" && l.SubjectType != "org" {
-		fail(w, http.StatusBadRequest, "A quota applies to a person or to the whole team.")
+	l.SubjectID = strings.TrimSpace(l.SubjectID)
+	if l.SubjectType != "person" && l.SubjectType != "account" && l.SubjectType != "org" {
+		fail(w, http.StatusBadRequest, "A quota applies to a person, an account, or the whole team.")
 		return
 	}
 	if l.SubjectType == "org" {
 		l.SubjectID = ""
+	} else if l.SubjectID == "" {
+		fail(w, http.StatusBadRequest, "Pick which person or account this quota applies to.")
+		return
 	}
-	// A "% of weekly" cap is a person's share of the weekly window, so it forces
-	// a weekly window and a person subject. Accept 0..1 or a 0..100 percentage.
+	// A "% of weekly" cap is a share of the weekly window — a person's share of it,
+	// or an account's own use of it — so it forces a weekly window and can't apply
+	// to the whole team. Accept 0..1 or a 0..100 percentage.
 	if l.MaxPercent != nil {
 		p := *l.MaxPercent
 		if p > 1 {
@@ -70,8 +79,8 @@ func (s *Server) handleSetLimit(w http.ResponseWriter, r *http.Request) {
 			fail(w, http.StatusBadRequest, "A weekly-share quota is a percent between 0 and 100.")
 			return
 		}
-		if l.SubjectType != "person" {
-			fail(w, http.StatusBadRequest, "A % of the weekly window applies to a person, not the whole team.")
+		if l.SubjectType == "org" {
+			fail(w, http.StatusBadRequest, "A % of the weekly window applies to a person or an account, not the whole team.")
 			return
 		}
 		l.WindowKind = "week"

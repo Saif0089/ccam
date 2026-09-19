@@ -61,9 +61,11 @@ type Upstream interface {
 // shape a real spend limit uses — and warn them as they approach. Optional; nil
 // means no quotas are enforced.
 type Limiter interface {
-	// Status returns this person's current quota standing. A person with no
-	// applicable quota comes back zero-valued (Fraction 0, Over false).
-	Status(personID string) QuotaStatus
+	// Status returns the standing for a request — a person using a specific
+	// account — against the tightest quota that applies: the person's own, the
+	// account's, or the org's. A request with no applicable quota comes back
+	// zero-valued (Fraction 0, Over false).
+	Status(personID, accountID string) QuotaStatus
 }
 
 // QuotaStatus is a person's standing against the tightest clawdh quota that
@@ -194,8 +196,8 @@ func New(up Upstream, rec Recorder, lim Limiter) http.Handler {
 		// member under the cap is forwarded, and their standing rides along on the
 		// context so ModifyResponse can put a warning on the way back.
 		var quota QuotaStatus
-		if lim != nil && res.PersonID != "" {
-			quota = lim.Status(res.PersonID)
+		if lim != nil && (res.PersonID != "" || res.AccountID != "") {
+			quota = lim.Status(res.PersonID, res.AccountID)
 			if quota.Over {
 				denyQuota(w, resetSeconds(quota.ResetAt), quota.Message)
 				return

@@ -132,7 +132,7 @@ func TestGatewayMetersACompressedResponse(t *testing.T) {
 // deny and warn paths.
 type fixedLimiter struct{ st QuotaStatus }
 
-func (f fixedLimiter) Status(string) QuotaStatus { return f.st }
+func (f fixedLimiter) Status(string, string) QuotaStatus { return f.st }
 
 // parseWindows normalises a percentage reading to 0..1 and keeps an already
 // fractional one, and reports absence when the headers aren't there.
@@ -278,6 +278,43 @@ func TestGatewayWarnsApproachingQuota(t *testing.T) {
 	}
 	if resp.Header.Get("anthropic-ratelimit-unified-5h-utilization") != "" {
 		t.Error("the upstream's own unified rate-limit headers must be stripped")
+	}
+}
+
+// recLimiter records the (person, account) it was asked about, so a test can
+// prove the gateway passes the account a request is using — the data an
+// account-scoped quota is enforced from.
+type recLimiter struct {
+	person, account string
+	st              QuotaStatus
+}
+
+func (r *recLimiter) Status(personID, accountID string) QuotaStatus {
+	r.person, r.account = personID, accountID
+	return r.st
+}
+
+// An account-scoped quota needs the gateway to tell the limiter which account a
+// request is using, not just who is making it. This proves both identities reach
+// the limiter, so a limit set on a subscription can actually be enforced.
+func TestGatewayPassesAccountToTheLimiter(t *testing.T) {
+	// Over the cap, so the request is denied here and never dials Anthropic; the
+	// limiter still records the identity it was asked about first.
+	lim := &recLimiter{st: QuotaStatus{Over: true, ResetAt: time.Now().Add(time.Hour), Message: "capped"}}
+	h := New(fakeUpstream{key: "member-key", token: "T"}, nil, lim)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/messages", nil)
+	req.Header.Set("Authorization", "Bearer member-key")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	if lim.person != "person-1" || lim.account != "acct-1" {
+		t.Errorf("limiter was asked about person %q account %q, want person-1/acct-1", lim.person, lim.account)
 	}
 }
 

@@ -165,9 +165,12 @@ func (u *dbUpstream) RecordWindows(accountID string, w gateway.Windows) {
 // open: if the quota check itself errors, the member is served unconstrained — a
 // metering hiccup must never lock the whole team out of a subscription they are
 // entitled to.
-func (u *dbUpstream) Status(personID string) gateway.QuotaStatus {
+func (u *dbUpstream) Status(personID, accountID string) gateway.QuotaStatus {
+	// Keyed by both: the same person can be under different standings on different
+	// accounts (an account cap applies to whoever is using that account).
+	key := personID + "\x00" + accountID
 	u.mu.Lock()
-	if e, ok := u.limitCache[personID]; ok && time.Since(e.at) < limitCacheTTL {
+	if e, ok := u.limitCache[key]; ok && time.Since(e.at) < limitCacheTTL {
 		u.mu.Unlock()
 		return e.status
 	}
@@ -175,7 +178,7 @@ func (u *dbUpstream) Status(personID string) gateway.QuotaStatus {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	st, err := u.pg.PersonLimitStatus(ctx, personID, time.Now())
+	st, err := u.pg.MemberLimitStatus(ctx, personID, accountID, time.Now())
 	if err != nil {
 		return gateway.QuotaStatus{}
 	}
@@ -184,7 +187,7 @@ func (u *dbUpstream) Status(personID string) gateway.QuotaStatus {
 	if u.limitCache == nil {
 		u.limitCache = map[string]limitCacheEntry{}
 	}
-	u.limitCache[personID] = limitCacheEntry{status: status, at: time.Now()}
+	u.limitCache[key] = limitCacheEntry{status: status, at: time.Now()}
 	u.mu.Unlock()
 	return status
 }

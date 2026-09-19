@@ -33,6 +33,7 @@ type Mode = "percent" | "weighted" | "cost";
 export function Quotas() {
   const [rows, setRows] = useState<LimitRow[]>([]);
   const [people, setPeople] = useState<{ id: string; name: string }[]>([]);
+  const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([]);
   const [mode, setMode] = useState<Mode>("percent");
   const [subject, setSubject] = useState("org");
   const [windowKind, setWindowKind] = useState("week");
@@ -42,10 +43,11 @@ export function Quotas() {
   const [err, setErr] = useState("");
 
   const load = () => {
-    Promise.all([api<{ limits: LimitRow[] }>("GET", "/api/limits"), api<{ people: { id: string; name: string }[] }>("GET", "/api/panel")])
+    Promise.all([api<{ limits: LimitRow[] }>("GET", "/api/limits"), api<{ people: { id: string; name: string }[]; accounts: { id: string; name: string }[] }>("GET", "/api/panel")])
       .then(([l, p]) => {
         setRows(l.limits || []);
         setPeople(p.people || []);
+        setAccounts(p.accounts || []);
       })
       .catch((e) => setErr(e.message));
   };
@@ -55,19 +57,31 @@ export function Quotas() {
     return () => clearInterval(id);
   }, []);
 
+  // "% of weekly" can't apply to the whole team, so when that mode is on and the
+  // subject is still the team, move to the first person (or account).
+  useEffect(() => {
+    if (mode === "percent" && subject === "org") {
+      if (people[0]) setSubject("person:" + people[0].id);
+      else if (accounts[0]) setSubject("account:" + accounts[0].id);
+    }
+  }, [mode, people, accounts, subject]);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr("");
     const body: any = { windowKind };
     if (subject === "org") body.subjectType = "org";
-    else {
+    else if (subject.startsWith("account:")) {
+      body.subjectType = "account";
+      body.subjectId = subject.slice("account:".length);
+    } else {
       body.subjectType = "person";
       body.subjectId = subject.slice("person:".length);
     }
     if (mode === "percent") {
       const p = parseFloat(percent);
       if (!(p > 0 && p <= 100)) return setErr("Enter a percent between 0 and 100.");
-      if (subject === "org") return setErr("A % of the weekly window applies to a person — pick one above.");
+      if (subject === "org") return setErr("A % of the weekly window applies to a person or an account — pick one above.");
       body.maxPercent = p; // 0..100; the server normalises + forces a weekly window
     } else if (mode === "weighted") {
       const w = parseFloat(weighted);
@@ -101,7 +115,7 @@ export function Quotas() {
   return (
     <div>
       <h1 className="text-[28px] font-bold tracking-tight">Quotas</h1>
-      <div className="mt-1 text-[15px] text-muted">Cap what a person, or the whole team, can spend in a window. Over the cap, the gateway turns them away — the same way a real spend limit does.</div>
+      <div className="mt-1 text-[15px] text-muted">Cap what a person, one account, or the whole team can spend in a window. Over the cap, the gateway turns them away — the same way a real spend limit does.</div>
 
       <h2 className="mb-2.5 mt-8 text-[13px] font-semibold uppercase tracking-[0.08em] text-muted">In effect</h2>
       {rows.length === 0 && (
@@ -145,9 +159,20 @@ export function Quotas() {
         <div className="mt-4 flex flex-wrap items-center gap-2.5">
           <select value={subject} onChange={(e) => setSubject(e.target.value)} className="rounded-lg border border-line bg-sunken px-3 py-2.5 text-[15px] outline-none focus:border-primary/60">
             {mode !== "percent" && <option value="org">The whole team</option>}
-            {people.map((p) => (
-              <option key={p.id} value={"person:" + p.id}>{p.name}</option>
-            ))}
+            {people.length > 0 && (
+              <optgroup label="People">
+                {people.map((p) => (
+                  <option key={p.id} value={"person:" + p.id}>{p.name}</option>
+                ))}
+              </optgroup>
+            )}
+            {accounts.length > 0 && (
+              <optgroup label="Accounts">
+                {accounts.map((a) => (
+                  <option key={a.id} value={"account:" + a.id}>{a.name}</option>
+                ))}
+              </optgroup>
+            )}
           </select>
 
           {mode === "percent" ? (
@@ -173,7 +198,7 @@ export function Quotas() {
           <button type="submit" className="rounded-lg bg-primary px-5 py-2.5 text-[15px] font-semibold text-sunken transition-transform active:scale-[0.98]">Set quota</button>
         </div>
         {mode === "percent" && (
-          <div className="mt-2.5 text-[13px] text-faint">A person's share of the account's weekly window — from Claude's real /usage numbers. It starts enforcing once usage is flowing.</div>
+          <div className="mt-2.5 text-[13px] text-faint">For a person, their share of the accounts' weekly windows; for an account, its own use of its weekly window — from Claude's real /usage numbers. It starts enforcing once usage is flowing.</div>
         )}
       </form>
       {err && <div className="mt-2 text-[14px] text-crit">{err}</div>}
