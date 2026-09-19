@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { api, Board, Burn, Subject, AccountWindow } from "./api";
-import { fmtNum, personColor, agoFrom, untilReset, windowTone, pct } from "./format";
+import { api, Board, Burn, Subject, AccountWindow, ModelUsage } from "./api";
+import { fmtNum, personColor, modelColor, agoFrom, untilReset, windowTone, pct } from "./format";
 
 type Metric = "weighted" | "cost";
 type Window = "5h" | "day" | "week" | "month";
@@ -148,35 +148,54 @@ function Sparkline({ buckets, metric }: { buckets: Burn["buckets"]; metric: Metr
 
 // --- subscription windows (mirrors /usage) ---------------------------------
 
-function WindowRow({ label, frac, reset }: { label: string; frac: number; reset?: string }) {
+function WindowRow({ label, frac, reset, models }: { label: string; frac: number; reset?: string; models?: ModelUsage[] }) {
   const color = windowTone(frac);
+  const parts = (models || []).filter((m) => m.weighted > 0);
+  const total = parts.reduce((a, m) => a + m.weighted, 0);
   return (
     <div>
       <div className="flex items-baseline justify-between text-[13.5px]">
         <span className="text-muted">{label}</span>
         <span className="font-semibold tabular-nums" style={{ color }}>{pct(frac)}</span>
       </div>
-      <div className="mt-1.5 h-2.5 overflow-hidden rounded-full bg-sunken">
-        <motion.div className="h-full rounded-full" style={{ background: color }} initial={{ width: 0 }} animate={{ width: `${Math.min(frac, 1) * 100}%` }} transition={{ duration: 0.6, ease: [0.2, 0.8, 0.2, 1] }} />
+      <div className="mt-1.5 flex h-2.5 overflow-hidden rounded-full bg-sunken">
+        {total > 0 ? (
+          <motion.div className="flex h-full" initial={{ width: 0 }} animate={{ width: `${Math.min(frac, 1) * 100}%` }} transition={{ duration: 0.6, ease: [0.2, 0.8, 0.2, 1] }}>
+            {parts.map((m) => (
+              <span
+                key={m.model}
+                className="h-full transition-[filter] hover:brightness-125"
+                style={{ width: `${(m.weighted / total) * 100}%`, background: modelColor(m.model).color }}
+                title={`${modelColor(m.model).label}: ${pct((m.weighted / total) * frac)} of the ${label.toLowerCase()}`}
+              />
+            ))}
+          </motion.div>
+        ) : (
+          <motion.div className="h-full rounded-full" style={{ background: color }} initial={{ width: 0 }} animate={{ width: `${Math.min(frac, 1) * 100}%` }} transition={{ duration: 0.6, ease: [0.2, 0.8, 0.2, 1] }} />
+        )}
       </div>
       {reset && <div className="mt-1 text-[12px] text-faint">{untilReset(reset)}</div>}
     </div>
   );
 }
 
-function SubscriptionWindows({ windows }: { windows: AccountWindow[] }) {
+function SubscriptionWindows({ windows, weekModels }: { windows: AccountWindow[]; weekModels: Map<string, ModelUsage[]> }) {
   if (!windows.length) return null;
+  const anyModels = [...weekModels.values()].some((m) => m.some((x) => x.weighted > 0));
   return (
     <div className="mt-8">
       <h2 className="mb-1 text-[13px] font-semibold uppercase tracking-[0.08em] text-muted">Subscription windows</h2>
-      <div className="text-[13px] text-faint">Straight from Claude's own /usage — how full each account's rolling windows are, exactly.</div>
+      <div className="text-[13px] text-faint">
+        Straight from Claude's own /usage — how full each account's rolling windows are, exactly.
+        {anyModels && " The weekly bar is sliced by model."}
+      </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         {windows.map((a) => (
           <motion.div key={a.accountId} whileHover={{ y: -2 }} transition={{ duration: 0.15 }} className="rounded-2xl border border-line bg-raised p-5 hover:ring-1 hover:ring-primary/20">
             <div className="text-[15px] font-semibold">{a.name}</div>
             <div className="mt-3.5 flex flex-col gap-3.5">
               <WindowRow label="5-hour window" frac={a.fiveH} reset={a.fiveHReset} />
-              <WindowRow label="Weekly window" frac={a.sevenD} reset={a.sevenDReset} />
+              <WindowRow label="Weekly window" frac={a.sevenD} reset={a.sevenDReset} models={weekModels.get(a.accountId)} />
             </div>
           </motion.div>
         ))}
@@ -195,6 +214,7 @@ export function UsageBoard() {
   const [people, setPeople] = useState<Subject[]>([]);
   const [burn, setBurn] = useState<Burn["buckets"]>([]);
   const [windows, setWindows] = useState<AccountWindow[]>([]);
+  const [weekModels, setWeekModels] = useState<Map<string, ModelUsage[]>>(new Map());
   const [asOf, setAsOf] = useState("");
   const [err, setErr] = useState("");
   const [tip, setTip] = useState<Tip | null>(null);
@@ -209,13 +229,15 @@ export function UsageBoard() {
         api<Board>("GET", `/api/usage/people?window=${w}`),
         api<Burn>("GET", `/api/usage/burn?window=${w}`),
         api<{ windows: AccountWindow[] }>("GET", `/api/usage/windows`),
+        api<Board>("GET", `/api/usage/accounts?window=week`), // for slicing the weekly bar by model
       ])
-        .then(([p, b, wins]) => {
+        .then(([p, b, wins, acc]) => {
           if (!live) return;
           setErr("");
           setPeople(p.subjects || []);
           setBurn(b.buckets || []);
           setWindows(wins.windows || []);
+          setWeekModels(new Map((acc.subjects || []).map((s) => [s.id, s.byModel])));
           setAsOf(p.asOf || "");
         })
         .catch((e) => live && setErr(e.message)); // keep last-known data on a transient failure
@@ -260,7 +282,7 @@ export function UsageBoard() {
 
       {err && <div className="mt-4 rounded-xl border border-crit/30 bg-crit/5 px-4 py-2.5 text-[14px] text-crit">{err}</div>}
 
-      <SubscriptionWindows windows={windows} />
+      <SubscriptionWindows windows={windows} weekModels={weekModels} />
 
       {/* Team headline + burn */}
       <div className="mt-6 grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
