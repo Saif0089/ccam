@@ -9,7 +9,10 @@
   --ground:#0F1216; --raised:#171B21; --sunken:#0B0E12; --line:#262C34;
   --raised-2:#1E242D;
   --ink:#E7EBF0; --muted:#9AA4B2; --faint:#626D7C;
-  --primary:#6E8BFF; --primary-ink:#0B0E12;
+  /* This-machine (client) theme: teal, so it reads at a glance as distinct from
+     the team panel's iris blue — same layout, different accent. */
+  --primary:#2DD4BF; --primary-ink:#04110E;
+  --primary-2:#22D3EE;
   --ok:#46C08A; --warn:#E0A83E; --crit:#E05C53;
   --radius:14px;
   --ease: cubic-bezier(.2,.7,.3,1);
@@ -52,7 +55,8 @@ header {
   gap: 12px;
 }
 
-.wordmark { display: flex; align-items: baseline; gap: 11px; }
+.wordmark { display: flex; align-items: center; gap: 10px; }
+.claw-logo { flex: none; }
 .logo { font-size: 26px; font-weight: 750; letter-spacing: -0.035em; }
 /* The client-vs-panel tell: this page manages the accounts on THIS computer,
    parallel to the panel's "Team panel" badge. */
