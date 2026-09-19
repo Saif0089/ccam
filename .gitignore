@@ -16,3 +16,4 @@ docs/mockups/
 # Local Claude Code session state and command dumps
 .claude.json
 *-local-command-caveatcaveat-*.txt
+.playwright-mcp/

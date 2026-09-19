@@ -24,3 +24,28 @@ export function agoFrom(iso: string): { text: string; stale: boolean } {
   const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
   return { text: "as of " + (mins < 1 ? "just now" : mins + "m ago"), stale: mins > 2 };
 }
+
+// when renders a past instant in plain words ("3 min ago", "2 days ago"), the
+// same phrasing the activity feed and device rows use everywhere.
+export function when(iso?: string): string {
+  if (!iso || iso.startsWith("0001")) return "";
+  const d = new Date(iso);
+  const mins = Math.round((Date.now() - d.getTime()) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs} ${hrs === 1 ? "hour" : "hours"} ago`;
+  const days = Math.round(hrs / 24);
+  if (days < 7) return `${days} ${days === 1 ? "day" : "days"} ago`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+// untilExpiry says how long an invite has left, for the copy under a link.
+export function untilExpiry(iso?: string): string {
+  if (!iso) return "for a while";
+  const left = new Date(iso).getTime() - Date.now();
+  if (left <= 0) return "but it has expired";
+  const mins = Math.round(left / 60000);
+  if (mins < 60) return `${mins} min left`;
+  return `${Math.round(mins / 60)} hr left`;
+}

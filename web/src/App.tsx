@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { api, Panel, Account, Person } from "./api";
+import { api, Panel, Account, Person, Device } from "./api";
 import { ClawIntro } from "./ClawIntro";
 import { UsageBoard } from "./UsageBoard";
+import { useDialog } from "./Dialog";
+import { when, untilExpiry } from "./format";
+
+type Ask = ReturnType<typeof useDialog>["ask"];
 
 type Tab = "accounts" | "people" | "usage" | "activity";
 type Status = "loading" | "setup" | "gate" | "in";
@@ -114,6 +118,7 @@ function Shell({ tab, setTab, onSignOut }: { tab: Tab; setTab: (t: Tab) => void;
 function PanelTab({ tab }: { tab: Tab }) {
   const [data, setData] = useState<Panel | null>(null);
   const [err, setErr] = useState("");
+  const { ask, node } = useDialog();
   const load = () =>
     api<Panel>("GET", "/api/panel")
       .then(setData)
@@ -124,36 +129,114 @@ function PanelTab({ tab }: { tab: Tab }) {
   }, []);
   if (err) return <div className="text-[15px] text-crit">{err}</div>;
   if (!data) return <div className="text-[15px] text-faint">Loading…</div>;
-  if (tab === "accounts") return <Accounts data={data} reload={load} />;
-  if (tab === "people") return <People data={data} reload={load} />;
-  return <Activity data={data} />;
+  return (
+    <>
+      {tab === "accounts" && <Accounts data={data} reload={load} ask={ask} />}
+      {tab === "people" && <People data={data} reload={load} ask={ask} />}
+      {tab === "activity" && <Activity data={data} />}
+      {node}
+    </>
+  );
 }
 
-function Accounts({ data, reload }: { data: Panel; reload: () => void }) {
+// run does a thing, reloads, and surfaces any refusal in a dialog.
+async function run(fn: () => Promise<unknown>, reload: () => void, ask: Ask) {
+  try {
+    await fn();
+    reload();
+  } catch (e: any) {
+    await ask({ title: "That didn't work", note: e.message, confirm: "Close", cancel: "" });
+  }
+}
+
+// showInvite presents an invite link with a copy button and its expiry.
+async function showInvite(ask: Ask, name: string, url: string, expiresAt?: string) {
+  await ask({
+    title: `Invite for ${name}`,
+    fields: [{ name: "link", label: "Send them this link", copy: url }],
+    note: `Works once, ${untilExpiry(expiresAt)}. They open it, join in a click, and whatever you share shows up on their machine.`,
+    confirm: "Done",
+    cancel: "",
+  });
+}
+
+function Accounts({ data, reload, ask }: { data: Panel; reload: () => void; ask: Ask }) {
+  const ready = data.accounts.filter((a) => a.hasLogin).length;
+  const need = data.accounts.length - ready;
+  const sub = data.accounts.length ? `${ready} ready to share` + (need ? `, ${need} need a login` : "") : "";
+
+  // giveAccess shares an account with people through the gateway. Many people
+  // can use one account at once, and access ends the instant it is taken back.
   const give = async (a: Account) => {
-    const person = prompt(`Give ${a.name} to which person? (type their exact name)`);
-    if (!person) return;
-    const p = data.people.find((x) => x.name.toLowerCase() === person.toLowerCase());
-    if (!p) return alert("No person by that name — add them in the People tab first.");
+    const without = data.people.filter((p) => !(a.shared || []).some((s) => s.personId === p.id));
+    if (!data.people.length) return void ask({ title: "Nobody to give it to", note: "Invite someone on the People tab first.", confirm: "Close", cancel: "" });
+    if (!without.length) return void ask({ title: "Everyone already has it", note: "Everyone you've added can already use this account.", confirm: "Close", cancel: "" });
+    const out = await ask({
+      title: `Give access to ${a.name}`,
+      fields: [{ name: "people", label: "To", checks: without.map((p) => ({ value: p.id, label: p.name })) }],
+      note: "Pick everyone who should use this account. Many people can share it at once, through the gateway — it appears on each machine once they've joined.",
+      confirm: "Give access",
+    });
+    const ids = (out?.people as string[]) || [];
+    if (!ids.length) return;
     try {
-      await api("POST", `/api/accounts/${a.id}/share`, { personId: p.id });
+      let lastGateway = "";
+      for (const id of ids) {
+        const { gateway } = await api<{ gateway?: string }>("POST", `/api/accounts/${a.id}/share`, { personId: id });
+        lastGateway = gateway || lastGateway;
+      }
       reload();
+      const names = without.filter((p) => ids.includes(p.id)).map((p) => p.name).join(", ");
+      await ask(
+        lastGateway
+          ? { title: "Done", note: `${names} can now use ${a.name}. It appears on each machine within a minute once they've joined.`, confirm: "Close", cancel: "" }
+          : { title: "Gateway not set", note: "There's no gateway configured (CLAWDH_GATEWAY_URL), so there's nowhere to point their access yet.", confirm: "Close", cancel: "" }
+      );
     } catch (e: any) {
-      alert(e.message);
+      await ask({ title: "That didn't work", note: e.message, confirm: "Close", cancel: "" });
     }
   };
-  const revoke = async (shareId: string) => {
-    try {
-      await api("POST", `/api/shares/${shareId}/revoke`, {});
-      reload();
-    } catch (e: any) {
-      alert(e.message);
-    }
+
+  const revoke = async (a: Account, sh: { shareId: string; personName: string }) => {
+    const ok = await ask({ title: `Take ${a.name} away from ${sh.personName}?`, note: "Their access stops within seconds, and any session they're running on it ends.", confirm: "Take it away", danger: true });
+    if (ok) run(() => api("POST", `/api/shares/${sh.shareId}/revoke`), reload, ask);
   };
+
+  // howToAddLogin explains the one thing the panel can't do itself: sign in.
+  const howToAddLogin = (a: Account) =>
+    ask({
+      title: `Add a login for ${a.name}`,
+      note: "The panel can't sign in for you — Claude's login needs a real browser. On the machine where this account is signed in, open the clawdh page there and choose “Add to panel” on it. That hands its login up here. People you share it with never do this.",
+      confirm: "Got it",
+      cancel: "",
+    });
+
+  const removeAccount = async (a: Account) => {
+    const ok = await ask({ title: `Remove ${a.name}?`, note: (a.shared || []).length ? "Everyone using it loses access." : "", confirm: "Remove", danger: true });
+    if (ok) run(() => api("DELETE", `/api/accounts/${a.id}`), reload, ask);
+  };
+
+  const addAccount = async () => {
+    const out = await ask({
+      title: "Add an account",
+      fields: [
+        { name: "name", label: "Name", placeholder: "Work" },
+        { name: "email", label: "Its Claude sign-in (optional)", placeholder: "work@example.com" },
+      ],
+      note: "This makes an empty slot. To share it, add its login from the machine where it's signed in — see “How to add its login”.",
+      confirm: "Add",
+    });
+    if (out?.name) run(() => api("POST", "/api/accounts", out), reload, ask);
+  };
+
   return (
     <div>
-      <Head title="Accounts" sub={`${data.accounts.filter((a) => a.hasLogin).length} ready to share`} />
-      {data.accounts.length === 0 && <Empty>No accounts yet. On a machine where a Claude account is signed in, open its clawdh page and choose “Add to panel”.</Empty>}
+      <Head
+        title="Accounts"
+        sub={sub}
+        action={<button onClick={addAccount} className="rounded-lg border border-line bg-raised-2 px-4 py-2 font-semibold text-ink hover:border-primary/50">Add an account</button>}
+      />
+      {data.accounts.length === 0 && <Empty>No accounts yet. On a machine where a Claude account is signed in, open the clawdh page there and choose “Add to panel” on that account. It shows up here, ready to share.</Empty>}
       <div className="flex flex-col divide-y divide-line">
         {data.accounts.map((a) => (
           <div key={a.id} className="flex items-center gap-4 py-3.5">
@@ -171,18 +254,21 @@ function Accounts({ data, reload }: { data: Panel; reload: () => void }) {
                 (a.shared || []).map((sh) => (
                   <span key={sh.shareId} className="inline-flex items-center gap-1.5 rounded-md border border-line bg-raised-2 px-2 py-1 text-[14px]">
                     {sh.personName}
-                    <button onClick={() => revoke(sh.shareId)} className="text-faint hover:text-crit" title="Take access away">×</button>
+                    <button onClick={() => revoke(a, sh)} className="text-faint hover:text-crit" title="Take access away">×</button>
                   </span>
                 ))
               ) : (
                 <Pill kind="ok">Ready to share</Pill>
               )}
             </div>
-            {a.hasLogin && (
-              <button onClick={() => give(a)} className="text-[15px] text-primary hover:underline">
-                Give access
-              </button>
-            )}
+            <div className="flex shrink-0 items-center gap-4">
+              {a.hasLogin ? (
+                <button onClick={() => give(a)} className="text-[15px] text-primary hover:underline">Give access</button>
+              ) : (
+                <button onClick={() => howToAddLogin(a)} className="text-[15px] text-primary hover:underline">How to add its login</button>
+              )}
+              <button onClick={() => removeAccount(a)} className="text-[15px] text-faint hover:text-crit">Remove</button>
+            </div>
           </div>
         ))}
       </div>
@@ -190,37 +276,87 @@ function Accounts({ data, reload }: { data: Panel; reload: () => void }) {
   );
 }
 
-function People({ data, reload }: { data: Panel; reload: () => void }) {
-  const invite = async () => {
-    const name = prompt("Who are you inviting? (their name)");
-    if (!name) return;
+function People({ data, reload, ask }: { data: Panel; reload: () => void; ask: Ask }) {
+  const setUp = data.people.filter((p) => (p.devices || []).length).length;
+  const sub = data.people.length ? `${data.people.length} ${data.people.length === 1 ? "person" : "people"}, ${setUp} set up` : "";
+
+  // inviteSomeone adds a person and hands you their invite link in one step.
+  const inviteSomeone = async () => {
+    const out = await ask({
+      title: "Invite someone",
+      fields: [
+        { name: "name", label: "Their name", placeholder: "Ehtisham" },
+        { name: "email", label: "Email (optional)" },
+      ],
+      confirm: "Create invite",
+    });
+    if (!out?.name) return;
     try {
-      await api("POST", "/api/people", { name });
-      const p = (await api<Panel>("GET", "/api/panel")).people.find((x) => x.name === name);
-      if (p) {
-        const res = await api<{ url: string }>("POST", `/api/people/${p.id}/invite`, {});
-        prompt("Send them this link (it expires in about an hour):", res.url);
-      }
+      await api("POST", "/api/people", { name: out.name, email: out.email });
+      const target = (await api<Panel>("GET", "/api/panel")).people.find((p) => p.name === out.name);
       reload();
+      if (!target) return;
+      const { url, expiresAt } = await api<{ url: string; expiresAt?: string }>("POST", `/api/people/${target.id}/invite`);
+      await showInvite(ask, String(out.name), url, expiresAt);
     } catch (e: any) {
-      alert(e.message);
+      await ask({ title: "That didn't work", note: e.message, confirm: "Close", cancel: "" });
     }
   };
+
+  // invitePerson makes a fresh invite link for someone already added.
+  const invitePerson = async (p: Person) => {
+    try {
+      const { url, expiresAt } = await api<{ url: string; expiresAt?: string }>("POST", `/api/people/${p.id}/invite`);
+      await showInvite(ask, p.name, url, expiresAt);
+    } catch (e: any) {
+      await ask({ title: "That didn't work", note: e.message, confirm: "Close", cancel: "" });
+    }
+  };
+
+  const removePerson = async (p: Person) => {
+    const ok = await ask({ title: `Remove ${p.name}?`, note: "Their access ends and their machines stop working straight away.", confirm: "Remove", danger: true });
+    if (ok) run(() => api("DELETE", `/api/people/${p.id}`), reload, ask);
+  };
+
+  const cutOff = async (p: Person, d: Device) => {
+    const ok = await ask({ title: `Remove ${d.name}?`, note: `${p.name}'s other machines keep working.`, confirm: "Remove", danger: true });
+    if (ok) run(() => api("DELETE", `/api/devices/${d.id}`), reload, ask);
+  };
+
   return (
     <div>
       <Head
         title="People"
-        sub={`${data.people.length} on the team`}
-        action={<button onClick={invite} className="rounded-lg bg-primary px-4 py-2 font-semibold text-sunken">Invite someone</button>}
+        sub={sub}
+        action={<button onClick={inviteSomeone} className="rounded-lg bg-primary px-4 py-2 font-semibold text-sunken">Invite someone</button>}
       />
-      {data.people.length === 0 && <Empty>No one yet. Invite a teammate — they get a link that sets their machine up.</Empty>}
+      {data.people.length === 0 && <Empty>Nobody yet. Invite someone — they get a link, join in a click, and whatever you share appears on their machine.</Empty>}
       <div className="flex flex-col divide-y divide-line">
         {data.people.map((p: Person) => (
-          <div key={p.id} className="py-3.5">
-            <div className="font-semibold">{p.name}</div>
-            <div className="text-[14px] text-muted">
-              {(p.can || []).length ? "Can use " + (p.can || []).join(", ") : "No access yet"}
-              {(p.devices || []).length ? ` · ${(p.devices || []).length} machine(s)` : ""}
+          <div key={p.id} className="flex flex-wrap items-start gap-4 py-3.5">
+            <div className="min-w-[150px] flex-1">
+              <div className="font-semibold">{p.name}</div>
+              <div className="text-[14px] text-faint">{p.email}</div>
+            </div>
+            <div className="min-w-[130px] flex-1 text-[14px]">
+              <span className={(p.can || []).length ? "text-muted" : "text-faint"}>{(p.can || []).join(", ") || "Nothing yet"}</span>
+            </div>
+            <div className="min-w-[170px] flex-1">
+              {(p.devices || []).length ? (
+                (p.devices || []).map((d) => (
+                  <div key={d.id} className="flex items-baseline gap-2.5 py-0.5 text-[13.5px]">
+                    <span className="font-mono">{d.name}</span>
+                    <span className="text-faint">{when(d.lastSeen)}</span>
+                    <button onClick={() => cutOff(p, d)} className="ml-auto text-[13px] text-faint hover:text-crit">Remove</button>
+                  </div>
+                ))
+              ) : (
+                <span className="text-[14px] text-faint">Not joined yet</span>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-4">
+              <button onClick={() => invitePerson(p)} className="text-[15px] text-primary hover:underline">Invite</button>
+              <button onClick={() => removePerson(p)} className="text-[15px] text-faint hover:text-crit">Remove</button>
             </div>
           </div>
         ))}

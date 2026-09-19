@@ -22,5 +22,6 @@ export interface Board { window: string; asOf: string; subjects: Subject[] }
 export interface Burn { window: string; asOf: string; buckets: { hour: string; weighted: number; costUsd: number }[] }
 export interface Limit { id: string; subjectType: string; subjectId: string; windowKind: string; maxWeighted?: number; maxCostUsd?: number }
 export interface Account { id: string; name: string; email?: string; plan?: string; hasLogin: boolean; warning?: string; shared?: { shareId: string; personId: string; personName: string }[] }
-export interface Person { id: string; name: string; email?: string; can?: string[]; devices?: { id: string; name: string }[] }
+export interface Device { id: string; name: string; lastSeen?: string }
+export interface Person { id: string; name: string; email?: string; can?: string[]; devices?: Device[] }
 export interface Panel { accounts: Account[]; people: Person[]; activity: { at: string; who: string; what: string }[] }
