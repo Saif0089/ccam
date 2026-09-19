@@ -189,6 +189,16 @@ test.afterAll(async () => {
 // Fail any test that logs a page error or a console error: the bug that
 // prompted these tests surfaced first as a thrown SyntaxError.
 test.beforeEach(async ({ page }) => {
+  // The first-run intro auto-opens over the page and blocks clicks (a real user
+  // dismisses it). These tests drive the page directly, so mark the intro already
+  // seen before any page script runs.
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem("clawdh:intro:v1", "1");
+    } catch (e) {
+      /* private mode */
+    }
+  });
   page.on("pageerror", (err) => {
     throw new Error(`uncaught page error: ${err.message}`);
   });

@@ -18,13 +18,16 @@ func TestResolveClaudePath(t *testing.T) {
 	claudeRootOverride = root
 	t.Cleanup(func() { claudeRootOverride = "" })
 
+	// outside is a sibling dir — absolute on every OS. A literal like "/etc" is a
+	// relative path on Windows, so it can't stand in for "somewhere off the root".
+	outside := t.TempDir()
 	ok := map[string]string{
-		"":                 root,
-		"~":                root,
-		".":                root,
-		"projects":         filepath.Join(root, "projects"),
-		"~/projects":       filepath.Join(root, "projects"),
-		root + "/projects": filepath.Join(root, "projects"),
+		"":                              root,
+		"~":                             root,
+		".":                             root,
+		"projects":                      filepath.Join(root, "projects"),
+		"~/projects":                    filepath.Join(root, "projects"),
+		filepath.Join(root, "projects"): filepath.Join(root, "projects"), // absolute, already inside
 	}
 	for in, want := range ok {
 		got, err := resolveClaudePath(in)
@@ -32,7 +35,7 @@ func TestResolveClaudePath(t *testing.T) {
 			t.Errorf("resolveClaudePath(%q) = %q, %v; want %q, nil", in, got, err, want)
 		}
 	}
-	for _, bad := range []string{"/etc/hosts", "..", "~/../secrets", "projects/../../elsewhere", filepath.Dir(root)} {
+	for _, bad := range []string{outside, filepath.Join(outside, "hosts"), "..", "~/../secrets", filepath.Join("..", "elsewhere"), filepath.Dir(root)} {
 		if got, err := resolveClaudePath(bad); err == nil {
 			t.Errorf("resolveClaudePath(%q) = %q, nil; want an out-of-bounds error", bad, got)
 		}
@@ -102,11 +105,13 @@ func TestJobLsAndGet(t *testing.T) {
 		t.Error("get on a missing file should be an error")
 	}
 
-	// Out of scope: neither ls nor get may reach outside ~/.claude.
-	if _, status := jobLs("/etc"); status != "error" {
+	// Out of scope: neither ls nor get may reach outside ~/.claude. A real dir
+	// outside the root — "/etc" is a relative path on Windows, so it won't do.
+	outside := t.TempDir()
+	if _, status := jobLs(outside); status != "error" {
 		t.Error("ls outside ~/.claude must be refused")
 	}
-	if _, status := jobGet("/etc/hosts"); status != "error" {
+	if _, status := jobGet(filepath.Join(outside, "x")); status != "error" {
 		t.Error("get outside ~/.claude must be refused")
 	}
 }
