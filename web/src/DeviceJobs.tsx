@@ -10,6 +10,7 @@ import { when } from "./format";
 export function DeviceJobs({ deviceId, deviceName, onClose }: { deviceId: string; deviceName: string; onClose: () => void }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [session, setSession] = useState("");
+  const [folder, setFolder] = useState("~");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -90,6 +91,25 @@ export function DeviceJobs({ deviceId, deviceName, onClose }: { deviceId: string
           </button>
         </div>
 
+        {/* File browser: list any folder, open any file — the machine ships it back. */}
+        <div className="mt-2 flex items-center gap-2">
+          <span className="text-[13px] text-faint">Files</span>
+          <input
+            value={folder}
+            onChange={(e) => setFolder(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && folder.trim() && ask("ls", folder.trim())}
+            placeholder="~  (a folder path)"
+            className="min-w-0 flex-1 rounded-lg border border-line bg-sunken px-3 py-2 font-mono text-[13.5px] outline-none focus:border-primary/60"
+          />
+          <button
+            disabled={busy || !folder.trim()}
+            onClick={() => ask("ls", folder.trim())}
+            className="shrink-0 rounded-lg border border-line bg-raised-2 px-3.5 py-2 text-[15px] hover:border-primary/50 disabled:opacity-40"
+          >
+            Browse
+          </button>
+        </div>
+
         {err && <div className="mt-3 text-[14px] text-crit">{err}</div>}
 
         <div className="mt-5 min-h-0 flex-1 overflow-y-auto">
@@ -97,7 +117,7 @@ export function DeviceJobs({ deviceId, deviceName, onClose }: { deviceId: string
             Results
             {pending && <span className="text-[12px] font-normal normal-case text-faint">· waiting for the machine to check in…</span>}
           </div>
-          {jobs.length === 0 && <div className="py-3 text-[14px] text-faint">Nothing asked yet.</div>}
+          {jobs.length === 0 && <div className="py-3 text-[14px] text-faint">Nothing asked yet. Diagnose it, list its sessions, or browse its files.</div>}
           <div className="flex flex-col gap-3">
             {jobs.map((j) => (
               <div key={j.id} className="rounded-xl border border-line bg-sunken p-3">
@@ -106,11 +126,13 @@ export function DeviceJobs({ deviceId, deviceName, onClose }: { deviceId: string
                   <JobBadge status={j.status} />
                   <span className="ml-auto text-[13px] text-faint">{when(j.createdAt)}</span>
                 </div>
-                {j.status !== "pending" && j.result && (
-                  <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-ground p-3 font-mono text-[12.5px] leading-relaxed text-muted">
-                    {j.result}
-                  </pre>
-                )}
+                {j.status === "done" && j.result && j.kind === "ls" ? (
+                  <FolderView result={j.result} onOpen={(kind, path) => { if (kind === "ls") setFolder(path); ask(kind, path); }} />
+                ) : j.status === "done" && j.result && j.kind === "get" ? (
+                  <FileView result={j.result} />
+                ) : j.status !== "pending" && j.result ? (
+                  <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-ground p-3 font-mono text-[12.5px] leading-relaxed text-muted">{j.result}</pre>
+                ) : null}
               </div>
             ))}
           </div>
@@ -120,9 +142,85 @@ export function DeviceJobs({ deviceId, deviceName, onClose }: { deviceId: string
   );
 }
 
+// FolderView renders an `ls` result as a navigable listing: folders reopen with
+// another ls, files fetch with a get.
+function FolderView({ result, onOpen }: { result: string; onOpen: (kind: "ls" | "get", path: string) => void }) {
+  let d: { path: string; parent: string; entries: { name: string; dir: boolean; size: number; mod: string }[] };
+  try {
+    d = JSON.parse(result);
+  } catch {
+    return <pre className="mt-2 text-[12.5px] text-crit">{result}</pre>;
+  }
+  const join = (name: string) => (d.path.endsWith("/") ? d.path + name : d.path + "/" + name);
+  const entries = [...(d.entries || [])].sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1));
+  return (
+    <div className="mt-2">
+      <div className="mb-1.5 flex items-center gap-2 font-mono text-[12.5px] text-faint">
+        <span className="truncate">{d.path}</span>
+        {d.parent && d.parent !== d.path && (
+          <button onClick={() => onOpen("ls", d.parent)} className="ml-auto rounded px-1.5 py-0.5 text-[12px] text-primary hover:bg-primary/12">↑ up</button>
+        )}
+      </div>
+      <div className="max-h-64 divide-y divide-line overflow-auto rounded-lg border border-line bg-ground">
+        {entries.map((e) => (
+          <button
+            key={e.name}
+            onClick={() => onOpen(e.dir ? "ls" : "get", join(e.name))}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] hover:bg-raised-2"
+          >
+            <span className="w-4 shrink-0 text-center text-faint">{e.dir ? "📁" : "📄"}</span>
+            <span className="truncate font-mono text-ink">{e.name}</span>
+            <span className="ml-auto shrink-0 tabular-nums text-faint">{e.dir ? "" : humanBytes(e.size)}</span>
+          </button>
+        ))}
+        {entries.length === 0 && <div className="px-3 py-2 text-[13px] text-faint">empty folder</div>}
+      </div>
+    </div>
+  );
+}
+
+// FileView renders a `get` result: text inline, anything else as a download.
+function FileView({ result }: { result: string }) {
+  let d: { path: string; size: number; encoding: string; content: string; truncated: boolean };
+  try {
+    d = JSON.parse(result);
+  } catch {
+    return <pre className="mt-2 text-[12.5px] text-crit">{result}</pre>;
+  }
+  const download = () => {
+    const name = d.path.split("/").pop() || "file";
+    let href: string;
+    if (d.encoding === "base64") href = "data:application/octet-stream;base64," + d.content;
+    else href = "data:text/plain;charset=utf-8," + encodeURIComponent(d.content);
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = name;
+    a.click();
+  };
+  return (
+    <div className="mt-2">
+      <div className="mb-1.5 flex items-center gap-2 text-[12.5px] text-faint">
+        <span className="font-mono">{humanBytes(d.size)}{d.truncated ? " · showing the first 4 MB" : ""}</span>
+        <button onClick={download} className="ml-auto rounded-lg border border-line bg-raised-2 px-2.5 py-1 text-[12.5px] text-ink hover:border-primary/50">Download</button>
+      </div>
+      {d.encoding === "utf8" ? (
+        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-ground p-3 font-mono text-[12.5px] leading-relaxed text-muted">{d.content}</pre>
+      ) : (
+        <div className="rounded-lg bg-ground p-3 text-[13px] text-faint">Binary file — use Download to save it.</div>
+      )}
+    </div>
+  );
+}
+
+function humanBytes(n: number): string {
+  if (n >= 1 << 20) return (n / (1 << 20)).toFixed(1) + " MB";
+  if (n >= 1 << 10) return (n / (1 << 10)).toFixed(1) + " KB";
+  return n + " B";
+}
+
 function jobLabel(j: Job): string {
   const base =
-    j.kind === "diagnose" ? "Health check" : j.kind === "sessions" ? "Session list" : j.kind === "transcript" ? "Transcript" : j.kind;
+    j.kind === "diagnose" ? "Health check" : j.kind === "sessions" ? "Session list" : j.kind === "transcript" ? "Transcript" : j.kind === "ls" ? "Folder" : j.kind === "get" ? "File" : j.kind;
   return j.params ? `${base} · ${j.params}` : base;
 }
 

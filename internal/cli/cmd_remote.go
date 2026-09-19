@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -9,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"clawdh/internal/buildinfo"
 	"clawdh/internal/claudebin"
@@ -100,9 +103,20 @@ func describeJob(j panel.RemoteJob) string {
 		return "list its sessions"
 	case "transcript":
 		return "send a session transcript"
+	case "ls":
+		return "list " + niceParams(j.Params)
+	case "get":
+		return "send " + niceParams(j.Params)
 	default:
 		return j.Kind
 	}
+}
+
+func niceParams(p string) string {
+	if strings.TrimSpace(p) == "" {
+		return "the home folder"
+	}
+	return p
 }
 
 // executeJob runs one read-only job and returns its result text and a status
@@ -119,9 +133,102 @@ func executeJob(j panel.RemoteJob) (result, status string) {
 			return err.Error(), "error"
 		}
 		return out, "done"
+	case "ls":
+		return jobLs(j.Params)
+	case "get":
+		return jobGet(j.Params)
 	default:
 		return "This machine doesn't know how to " + j.Kind + ".", "error"
 	}
+}
+
+// expandPath resolves a browse path: empty or "~" is the home folder, "~/x" is
+// under it, anything else is taken as-is (the file browser navigates by absolute
+// path). Read-only either way.
+func expandPath(p string) string {
+	p = strings.TrimSpace(p)
+	home, _ := os.UserHomeDir()
+	switch {
+	case p == "" || p == "~":
+		return home
+	case strings.HasPrefix(p, "~/"):
+		return filepath.Join(home, p[2:])
+	default:
+		return p
+	}
+}
+
+// jobLs lists a folder's entries — the file browser's navigation. Names, sizes,
+// mod times and dir/file only; never any contents. Result is JSON the panel
+// renders. Bounded so an enormous folder can't be dragged through whole.
+func jobLs(p string) (string, string) {
+	dir := expandPath(p)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err.Error(), "error"
+	}
+	type ent struct {
+		Name string `json:"name"`
+		Dir  bool   `json:"dir"`
+		Size int64  `json:"size"`
+		Mod  string `json:"mod"`
+	}
+	out := struct {
+		Path    string `json:"path"`
+		Parent  string `json:"parent"`
+		Entries []ent  `json:"entries"`
+	}{Path: dir, Parent: filepath.Dir(dir)}
+	for i, e := range entries {
+		if i >= 2000 {
+			break
+		}
+		var size int64
+		var mod string
+		if info, err := e.Info(); err == nil {
+			size, mod = info.Size(), info.ModTime().Format("2006-01-02 15:04")
+		}
+		out.Entries = append(out.Entries, ent{Name: e.Name(), Dir: e.IsDir(), Size: size, Mod: mod})
+	}
+	b, _ := json.Marshal(out)
+	return string(b), "done"
+}
+
+// maxGetBytes caps a fetched file, so a huge one can't be dragged whole through
+// the panel.
+const maxGetBytes = 4 << 20
+
+// jobGet reads one file and ships it back. Text is sent as-is; anything not
+// valid UTF-8 is base64'd, so any file survives the JSON round-trip.
+func jobGet(p string) (string, string) {
+	path := expandPath(p)
+	info, err := os.Stat(path)
+	if err != nil {
+		return err.Error(), "error"
+	}
+	if info.IsDir() {
+		return "that is a folder, not a file", "error"
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err.Error(), "error"
+	}
+	truncated := false
+	if len(data) > maxGetBytes {
+		data, truncated = data[:maxGetBytes], true
+	}
+	enc, content := "utf8", string(data)
+	if !utf8.Valid(data) {
+		enc, content = "base64", base64.StdEncoding.EncodeToString(data)
+	}
+	out := struct {
+		Path      string `json:"path"`
+		Size      int64  `json:"size"`
+		Encoding  string `json:"encoding"`
+		Content   string `json:"content"`
+		Truncated bool   `json:"truncated"`
+	}{path, info.Size(), enc, content, truncated}
+	b, _ := json.Marshal(out)
+	return string(b), "done"
 }
 
 // jobDiagnose reports whether clawdh is healthy here and can reach the gateway —

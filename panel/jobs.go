@@ -39,11 +39,15 @@ type Jobs interface {
 // jobKinds are the only things a machine can be asked to do — all read-only.
 // diagnose: is clawdh healthy here and can it reach the gateway. sessions: the
 // Claude Code sessions on this machine (ids and sizes, not content).
-// transcript: one named session's transcript, for debugging a bad run.
+// transcript: one named session's transcript. ls: the entries in a folder (the
+// file browser's navigation). get: one file's contents (bounded). ls/get take a
+// path in params and only ever read — nothing here can change a machine.
 var jobKinds = map[string]string{
 	"diagnose":   "check its own health",
 	"sessions":   "list its sessions",
 	"transcript": "send a session transcript",
+	"ls":         "list a folder",
+	"get":        "send a file",
 }
 
 // handleRequestJob queues a job for a machine. Admin-only. The request is logged
