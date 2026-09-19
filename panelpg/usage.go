@@ -55,8 +55,10 @@ CREATE TABLE IF NOT EXISTS limits (
     window_kind         text NOT NULL,           -- 'day' | 'week' | 'month'
     max_weighted_tokens double precision,
     max_cost_usd        double precision,
+    max_percent         double precision,        -- share of the weekly window (0..1)
     created_at          timestamptz NOT NULL DEFAULT now()
-);`
+);
+ALTER TABLE limits ADD COLUMN IF NOT EXISTS max_percent double precision;`
 
 func ensureUsageSchema(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, usageDDL)

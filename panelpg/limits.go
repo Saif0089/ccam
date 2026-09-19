@@ -62,7 +62,7 @@ func windowBounds(now time.Time, kind string) (start, reset time.Time) {
 // A person with no applicable limit comes back Over=false, Fraction=0.
 func (b *Backend) PersonLimitStatus(ctx context.Context, personID string, now time.Time) (LimitStatus, error) {
 	rows, err := b.db.QueryContext(ctx, `
-		SELECT subject_type, window_kind, max_weighted_tokens, max_cost_usd
+		SELECT subject_type, window_kind, max_weighted_tokens, max_cost_usd, max_percent
 		  FROM limits
 		 WHERE (subject_type = 'person' AND subject_id = $1) OR subject_type = 'org'`, personID)
 	if err != nil {
@@ -72,12 +72,12 @@ func (b *Backend) PersonLimitStatus(ctx context.Context, personID string, now ti
 
 	type lim struct {
 		subjectType, windowKind string
-		maxW, maxC              sql.NullFloat64
+		maxW, maxC, maxP        sql.NullFloat64
 	}
 	var limits []lim
 	for rows.Next() {
 		var l lim
-		if err := rows.Scan(&l.subjectType, &l.windowKind, &l.maxW, &l.maxC); err != nil {
+		if err := rows.Scan(&l.subjectType, &l.windowKind, &l.maxW, &l.maxC, &l.maxP); err != nil {
 			return LimitStatus{}, err
 		}
 		limits = append(limits, l)
@@ -85,6 +85,9 @@ func (b *Backend) PersonLimitStatus(ctx context.Context, personID string, now ti
 	if err := rows.Err(); err != nil {
 		return LimitStatus{}, err
 	}
+
+	// The weekly-window share is only computed if some limit needs it.
+	windowShare, shareDone := 0.0, false
 
 	var tightest LimitStatus
 	for _, l := range limits {
@@ -99,6 +102,19 @@ func (b *Backend) PersonLimitStatus(ctx context.Context, personID string, now ti
 		}
 		if l.maxC.Valid && l.maxC.Float64 > 0 {
 			frac = maxf(frac, usedC/l.maxC.Float64)
+		}
+		// A "% of weekly" cap: the person's share of the weekly window vs the cap.
+		// Person-scoped (org-wide % would be a team-share computation); fails open
+		// (share 0) until the utilisation data is flowing.
+		if l.maxP.Valid && l.maxP.Float64 > 0 && l.subjectType == "person" {
+			if !shareDone {
+				windowShare, err = b.personWeeklyWindowShare(ctx, personID, now)
+				if err != nil {
+					return LimitStatus{}, err
+				}
+				shareDone = true
+			}
+			frac = maxf(frac, windowShare/l.maxP.Float64)
 		}
 		if frac > tightest.Fraction {
 			who := "your"
@@ -134,6 +150,11 @@ func (b *Backend) LimitUsage(ctx context.Context, l panel.Limit) (float64, time.
 	if l.MaxCostUSD != nil && *l.MaxCostUSD > 0 {
 		frac = maxf(frac, usedC/(*l.MaxCostUSD))
 	}
+	if l.MaxPercent != nil && *l.MaxPercent > 0 && l.SubjectType == "person" {
+		if share, err := b.personWeeklyWindowShare(ctx, l.SubjectID, time.Now()); err == nil {
+			frac = maxf(frac, share/(*l.MaxPercent))
+		}
+	}
 	return frac, reset, nil
 }
 
@@ -158,6 +179,68 @@ func maxf(a, b float64) float64 {
 	return b
 }
 
+// personWeeklyWindowShare is how much of the weekly usage window this person is
+// responsible for (0..1), across every account they used this week: for each
+// account, their fraction of that account's usage times the account's real
+// weekly utilisation (from Anthropic's headers). It is the number a
+// "X% of weekly" quota is checked against. Zero until the utilisation data is
+// flowing — so such a quota fails open, never blocking on missing data.
+func (b *Backend) personWeeklyWindowShare(ctx context.Context, personID string, now time.Time) (float64, error) {
+	start, _ := windowBounds(now, "week")
+	rows, err := b.db.QueryContext(ctx, `
+		SELECT account_id,
+		       COALESCE(SUM(weighted_tokens) FILTER (WHERE person_id = $1), 0) AS mine,
+		       COALESCE(SUM(weighted_tokens), 0) AS total
+		  FROM usage_events
+		 WHERE at >= $2 AND account_id <> ''
+		 GROUP BY account_id`, personID, start)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	mine, total := map[string]float64{}, map[string]float64{}
+	for rows.Next() {
+		var id string
+		var m, t float64
+		if err := rows.Scan(&id, &m, &t); err != nil {
+			return 0, err
+		}
+		mine[id], total[id] = m, t
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	util := map[string]float64{}
+	urows, err := b.db.QueryContext(ctx, `SELECT account_id, COALESCE(sevend_util,0) FROM account_windows`)
+	if err != nil {
+		return 0, err
+	}
+	defer urows.Close()
+	for urows.Next() {
+		var id string
+		var u float64
+		if err := urows.Scan(&id, &u); err != nil {
+			return 0, err
+		}
+		util[id] = u
+	}
+	return windowShareOf(mine, total, util), nil
+}
+
+// windowShareOf is the pure core of personWeeklyWindowShare: for each account,
+// the person's fraction of its usage times its real utilisation, summed. An
+// account with no utilisation reading yet contributes nothing (fail-open).
+func windowShareOf(mine, total, util map[string]float64) float64 {
+	share := 0.0
+	for id, t := range total {
+		if t > 0 && util[id] > 0 {
+			share += (mine[id] / t) * util[id]
+		}
+	}
+	return share
+}
+
 // SetLimit sets the cap for a subject+window, replacing any prior one for that
 // exact (subject_type, subject_id, window_kind) so a subject has one limit per
 // window rather than a pile of them.
@@ -176,9 +259,9 @@ func (b *Backend) SetLimit(ctx context.Context, l panel.Limit) error {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO limits (id, subject_type, subject_id, window_kind, max_weighted_tokens, max_cost_usd)
-		VALUES ($1,$2,$3,$4,$5,$6)`,
-		l.ID, l.SubjectType, l.SubjectID, l.WindowKind, nullF(l.MaxWeighted), nullF(l.MaxCostUSD)); err != nil {
+		INSERT INTO limits (id, subject_type, subject_id, window_kind, max_weighted_tokens, max_cost_usd, max_percent)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+		l.ID, l.SubjectType, l.SubjectID, l.WindowKind, nullF(l.MaxWeighted), nullF(l.MaxCostUSD), nullF(l.MaxPercent)); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -187,7 +270,7 @@ func (b *Backend) SetLimit(ctx context.Context, l panel.Limit) error {
 // ListLimits returns every configured limit.
 func (b *Backend) ListLimits(ctx context.Context) ([]panel.Limit, error) {
 	rows, err := b.db.QueryContext(ctx, `
-		SELECT id, subject_type, subject_id, window_kind, max_weighted_tokens, max_cost_usd
+		SELECT id, subject_type, subject_id, window_kind, max_weighted_tokens, max_cost_usd, max_percent
 		  FROM limits ORDER BY subject_type, subject_id`)
 	if err != nil {
 		return nil, err
@@ -196,8 +279,8 @@ func (b *Backend) ListLimits(ctx context.Context) ([]panel.Limit, error) {
 	var out []panel.Limit
 	for rows.Next() {
 		var l panel.Limit
-		var w, c sql.NullFloat64
-		if err := rows.Scan(&l.ID, &l.SubjectType, &l.SubjectID, &l.WindowKind, &w, &c); err != nil {
+		var w, c, p sql.NullFloat64
+		if err := rows.Scan(&l.ID, &l.SubjectType, &l.SubjectID, &l.WindowKind, &w, &c, &p); err != nil {
 			return nil, err
 		}
 		if w.Valid {
@@ -205,6 +288,9 @@ func (b *Backend) ListLimits(ctx context.Context) ([]panel.Limit, error) {
 		}
 		if c.Valid {
 			l.MaxCostUSD = &c.Float64
+		}
+		if p.Valid {
+			l.MaxPercent = &p.Float64
 		}
 		out = append(out, l)
 	}
