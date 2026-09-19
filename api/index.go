@@ -18,7 +18,6 @@ import (
 	"os"
 	"sync"
 
-	"clawdh/internal/config"
 	"clawdh/panel"
 	"clawdh/panelpg"
 )
@@ -36,7 +35,7 @@ func build() (http.Handler, error) {
 	if dsn == "" {
 		return nil, errMissing("DATABASE_URL", "a Postgres connection string")
 	}
-	keyEnc := config.Env("PANEL_KEY")
+	keyEnc := panelKey()
 	if keyEnc == "" {
 		return nil, errMissing("CLAWDH_PANEL_KEY", "the base64 key that seals stored logins")
 	}
@@ -63,6 +62,18 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	built.ServeHTTP(w, r)
+}
+
+// panelKey reads the sealing key from the environment, preferring the CLAWDH_
+// name and falling back to the CCAM_ one the deployment still sets. It is
+// inlined (rather than internal/config.Env) because Vercel's Go builder compiles
+// this file as its own synthetic package, from which clawdh/internal/* is
+// off-limits — importing it here is what broke every deploy after the rebrand.
+func panelKey() string {
+	if v := os.Getenv("CLAWDH_PANEL_KEY"); v != "" {
+		return v
+	}
+	return os.Getenv("CCAM_PANEL_KEY")
 }
 
 type missingEnv struct{ name, what string }
