@@ -125,18 +125,29 @@ function DialogView({ spec, onClose }: { spec: Spec; onClose: (a: Answer) => voi
                 {isCopy(f) ? (
                   <CopyBox text={f.copy} />
                 ) : isChecks(f) ? (
-                  <div className="flex flex-col divide-y divide-line overflow-hidden rounded-xl border border-line">
-                    {f.checks.map((o) => (
-                      <label key={o.value} className="flex cursor-pointer items-center gap-3 px-3.5 py-2.5 hover:bg-raised-2">
-                        <input
-                          type="checkbox"
-                          checked={(checked[f.name] || new Set()).has(o.value)}
-                          onChange={() => toggle(f.name, o.value)}
-                          className="h-4 w-4 accent-primary"
-                        />
-                        <span className="text-[15px]">{o.label}</span>
-                      </label>
-                    ))}
+                  <div className="flex flex-col gap-1.5">
+                    {f.checks.map((o) => {
+                      const on = (checked[f.name] || new Set()).has(o.value);
+                      return (
+                        <button
+                          type="button"
+                          key={o.value}
+                          onClick={() => toggle(f.name, o.value)}
+                          className={`flex items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors ${
+                            on ? "border-primary/60 bg-primary/10" : "border-line bg-sunken hover:border-line/0 hover:bg-raised-2"
+                          }`}
+                        >
+                          <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors ${on ? "border-primary bg-primary text-sunken" : "border-line"}`}>
+                            {on && (
+                              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={3}>
+                                <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                          </span>
+                          <span className="text-[15px] font-medium">{o.label}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 ) : (
                   <input
@@ -145,7 +156,7 @@ function DialogView({ spec, onClose }: { spec: Spec; onClose: (a: Answer) => voi
                     value={text[f.name] ?? ""}
                     placeholder={f.placeholder || ""}
                     onChange={(e) => setText((t) => ({ ...t, [f.name]: e.target.value }))}
-                    className="w-full rounded-xl border border-line bg-sunken px-3.5 py-2.5 text-[15px] outline-none focus:border-primary/60"
+                    className="w-full rounded-xl border border-line bg-sunken px-4 py-3 text-[15px] outline-none transition-colors focus:border-primary/60"
                   />
                 )}
               </div>
