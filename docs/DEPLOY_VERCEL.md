@@ -11,7 +11,7 @@ seconds, obeys the panel, and self-updates from the GitHub `latest` release.
 
 The project is linked and deployed:
 
-- Project: `cc_account_manager` on Vercel, live at **https://ccaccountmanager.vercel.app**
+- Project: `clawdh` on Vercel, live at **https://clawdh.vercel.app**
 - `CLAWDH_PANEL_KEY` (the key that seals stored logins) is set in the Production
   environment. Keep your copy — losing it makes every stored login unreadable.
 - Vercel's own authentication wall (SSO) is turned off for this project, so the
@@ -25,7 +25,7 @@ Until the two steps below are done, the panel answers every request with
 
 Both are on your Vercel account, which is why they are yours to click.
 
-1. **Give it a database.** Vercel dashboard → the `cc_account_manager` project →
+1. **Give it a database.** Vercel dashboard → the `clawdh` project →
    **Storage** → **Create Database** → **Neon** (Postgres, has a free tier).
    Accept the defaults and attach it to the project. Vercel injects `DATABASE_URL`
    into the environment automatically; the panel creates its own table on first
@@ -38,7 +38,7 @@ Both are on your Vercel account, which is why they are yours to click.
    `main` redeploys the panel — in lockstep with the client release the CI
    pipeline publishes from the same push.
 
-Then open https://ccaccountmanager.vercel.app and set the admin password.
+Then open https://clawdh.vercel.app and set the admin password.
 
 ## Enrolling machines against it
 
@@ -46,13 +46,13 @@ On each machine, once — the panel shows the exact command under
 People → *the person* → **Send a code**:
 
 ```sh
-clawdh panel join https://ccaccountmanager.vercel.app <code>
+clawdh panel join https://clawdh.vercel.app <code>
 ```
 
 An account signed in on a machine is handed to the panel from that machine:
 
 ```sh
-clawdh panel push <account> https://ccaccountmanager.vercel.app
+clawdh panel push <account> https://clawdh.vercel.app
 ```
 
 ## What this defends against, and what it does not
