@@ -64,6 +64,9 @@ func Open(ctx context.Context, dsn string) (*Backend, error) {
 	if err := ensureAlertsSchema(ctx, db); err != nil {
 		return nil, err
 	}
+	if err := ensureJobsSchema(ctx, db); err != nil {
+		return nil, err
+	}
 	return &Backend{db: db}, nil
 }
 

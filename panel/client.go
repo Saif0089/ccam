@@ -26,6 +26,10 @@ type ClientConfig struct {
 	DeviceID   string `json:"deviceId"`
 	Token      string `json:"token"`
 	PersonName string `json:"personName,omitempty"`
+	// Remote is whether this machine's owner turned remote help on: the consent
+	// that lets the panel ask it to diagnose itself or send a transcript. Off by
+	// default — nothing remote happens until the person runs `clawdh remote on`.
+	Remote bool `json:"remote,omitempty"`
 }
 
 // Configured reports whether this machine answers to a panel at all. clawdh
@@ -153,10 +157,23 @@ func SaveShares(path string, shares []GatewayShare) error {
 type Change struct {
 	Gained []string
 	Lost   []string
+	// Jobs are the consented remote jobs the panel handed back this check-in for
+	// this machine to run. Always empty unless the owner turned remote help on.
+	Jobs []RemoteJob
 }
 
-// Empty reports whether the check-in changed nothing, which is the usual case.
+// Empty reports whether the check-in changed the set of shared accounts. Jobs
+// are handled separately, so they do not count as a share change.
 func (c Change) Empty() bool { return len(c.Gained) == 0 && len(c.Lost) == 0 }
+
+// RemoteJob is one thing the panel asked this machine to do: look at itself and
+// report back. Kind is diagnose | sessions | transcript; Params is the argument
+// (a session id, for a transcript).
+type RemoteJob struct {
+	ID     string `json:"id"`
+	Kind   string `json:"kind"`
+	Params string `json:"params"`
+}
 
 // CheckIn asks the panel which accounts are shared with this machine and makes
 // that true: it caches the gateway keys (so `clawdh shared <slug>` and the shell
@@ -179,9 +196,15 @@ func (c *Client) CheckIn(ctx context.Context) (Change, error) {
 
 	var out struct {
 		Gateway []GatewayShare `json:"gateway"`
+		Jobs    []RemoteJob    `json:"jobs"`
 		Error   string         `json:"error"`
 	}
-	err := post(ctx, httpc, c.Config.Server+"/api/v1/checkin", c.Config.Token, struct{}{}, &out)
+	// Report this machine's remote-help consent every check-in; the panel only
+	// hands back jobs when it is on.
+	body := struct {
+		Remote bool `json:"remote"`
+	}{Remote: c.Config.Remote}
+	err := post(ctx, httpc, c.Config.Server+"/api/v1/checkin", c.Config.Token, body, &out)
 	if errors.Is(err, errUnauthorized) {
 		// Cut off: forget every shared account, then say so.
 		return c.forgetShares(), ErrNotEnrolled
@@ -194,10 +217,36 @@ func (c *Client) CheckIn(ctx context.Context) (Change, error) {
 	}
 
 	change = c.applyShares(out.Gateway)
+	if c.Config.Remote {
+		change.Jobs = out.Jobs
+	}
 	if !change.Empty() && c.AfterChange != nil {
 		c.AfterChange()
 	}
 	return change, nil
+}
+
+// ReportResult posts a machine's answer to one of its remote jobs back to the
+// panel. status is "done" or "error"; result is the answer (or the reason).
+func (c *Client) ReportResult(ctx context.Context, jobID, status, result string) error {
+	httpc := c.HTTP
+	if httpc == nil {
+		httpc = &http.Client{Timeout: 20 * time.Second}
+	}
+	var out struct {
+		Error string `json:"error"`
+	}
+	body := struct {
+		Status string `json:"status"`
+		Result string `json:"result"`
+	}{Status: status, Result: result}
+	if err := post(ctx, httpc, c.Config.Server+"/api/v1/jobs/"+jobID+"/result", c.Config.Token, body, &out); err != nil {
+		return err
+	}
+	if out.Error != "" {
+		return errors.New(out.Error)
+	}
+	return nil
 }
 
 // applyShares caches the shares just fetched and reports what changed, by

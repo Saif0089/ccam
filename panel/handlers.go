@@ -48,6 +48,7 @@ type deviceView struct {
 	ID       string     `json:"id"`
 	Name     string     `json:"name"`
 	LastSeen *time.Time `json:"lastSeen,omitempty"`
+	Remote   bool       `json:"remote,omitempty"`
 }
 
 type personView struct {
@@ -105,7 +106,7 @@ func (s *Server) handlePanel(w http.ResponseWriter, r *http.Request) {
 			if dev.PersonID != p.ID {
 				continue
 			}
-			dv := deviceView{ID: dev.ID, Name: dev.Name}
+			dv := deviceView{ID: dev.ID, Name: dev.Name, Remote: dev.Remote}
 			if !dev.LastSeen.IsZero() {
 				seen := dev.LastSeen
 				dv.LastSeen = &seen
@@ -582,11 +583,20 @@ type clientShare struct {
 // It is deliberately flat: no notion of who decided or why, so a client that
 // does not model the panel cannot get the panel's rules wrong.
 func (s *Server) handleCheckin(w http.ResponseWriter, r *http.Request, dev Device) {
+	// The machine tells us, every check-in, whether its owner has remote help on.
+	// It is the consent the jobs channel runs on: a machine reporting false is
+	// never offered for a job and is served nothing to run.
+	var in struct {
+		Remote bool `json:"remote"`
+	}
+	_ = readJSON(r, &in)
+
 	if err := s.store.Mutate(func(d *Data) error {
 		now := s.now()
 		for i := range d.Devices {
 			if d.Devices[i].ID == dev.ID {
 				d.Devices[i].LastSeen = now
+				d.Devices[i].Remote = in.Remote
 			}
 		}
 		return nil
@@ -613,7 +623,15 @@ func (s *Server) handleCheckin(w http.ResponseWriter, r *http.Request, dev Devic
 			shares = append(shares, clientShare{Account: acct.Name, Slug: slugify(acct.Name), Gateway: gw, Key: string(plain)})
 		}
 	}
-	writeJSON(w, 200, map[string]any{"gateway": shares})
+
+	// Any consented remote jobs waiting for this machine ride back on the same
+	// reply — but only if its owner has remote help on, so a machine that never
+	// opted in is never handed anything to run.
+	var jobs []Job
+	if s.jobs != nil && in.Remote {
+		jobs, _ = s.jobs.PendingJobs(r.Context(), dev.ID)
+	}
+	writeJSON(w, 200, map[string]any{"gateway": shares, "jobs": jobs})
 }
 
 // slugify makes a shell-safe short name for an account's alias.

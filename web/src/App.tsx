@@ -4,6 +4,7 @@ import { api, Panel, Account, Person, Device } from "./api";
 import { ClawIntro } from "./ClawIntro";
 import { UsageBoard } from "./UsageBoard";
 import { useDialog } from "./Dialog";
+import { DeviceJobs } from "./DeviceJobs";
 import { when, untilExpiry } from "./format";
 
 type Ask = ReturnType<typeof useDialog>["ask"];
@@ -279,6 +280,7 @@ function Accounts({ data, reload, ask }: { data: Panel; reload: () => void; ask:
 function People({ data, reload, ask }: { data: Panel; reload: () => void; ask: Ask }) {
   const setUp = data.people.filter((p) => (p.devices || []).length).length;
   const sub = data.people.length ? `${data.people.length} ${data.people.length === 1 ? "person" : "people"}, ${setUp} set up` : "";
+  const [jobsFor, setJobsFor] = useState<Device | null>(null);
 
   // inviteSomeone adds a person and hands you their invite link in one step.
   const inviteSomeone = async () => {
@@ -346,8 +348,12 @@ function People({ data, reload, ask }: { data: Panel; reload: () => void; ask: A
                 (p.devices || []).map((d) => (
                   <div key={d.id} className="flex items-baseline gap-2.5 py-0.5 text-[13.5px]">
                     <span className="font-mono">{d.name}</span>
+                    {d.remote && <span title="Remote help is on — you can ask this machine to look at itself" className="text-[11px] text-primary">◆ remote</span>}
                     <span className="text-faint">{when(d.lastSeen)}</span>
-                    <button onClick={() => cutOff(p, d)} className="ml-auto text-[13px] text-faint hover:text-crit">Remove</button>
+                    <div className="ml-auto flex gap-2.5">
+                      {d.remote && <button onClick={() => setJobsFor(d)} className="text-[13px] text-primary hover:underline">Ask…</button>}
+                      <button onClick={() => cutOff(p, d)} className="text-[13px] text-faint hover:text-crit">Remove</button>
+                    </div>
                   </div>
                 ))
               ) : (
@@ -361,6 +367,9 @@ function People({ data, reload, ask }: { data: Panel; reload: () => void; ask: A
           </div>
         ))}
       </div>
+      <AnimatePresence>
+        {jobsFor && <DeviceJobs key={jobsFor.id} deviceId={jobsFor.id} deviceName={jobsFor.name} onClose={() => setJobsFor(null)} />}
+      </AnimatePresence>
     </div>
   );
 }

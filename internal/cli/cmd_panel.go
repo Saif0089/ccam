@@ -103,7 +103,7 @@ func panelServe(args []string) int {
 		fmt.Fprintln(os.Stderr, "clawdh:", err)
 		return 1
 	}
-	srv := panel.NewServer(panel.NewStore(storePath), secret, nil) // local file panel: no metering DB
+	srv := panel.NewServer(panel.NewStore(storePath), secret, nil, nil) // local file panel: no metering DB, no remote jobs
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -416,6 +416,11 @@ func watchPanel(ctx context.Context) {
 		}
 		for _, name := range change.Lost {
 			fmt.Printf("clawdh: %s is no longer shared with this machine.\n", name)
+		}
+		// Any consented remote jobs the panel handed back run here, each announced
+		// as it goes. Only ever non-empty when the owner turned remote help on.
+		if len(change.Jobs) > 0 {
+			runRemoteJobs(ctx, c, change.Jobs)
 		}
 		if errors.Is(err, panel.ErrNotEnrolled) {
 			fmt.Fprintln(os.Stderr, "clawdh: this machine is no longer connected to the panel; its shared accounts have been removed.")

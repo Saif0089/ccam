@@ -50,6 +50,8 @@ func Run(args []string) int {
 		return cmdList(args[1:])
 	case "join":
 		return cmdJoin(args[1:])
+	case "remote":
+		return cmdRemote(args[1:])
 	case "panel":
 		return cmdPanel(args[1:])
 	case "prune":

@@ -33,6 +33,10 @@ type Device struct {
 	TokenHash  string    `json:"tokenHash"`
 	EnrolledAt time.Time `json:"enrolledAt"`
 	LastSeen   time.Time `json:"lastSeen,omitempty"`
+	// Remote is whether this machine's owner turned remote help on — the consent
+	// the jobs channel needs. The machine reports it every check-in; false (the
+	// default) means the panel will not offer to ask this machine anything.
+	Remote bool `json:"remote,omitempty"`
 }
 
 // Account is one Claude login the panel lends out.

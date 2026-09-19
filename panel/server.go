@@ -31,14 +31,15 @@ type Server struct {
 	store  *Store
 	secret *Secret
 	usage  UsageReader // nil for a file-backed panel with no metering DB
+	jobs   Jobs        // nil unless the remote-jobs channel is wired (the server panel)
 	now    func() time.Time
 }
 
 // NewServer wires a panel over a store and its key. usage is the metering read
-// surface for the boards; pass nil (a local, file-backed panel) to leave the
-// usage routes unmounted.
-func NewServer(store *Store, secret *Secret, usage UsageReader) *Server {
-	return &Server{store: store, secret: secret, usage: usage, now: time.Now}
+// surface for the boards and jobs is the remote-jobs channel; pass nil for
+// either (a local, file-backed panel) to leave those routes unmounted.
+func NewServer(store *Store, secret *Secret, usage UsageReader, jobs Jobs) *Server {
+	return &Server{store: store, secret: secret, usage: usage, jobs: jobs, now: time.Now}
 }
 
 // Handler is the whole panel.
@@ -73,6 +74,14 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("GET /api/limits", s.admin(s.handleListLimits))
 		mux.HandleFunc("POST /api/limits", s.admin(s.handleSetLimit))
 		mux.HandleFunc("DELETE /api/limits/{id}", s.admin(s.handleDeleteLimit))
+	}
+
+	// The remote-jobs channel — asking a machine to look at itself — when a
+	// jobs store is wired (the Postgres panel).
+	if s.jobs != nil {
+		mux.HandleFunc("POST /api/devices/{id}/jobs", s.admin(s.handleRequestJob))
+		mux.HandleFunc("GET /api/devices/{id}/jobs", s.admin(s.handleDeviceJobs))
+		mux.HandleFunc("POST /api/v1/jobs/{id}/result", s.device(s.handleJobResult))
 	}
 
 	// What an enrolled machine speaks.

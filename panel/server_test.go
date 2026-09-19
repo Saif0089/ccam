@@ -22,7 +22,11 @@ type harness struct {
 	clock  time.Time
 }
 
-func newHarness(t *testing.T) *harness {
+func newHarness(t *testing.T) *harness { return newHarnessWith(t, nil) }
+
+// newHarnessWith is newHarness with a remote-jobs channel wired, for the jobs
+// tests; the plain newHarness leaves it nil, as a local file panel does.
+func newHarnessWith(t *testing.T, jobs Jobs) *harness {
 	t.Helper()
 	dir := t.TempDir()
 	store := NewStore(filepath.Join(dir, "panel.json"))
@@ -33,7 +37,7 @@ func newHarness(t *testing.T) *harness {
 	h := &harness{t: t, store: store, clock: time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)}
 	store.now = func() time.Time { return h.clock }
 
-	ps := NewServer(store, secret, nil)
+	ps := NewServer(store, secret, nil, jobs)
 	ps.now = func() time.Time { return h.clock }
 	h.srv = httptest.NewServer(ps.Handler())
 	t.Cleanup(h.srv.Close)
